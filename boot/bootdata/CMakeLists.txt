@@ -43,6 +43,8 @@ elseif(ARCH STREQUAL "riscv64")
     if(SPACEMIT_K1_SUPPORT)
         add_registry_inf(hivesys_spacemit_k1.inf)
     endif()
+elseif(ARCH STREQUAL "ppc")
+    add_registry_inf(hivesys_ppc.inf)
 endif()
 
 if(LATTEPANDAMU_SUPPORT)

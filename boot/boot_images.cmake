@@ -117,6 +117,17 @@ if(SPACEMIT_K1_SUPPORT)
     file(CONFIGURE OUTPUT "${FREELDR_PREINSTALL_INI}" CONTENT "${_contents}" @ONLY)
 endif()
 
+# The supported Open Firmware machines have too little memory to expand the
+# live image into RAM, so their boot media start the entry that runs from it.
+if(FREELDR_HAS_OFW_BOOT)
+    set(_source "${FREELDR_BOOTCD_INI}")
+    set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${_source}")
+    file(READ "${_source}" _contents)
+    string(REGEX REPLACE "DefaultOS=[^\r\n]*" "DefaultOS=LiveImg_Debug" _contents "${_contents}")
+    set(FREELDR_BOOTCD_INI "${CMAKE_CURRENT_BINARY_DIR}/bootdata/bootcd_ofw.ini")
+    file(CONFIGURE OUTPUT "${FREELDR_BOOTCD_INI}" CONTENT "${_contents}" @ONLY)
+endif()
+
 # EFI platform ID - Used for naming the EFI boot image on supported platforms.
 if(ARCH STREQUAL "i386")
     if(NOT (SARCH STREQUAL "pc98" OR SARCH STREQUAL "xbox"))
@@ -132,6 +143,9 @@ elseif(ARCH STREQUAL "arm64")
     set(EFI_PLATFORM_ID "aa64")
 elseif(ARCH STREQUAL "riscv64")
     set(EFI_PLATFORM_ID "riscv64")
+elseif(ARCH STREQUAL "ppc")
+    # Windows NT PowerPC machines boot through ARC firmware; there is no UEFI
+    # boot image for this architecture.
 else()
     message(FATAL_ERROR "Unknown ARCH '" ${ARCH} "', cannot generate a valid UEFI boot image filename.")
 endif()
@@ -461,7 +475,7 @@ set(_preinstall_vhd_file ${REACTOS_BINARY_DIR}/ReactOS.vhd)
 # MBR follows the active flag and loads its FAT32 boot sector. The Raspberry Pi
 # 1-3 boot ROM only scans for FAT MBR ids and skips 0xEF, so the ARM images
 # mark the same volume as FAT32 LBA instead; UEFI mounts it by content.
-if(ARCH MATCHES "^arm")
+if(ARCH MATCHES "^arm" OR FREELDR_HAS_OFW_BOOT)
     set(_preinstall_boot_partition_type 0c)
 else()
     set(_preinstall_boot_partition_type ef)
@@ -586,7 +600,7 @@ set(_preinstall_boot_partition_files
     -add ${FREELDR_PREINSTALL_INI} freeldr.ini)
 set(_preinstall_rpi_firmware)
 set(_preinstall_rpi_overlays)
-if(NOT SPACEMIT_K1_SUPPORT)
+if(NOT SPACEMIT_K1_SUPPORT AND NOT FREELDR_HAS_OFW_BOOT)
     file(GLOB _preinstall_rpi_firmware ${REACTOS_SOURCE_DIR}/media/boot/rpi/*)
     file(GLOB _preinstall_rpi_overlays ${REACTOS_SOURCE_DIR}/media/boot/rpi/overlays/*)
 endif()
@@ -641,6 +655,14 @@ if(SPACEMIT_K1_SUPPORT)
         ${SPACEMIT_K1_UBOOT_ENV})
     list(APPEND _reactosimg_deps
         ${SPACEMIT_K1_BOOTINFO} ${SPACEMIT_K1_FSBL} ${SPACEMIT_K1_OPENSBI} ${SPACEMIT_K1_UBOOT})
+endif()
+if(FREELDR_HAS_OFW_BOOT)
+    # The firmware boot partition is advertised as FAT32 LBA (0x0c).
+    set(_preinstall_boot_partition_fs fat32)
+    set(_ofw_boot_file ${CMAKE_CURRENT_BINARY_DIR}/freeldr/freeldr/ppcboot.bin)
+    list(APPEND _preinstall_boot_partition_files -add ${_ofw_boot_file} ppcboot.bin)
+    list(APPEND _preinstall_partition_deps ppcboot)
+    add_dependencies(livecd ppcboot)
 endif()
 if(FREELDR_HAS_BIOS_BOOT)
     set(_dosmbr_file ${CMAKE_CURRENT_BINARY_DIR}/freeldr/bootsect/dosmbr.bin)
