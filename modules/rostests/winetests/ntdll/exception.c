@@ -320,6 +320,8 @@ static void test_hwbpt_in_syscall(void)
 
 #ifdef __i386__
 
+#define HAVE_ARCH_EXCEPTION_TESTS 1
+
 #ifndef __WINE_WINTRNL_H
 #define ProcessExecuteFlags 0x22
 #define MEM_EXECUTE_OPTION_DISABLE   0x01
@@ -2323,6 +2325,8 @@ static void test_instrumentation_callback(void)
 }
 
 #elif defined(__x86_64__)
+
+#define HAVE_ARCH_EXCEPTION_TESTS 1
 
 static LONG consolidate_dummy_called;
 static PVOID CALLBACK test_consolidate_dummy(EXCEPTION_RECORD *rec)
@@ -5923,6 +5927,8 @@ static void test_direct_syscalls(void)
 
 #elif defined(__arm__)
 
+#define HAVE_ARCH_EXCEPTION_TESTS 1
+
 static void test_thread_context(void)
 {
     CONTEXT context;
@@ -7024,6 +7030,8 @@ static void test_restore_context(void)
 }
 
 #elif defined(__aarch64__)
+
+#define HAVE_ARCH_EXCEPTION_TESTS 1
 
 static void test_thread_context(void)
 {
@@ -9090,7 +9098,6 @@ static void subtest_fastfail(unsigned int code)
     {
         continuestatus = DBG_CONTINUE;
         ok(WaitForDebugEvent(&de, INFINITE), "reading debug event\n");
-
         if (de.dwDebugEventCode == EXCEPTION_DEBUG_EVENT)
         {
             if (de.u.Exception.ExceptionRecord.ExceptionCode == STATUS_STACK_BUFFER_OVERRUN)
@@ -9118,7 +9125,6 @@ static void subtest_fastfail(unsigned int code)
         }
 
         ContinueDebugEvent(de.dwProcessId, de.dwThreadId, continuestatus);
-
     } while (de.dwDebugEventCode != EXIT_PROCESS_DEBUG_EVENT);
 
     ok(had_ff || broken(had_se) /* Win7 */, "fast fail did not occur\n");
@@ -9211,6 +9217,7 @@ static const DWORD breakpoint_code[] = { 0xdefe, 0x4770 };  /* udf #0xfe; bx lr 
 static const DWORD breakpoint_code[] = { 0xd43e0000, 0xd65f03c0 };  /* brk #0xf000; ret */
 #endif
 
+#ifdef HAVE_ARCH_EXCEPTION_TESTS
 static void test_breakpoint(DWORD numexc)
 {
     DWORD (CDECL *func)(void) = code_mem;
@@ -9230,6 +9237,7 @@ static void test_breakpoint(DWORD numexc)
 
     pRtlRemoveVectoredExceptionHandler(vectored_handler);
 }
+#endif
 
 #if defined(__i386__) || defined(__x86_64__)
 static BYTE except_code_set_ymm0[] =
@@ -12077,6 +12085,7 @@ START_TEST(exception)
             return;
         }
 
+#ifdef HAVE_ARCH_EXCEPTION_TESTS
         if (pRtlRaiseException)
         {
             test_stage = STAGE_RTLRAISE_NOT_HANDLED;
@@ -12089,6 +12098,7 @@ START_TEST(exception)
             run_rtlraiseexception_test(EXCEPTION_INVALID_HANDLE);
         }
         else skip( "RtlRaiseException not found\n" );
+#endif
 
         test_stage = STAGE_OUTPUTDEBUGSTRINGA_CONTINUE;
 
@@ -12105,6 +12115,7 @@ START_TEST(exception)
         test_ripevent(0);
         test_stage = STAGE_RIPEVENT_NOT_HANDLED;
         test_ripevent(1);
+#ifdef HAVE_ARCH_EXCEPTION_TESTS
         test_stage = STAGE_SERVICE_CONTINUE;
         test_debug_service(0);
         test_stage = STAGE_SERVICE_NOT_HANDLED;
@@ -12113,6 +12124,7 @@ START_TEST(exception)
         test_breakpoint(0);
         test_stage = STAGE_BREAKPOINT_NOT_HANDLED;
         test_breakpoint(1);
+#endif
         test_stage = STAGE_EXCEPTION_INVHANDLE_CONTINUE;
         test_closehandle(0, (HANDLE)0xdeadbeef);
         test_closehandle(0, (HANDLE)0x7fffffff);
@@ -12206,6 +12218,7 @@ START_TEST(exception)
 
 #endif
 
+#ifdef HAVE_ARCH_EXCEPTION_TESTS
     test_KiUserExceptionDispatcher();
     test_KiUserApcDispatcher();
     test_KiUserCallbackDispatcher();
@@ -12215,6 +12228,7 @@ START_TEST(exception)
     test_debugger(DBG_EXCEPTION_HANDLED, TRUE);
     test_debugger(DBG_CONTINUE, TRUE);
     test_thread_context();
+#endif
     test_outputdebugstring(FALSE, 1, FALSE, 0, 0);
     if (pWaitForDebugEventEx)
     {
@@ -12226,7 +12240,9 @@ START_TEST(exception)
 
     test_ripevent(1);
     test_fastfail();
+#ifdef HAVE_ARCH_EXCEPTION_TESTS
     test_breakpoint(1);
+#endif
     test_closehandle(0, (HANDLE)0xdeadbeef);
     /* Call of Duty WWII writes to BeingDebugged then closes an invalid handle,
      * crashing the game if an exception is raised. */
