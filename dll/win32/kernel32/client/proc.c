@@ -5107,7 +5107,7 @@ StartScan:
     /* Now check what kind of architecture this image was made for */
     switch (ImageInformation.Machine)
     {
-        /* IA32, IA64 and AMD64 are supported in Server 2003 */
+        /* PE machine values and processor architecture values are distinct. */
         case IMAGE_FILE_MACHINE_I386:
             CreateProcessMsg->ProcessorArchitecture = PROCESSOR_ARCHITECTURE_INTEL;
             break;
@@ -5116,6 +5116,12 @@ StartScan:
             break;
         case IMAGE_FILE_MACHINE_AMD64:
             CreateProcessMsg->ProcessorArchitecture = PROCESSOR_ARCHITECTURE_AMD64;
+            break;
+        case IMAGE_FILE_MACHINE_POWERPC:
+            CreateProcessMsg->ProcessorArchitecture = PROCESSOR_ARCHITECTURE_PPC;
+            break;
+        case IMAGE_FILE_MACHINE_ARMNT:
+            CreateProcessMsg->ProcessorArchitecture = PROCESSOR_ARCHITECTURE_ARM;
             break;
         case IMAGE_FILE_MACHINE_ARM64:
             CreateProcessMsg->ProcessorArchitecture = PROCESSOR_ARCHITECTURE_ARM64;
