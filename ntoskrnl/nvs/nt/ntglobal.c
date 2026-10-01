@@ -71,6 +71,8 @@ MiWaitForMemory(
     _Inout_ PULONG Attempts)
 {
     LARGE_INTEGER Timeout;
+    ULONG64 Available;
+    ULONG Frame;
 
     if (Status != STATUS_NO_MEMORY)
         return STATUS_SUCCESS;
@@ -78,8 +80,21 @@ MiWaitForMemory(
     if (++*Attempts > 64 || KeGetCurrentIrql() > APC_LEVEL)
         return STATUS_NO_MEMORY;
 
-    if (MiPfnAvailablePages(&MiSystem.Pfn) >= MiProcessManager.AvailableLow)
-        return STATUS_NO_MEMORY;
+    Available = MiPfnAvailablePages(&MiSystem.Pfn);
+    if (Available > MiPfnListCount(&MiSystem.Pfn, MiPageStandby))
+    {
+        if (Available >= MiProcessManager.AvailableLow)
+            return STATUS_NO_MEMORY;
+    }
+    else
+    {
+        Frame = MiPfnAllocatePage(&MiSystem.Pfn, 0);
+        if (Frame != MI_FRAME_INVALID)
+        {
+            MiPfnFreePage(&MiSystem.Pfn, Frame);
+            return STATUS_SUCCESS;
+        }
+    }
 
     if (MiBalanceMemory(&MiSystem, &MiProcessManager) != 0)
         return STATUS_SUCCESS;
