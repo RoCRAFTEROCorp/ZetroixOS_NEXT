@@ -67,9 +67,9 @@ SKIP_FEEDS_UPDATE=0
 
 usage() {
 	echo "Usage: configure.sh [options]"
-	echo "  --clang              Use RosBE Clang/LLVM (RISC-V: llvm-mingw-riscv24; otherwise: llvm-mingw)"
+	echo "  --clang              Use RosBE Clang/LLVM (RISC-V: llvm-mingw-riscv24; PowerPC: llvm-mingw-ppc; otherwise: llvm-mingw)"
 	echo "  --gcc                Use GCC from ~/.local/opt/rosbe/mingw-gcc"
-	echo "  -a, --arch <arch>    Target architecture: amd64, i386, arm64, riscv64 (default: amd64)"
+	echo "  -a, --arch <arch>    Target architecture: amd64, i386, arm64, riscv64, ppc (default: amd64)"
 	echo "  -r, --release        Configure a Release build (default: Debug)"
 	echo "  makefiles            Use Unix Makefiles generator (default: Ninja)"
 	echo "  menuconfig           Open the interactive configuration UI first;"
@@ -327,6 +327,9 @@ normalize_arch() {
 		riscv64|rv64)
 			echo riscv64
 			;;
+		ppc|powerpc|powerpcle)
+			echo ppc
+			;;
 		arm)
 			echo arm
 			;;
@@ -439,7 +442,7 @@ if [ "$REACTOS_START_DIR" != "$REACTOS_SOURCE_DIR" ]; then
 		CACHED_ARCH=$(cmake_cache_get "$CURRENT_CMAKE_CACHE" ARCH)
 		[ -n "$CACHED_ARCH" ] || CACHED_ARCH=$(rosconfig_file_get "$CURRENT_ROSCONFIG_CACHE" ARCH)
 		case "$CACHED_ARCH" in
-			amd64|i386|arm64|arm|riscv64) ARCH=$CACHED_ARCH ;;
+			amd64|i386|arm64|arm|riscv64|ppc) ARCH=$CACHED_ARCH ;;
 		esac
 	fi
 	if [ "$USER_TOOLCHAIN" = "0" ]; then
@@ -536,7 +539,7 @@ if [ "$RUN_MENUCONFIG" = "1" ]; then
 		ARCH=$(rosconfig_file_get "$ROSCONFIG_MENU_CACHE" ARCH)
 	fi
 	case "$ARCH" in
-		amd64|i386|arm64|arm|riscv64) ;;
+		amd64|i386|arm64|arm|riscv64|ppc) ;;
 		*) fail "menuconfig selected an unsupported architecture: $ARCH" ;;
 	esac
 
@@ -595,6 +598,8 @@ if [ "$USE_CLANG" -eq 1 ]; then
 	TOOLCHAIN_FILE=toolchain-clang.cmake
 	if [ "$ARCH" = "riscv64" ]; then
 		ROSBE_LLVM_ROOT="$ROSBE_ROOT/llvm-mingw-riscv24"
+	elif [ "$ARCH" = "ppc" ]; then
+		ROSBE_LLVM_ROOT="$ROSBE_ROOT/llvm-mingw-ppc"
 	fi
 	LLVM_ROOT_OVERRIDE=${REACTOS_CLANG_LLVM_MINGW_ROOT:-}
 	for LLVM_ROOT_ARG in $ROS_CMAKEOPTS; do
