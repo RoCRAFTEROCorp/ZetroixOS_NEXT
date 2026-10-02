@@ -1046,6 +1046,7 @@ StorPortCompleteRequest(
 /*
  * @implemented
  */
+#undef StorPortConvertPhysicalAddressToUlong
 STORPORT_API
 ULONG
 NTAPI
@@ -3136,7 +3137,7 @@ StorPortStallExecution(
  * @unimplemented
  */
 STORPORT_API
-VOID
+BOOLEAN
 NTAPI
 StorPortSynchronizeAccess(
     _In_ PVOID HwDeviceExtension,
@@ -3145,6 +3146,7 @@ StorPortSynchronizeAccess(
 {
     DPRINT1("StorPortSynchronizeAccess()\n");
     UNIMPLEMENTED;
+    return FALSE;
 }
 
 
