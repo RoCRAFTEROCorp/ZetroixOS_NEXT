@@ -1244,6 +1244,19 @@ PnpRootRetireDevice(
 VOID
 PnpRootInitializeDevExtension(VOID);
 
+VOID
+NTAPI
+IopBootDriverStatusUpdate(
+    _In_ BDCB_STATUS_UPDATE_TYPE StatusType
+);
+
+BOOLEAN
+NTAPI
+IopBootImageAllowed(
+    _In_ PCUNICODE_STRING ImageName,
+    _In_opt_ PCUNICODE_STRING RegistryPath
+);
+
 //
 // Driver Routines
 //
