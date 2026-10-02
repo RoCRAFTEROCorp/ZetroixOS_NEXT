@@ -664,6 +664,7 @@ typedef enum _DEVICE_ACTION
     PiActionQueryState,
     PiActionRemoveDevice,
     PiActionQueryRemoveDevice,
+    PiActionCloseRemovedDevice,
 } DEVICE_ACTION;
 
 //
@@ -1115,6 +1116,12 @@ NTAPI
 IopDereferenceDeviceObject(
     IN PDEVICE_OBJECT DeviceObject,
     IN BOOLEAN ForceUnload
+);
+
+VOID
+NTAPI
+PiDeviceObjectClosed(
+    _In_ PDEVICE_OBJECT DeviceObject
 );
 
 NTSTATUS
