@@ -899,7 +899,8 @@ UserChangeDisplaySettings(
 
     /* Shall we apply the settings? */
     if (!(flags & CDS_NORESET) &&
-        (newDevMode->dmPelsWidth != ppdev->pdmwDev->dmPelsWidth ||
+        ((flags & CDS_RESET) ||
+         newDevMode->dmPelsWidth != ppdev->pdmwDev->dmPelsWidth ||
          newDevMode->dmPelsHeight != ppdev->pdmwDev->dmPelsHeight ||
          newDevMode->dmBitsPerPel != ppdev->pdmwDev->dmBitsPerPel ||
          newDevMode->dmDisplayFrequency != ppdev->pdmwDev->dmDisplayFrequency ||
