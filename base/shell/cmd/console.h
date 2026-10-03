@@ -4,6 +4,7 @@
 /* Cache codepage for text streams */
 extern UINT InputCodePage;
 extern UINT OutputCodePage;
+extern CON_STREAM_MODE OutputStreamMode;
 
 /* Global console Screen and Pager */
 extern CON_SCREEN StdOutScreen;

@@ -152,11 +152,22 @@ DoTypeFile(
     if (!bNoFileName)
         ConErrPrintf(_T("\n%s\n\n\n"), FileName);
 
-    if (bPaging)
+    if (bPaging || (OutputStreamMode == UTF16Text && !IsConsoleHandle(hConsoleOut)))
     {
         while (FileGetString(hFile, buff, ARRAYSIZE(buff)))
         {
-            if (!ConOutPrintfPaging(FALSE, _T("%s"), buff))
+            if (!bPaging)
+            {
+                WriteFile(hConsoleOut, buff, (DWORD)(_tcslen(buff) * sizeof(TCHAR)), &dwRet, NULL);
+                if (bCtrlBreak)
+                {
+                    bCtrlBreak = FALSE;
+                    CloseHandle(hFile);
+                    nErrorLevel = 1;
+                    return FALSE;
+                }
+            }
+            else if (!ConOutPrintfPaging(FALSE, _T("%s"), buff))
             {
                 bCtrlBreak = FALSE;
                 CloseHandle(hFile);
