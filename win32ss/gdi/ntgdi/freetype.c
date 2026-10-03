@@ -6254,6 +6254,7 @@ ftGdiGetTextCharsetInfo(
     }
     FontGdi = ObjToGDI(TextObj->Font, FONT);
     Face = FontGdi->SharedFace->Face;
+    Ret = FontGdi->CharSet;
     TEXTOBJ_UnlockText(TextObj);
 
     memset(&fs, 0, sizeof(FONTSIGNATURE));
@@ -6302,6 +6303,10 @@ ftGdiGetTextCharsetInfo(
     {
         RtlCopyMemory(lpSig, &fs, sizeof(FONTSIGNATURE));
     }
+
+    cp = Ret;
+    if (IntTranslateCharsetInfo(&cp, &csi, TCI_SRCCHARSET))
+        goto Exit;
 
     RtlGetDefaultCodePage(&usACP, &usOEM);
     cp = usACP;
