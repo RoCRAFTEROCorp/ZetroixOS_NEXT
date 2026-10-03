@@ -164,8 +164,6 @@ ChpepAmd64AddFunctionTable(
     _In_ DWORD64 BaseAddress)
 {
     PDYNAMIC_FUNCTION_TABLE dynamicTable;
-    ULONG64 PreviousEnd = 0;
-    BOOLEAN Sorted = TRUE;
     ULONG i;
 
     /* Allocate a dynamic function table */
@@ -195,15 +193,11 @@ ChpepAmd64AddFunctionTable(
         dynamicTable->MinimumAddress = min(dynamicTable->MinimumAddress,
                                            FunctionTable[i].BeginAddress);
         dynamicTable->MaximumAddress = max(dynamicTable->MaximumAddress, CurrentEnd);
-        if ((CurrentEnd <= FunctionTable[i].BeginAddress) ||
-            ((i != 0) && (FunctionTable[i].BeginAddress < PreviousEnd)))
+        if ((i != 0) && (FunctionTable[i].BeginAddress < FunctionTable[i - 1].BeginAddress))
         {
-            Sorted = FALSE;
+            dynamicTable->Type = RF_UNSORTED;
         }
-        PreviousEnd = CurrentEnd;
     }
-
-    dynamicTable->Type = Sorted ? RF_SORTED : RF_UNSORTED;
 
     if ((dynamicTable->MinimumAddress > MAXULONGLONG - BaseAddress) ||
         (dynamicTable->MaximumAddress > MAXULONGLONG - BaseAddress))
@@ -325,7 +319,7 @@ ChpepAmd64AddGrowableFunctionTable(
     dynamicTable->Callback = NULL;
     dynamicTable->Context = NULL;
     dynamicTable->OutOfProcessCallbackDll = NULL;
-    dynamicTable->Type = RF_SORTED;
+    dynamicTable->Type = RF_KERNEL_DYNAMIC;
     dynamicTable->MinimumAddress = RangeBase;
     dynamicTable->MaximumAddress = RangeEnd;
 
@@ -487,6 +481,29 @@ ChpepAmd64LookupDynamicFunctionEntry(
             functionTable = dynamicTable->FunctionTable;
             ipOffset = ControlPc - dynamicTable->BaseAddress;
             if (dynamicTable->Type == RF_SORTED)
+            {
+                indexLow = 0;
+                indexHigh = dynamicTable->EntryCount;
+                while (indexLow < indexHigh)
+                {
+                    indexMid = indexLow + (indexHigh - indexLow) / 2;
+                    if (ipOffset < functionTable[indexMid].BeginAddress)
+                        indexHigh = indexMid;
+                    else
+                        indexLow = indexMid + 1;
+                }
+                if (indexLow != 0)
+                {
+                    indexMid = indexLow - 1;
+                    if (ipOffset < RtlpGetFunctionEndAddress(dynamicTable->BaseAddress, &functionTable[indexMid]))
+                    {
+                        foundEntry = &functionTable[indexMid];
+                        *ImageBase = dynamicTable->BaseAddress;
+                        goto Exit;
+                    }
+                }
+            }
+            else if (dynamicTable->Type == RF_KERNEL_DYNAMIC)
             {
                 indexLow = 0;
                 indexHigh = dynamicTable->EntryCount;

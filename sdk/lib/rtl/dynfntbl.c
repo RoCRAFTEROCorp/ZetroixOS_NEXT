@@ -164,7 +164,7 @@ RtlAddFunctionTable(
     dynamicTable->BaseAddress = BaseAddress;
     dynamicTable->Callback = NULL;
     dynamicTable->Context = NULL;
-    dynamicTable->Type = RF_UNSORTED;
+    dynamicTable->Type = RF_SORTED;
 
     /* Loop all entries to find the margins */
     dynamicTable->MinimumAddress = ULONG64_MAX;
@@ -174,6 +174,10 @@ RtlAddFunctionTable(
         dynamicTable->MinimumAddress = min(dynamicTable->MinimumAddress,
                                            FunctionTable[i].BeginAddress);
         dynamicTable->MaximumAddress = max(dynamicTable->MaximumAddress, RtlpGetFunctionEndAddress(BaseAddress, &FunctionTable[i]));
+        if ((i != 0) && (FunctionTable[i].BeginAddress < FunctionTable[i - 1].BeginAddress))
+        {
+            dynamicTable->Type = RF_UNSORTED;
+        }
     }
 
     /* Adjust the margins to be absolute addresses */
@@ -289,7 +293,7 @@ RtlAddGrowableFunctionTable(
     dynamicTable->Callback = NULL;
     dynamicTable->Context = NULL;
     dynamicTable->OutOfProcessCallbackDll = NULL;
-    dynamicTable->Type = RF_SORTED;
+    dynamicTable->Type = RF_KERNEL_DYNAMIC;
     dynamicTable->MinimumAddress = RangeBase;
     dynamicTable->MaximumAddress = RangeEnd;
 
@@ -420,7 +424,7 @@ RtlpLookupDynamicFunctionEntry(
     PRUNTIME_FUNCTION functionTable, foundEntry = NULL;
     PGET_RUNTIME_FUNCTION_CALLBACK callback;
     DWORD64 ipOffset;
-    ULONG i;
+    ULONG i, indexLow, indexHigh, indexMid;
 
     AcquireDynamicFunctionTableLockShared();
 
@@ -448,6 +452,30 @@ RtlpLookupDynamicFunctionEntry(
             /* Loop all entries in the function table */
             functionTable = dynamicTable->FunctionTable;
             ipOffset = ControlPc - dynamicTable->BaseAddress;
+            if (dynamicTable->Type == RF_SORTED)
+            {
+                indexLow = 0;
+                indexHigh = dynamicTable->EntryCount;
+                while (indexLow < indexHigh)
+                {
+                    indexMid = indexLow + (indexHigh - indexLow) / 2;
+                    if (ipOffset < functionTable[indexMid].BeginAddress)
+                        indexHigh = indexMid;
+                    else
+                        indexLow = indexMid + 1;
+                }
+                if (indexLow != 0)
+                {
+                    i = indexLow - 1;
+                    if (ipOffset < RtlpGetFunctionEndAddress(dynamicTable->BaseAddress, &functionTable[i]))
+                    {
+                        foundEntry = &functionTable[i];
+                        *ImageBase = dynamicTable->BaseAddress;
+                        goto Exit;
+                    }
+                }
+                continue;
+            }
             for (i = 0; i < dynamicTable->EntryCount; i++)
             {
                 /* Check if this entry contains the address */

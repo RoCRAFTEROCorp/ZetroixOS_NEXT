@@ -46,6 +46,7 @@ static BOOLEAN   (CDECL  *pRtlDeleteFunctionTable)(RUNTIME_FUNCTION*);
 static DWORD     (WINAPI *pRtlAddGrowableFunctionTable)(void**, RUNTIME_FUNCTION*, DWORD, DWORD, ULONG_PTR, ULONG_PTR);
 static void      (WINAPI *pRtlGrowFunctionTable)(void*, DWORD);
 static void      (WINAPI *pRtlDeleteGrowableFunctionTable)(void*);
+static void *    (WINAPI *pRtlGetFunctionTableListHead)(void);
 static NTSTATUS  (WINAPI *pRtlVirtualUnwind2)(ULONG,ULONG_PTR,ULONG_PTR,RUNTIME_FUNCTION*,CONTEXT*,BOOLEAN*,void**,ULONG_PTR*,KNONVOLATILE_CONTEXT_POINTERS*,ULONG_PTR*,ULONG_PTR*,PEXCEPTION_ROUTINE*,ULONG);
 static NTSTATUS  (WINAPI *pNtAllocateVirtualMemoryEx)(HANDLE,PVOID*,SIZE_T*,ULONG,ULONG,MEM_EXTENDED_PARAMETER*,ULONG);
 
@@ -3124,6 +3125,160 @@ static RUNTIME_FUNCTION * CALLBACK dynamic_unwind_callback( DWORD_PTR pc, PVOID 
     return &runtime_func;
 }
 
+struct dynamic_table_prefix
+{
+    ULONG64 flink, blink, functions, timestamp, minimum, maximum, base;
+    ULONG64 callback, context, callback_dll;
+    DWORD type, count;
+};
+C_ASSERT(sizeof(struct dynamic_table_prefix) == 88);
+
+static void check_dynamic_table(RUNTIME_FUNCTION *functions, DWORD count, ULONG_PTR base,
+                                ULONG_PTR minimum, ULONG_PTR maximum, DWORD type, BOOL check_range,
+                                BOOL present)
+{
+    struct dynamic_table_prefix node, found = {0};
+    ULONG64 head, links[2], address, previous;
+    unsigned int visited = 0, matches = 0;
+    SIZE_T read;
+    BOOL ret;
+
+    if (sizeof(void *) != 8) return;
+    ok(pRtlGetFunctionTableListHead != NULL, "RtlGetFunctionTableListHead is unavailable\n");
+    if (!pRtlGetFunctionTableListHead) return;
+    head = (ULONG_PTR)pRtlGetFunctionTableListHead();
+    ret = ReadProcessMemory(GetCurrentProcess(), (const void *)(ULONG_PTR)head, links, sizeof(links), &read);
+    ok(ret && read == sizeof(links), "Could not read function-table list, error %lu\n", GetLastError());
+    if (!ret || read != sizeof(links)) return;
+    previous = head;
+    for (address = links[0]; address != head && visited < 4096; address = node.flink)
+    {
+        ++visited;
+        ret = ReadProcessMemory(GetCurrentProcess(), (const void *)(ULONG_PTR)address, &node, sizeof(node), &read);
+        ok(ret && read == sizeof(node), "Could not read function-table entry, error %lu\n", GetLastError());
+        if (!ret || read != sizeof(node)) return;
+        ok(node.blink == previous, "Inconsistent function-table list at %I64x\n", address);
+        if (node.blink != previous) return;
+        previous = address;
+        if (node.functions == (ULONG_PTR)functions)
+        {
+            found = node;
+            ++matches;
+        }
+    }
+    ok(address == head && previous == links[1], "Function-table list did not terminate consistently\n");
+    ok(matches == present, "Expected %u matching function table, got %u\n", present, matches);
+    if (!present || !matches) return;
+    ok(found.type == type, "Expected function-table type %lu, got %lu\n", type, found.type);
+    ok(found.count == count, "Expected count %lu, got %lu\n", count, found.count);
+    ok(found.base == base, "Expected base %Ix, got %I64x\n", base, found.base);
+    if (check_range)
+        ok(found.minimum == minimum && found.maximum == maximum,
+           "Expected range %Ix-%Ix, got %I64x-%I64x\n", minimum, maximum, found.minimum, found.maximum);
+}
+
+static void check_growable_table(RUNTIME_FUNCTION *functions, DWORD count, ULONG_PTR base,
+                                ULONG_PTR end, BOOL present)
+{
+    check_dynamic_table(functions, count, base, base, end, 3, TRUE, present);
+}
+
+static void test_dynamic_function_order(void)
+{
+    static const struct
+    {
+        const char *name;
+        DWORD count, begin[3], length[3], type, pc[2];
+        int slot[2];
+    } cases[] =
+    {
+        {"empty", 0, {0},        {0},        0, {0,16}, {-1,-1}},
+        {"A",     1, {0},        {16},       0, {0,16}, { 0,-1}},
+        {"AA",    2, {0,0},      {16,16},    0, {0,16}, { 1,-1}},
+        {"AAB",   3, {0,0,16},   {16,16,16}, 0, {0,16}, { 1, 2}},
+        {"ABA",   3, {0,16,0},   {16,16,16}, 1, {0,16}, { 0, 1}},
+        {"BAA",   3, {16,0,0},   {16,16,16}, 1, {0,16}, { 1, 0}},
+        {"ABB",   3, {0,16,16},  {16,16,16}, 0, {0,16}, { 0, 2}},
+        {"BAB",   3, {16,0,16},  {16,16,16}, 1, {0,16}, { 1, 0}},
+        {"BBA",   3, {16,16,0},  {16,16,16}, 1, {0,16}, { 2, 0}},
+        {"partial", 2, {0,8},    {16,16},    0, {8,24}, { 1,-1}},
+        {"nested", 2, {0,8},     {32,8},     0, {12,16},{ 1,-1}},
+        {"nested_reverse", 2, {8,0}, {8,32}, 1, {12,16},{ 0, 1}},
+        {"same_start_long_short", 2, {0,0}, {32,8}, 0, {4,8}, {1,-1}},
+        {"same_start_short_long", 2, {0,0}, {8,32}, 0, {4,8}, {1, 1}},
+        {"zero_then_duplicate", 2, {0,0}, {0,16}, 0, {0,16}, {1,-1}},
+        {"duplicate_then_zero", 2, {0,0}, {16,0}, 0, {0,8}, {-1,-1}},
+        {"single_zero", 1, {0}, {0}, 0, {0,8}, {-1,-1}},
+        {"nested_gap", 3, {0,8,24}, {64,8,8}, 0, {20,24}, {-1,2}},
+        {"triple_duplicate", 3, {0,0,0}, {16,16,16}, 0, {0,16}, {2,-1}}
+    };
+    RUNTIME_FUNCTION before[3], *functions, *entry, *expected;
+    ULONG_PTR base, minimum, maximum;
+    DWORD i, j, error;
+    BOOL ret;
+
+    ok(pRtlAddFunctionTable && pRtlDeleteFunctionTable && pRtlLookupFunctionEntry,
+       "Dynamic function-table APIs are unavailable\n");
+    if (!pRtlAddFunctionTable || !pRtlDeleteFunctionTable || !pRtlLookupFunctionEntry) return;
+    functions = HeapAlloc(GetProcessHeap(), 0, sizeof(before));
+    ok(functions != NULL, "Could not allocate function entries\n");
+    if (!functions) return;
+    for (i = 0; i < ARRAY_SIZE(cases); ++i)
+    {
+        winetest_push_context("%s", cases[i].name);
+        memset(functions, 0, sizeof(before));
+        minimum = cases[i].count ? ~(ULONG_PTR)0 : 0;
+        maximum = 0;
+        for (j = 0; j < cases[i].count; ++j)
+        {
+            functions[j].BeginAddress = 1024 + cases[i].begin[j];
+            SET_RUNTIME_FUNC_LEN(&functions[j], cases[i].length[j]);
+            if (functions[j].BeginAddress < minimum) minimum = functions[j].BeginAddress;
+            if (functions[j].BeginAddress + cases[i].length[j] > maximum)
+                maximum = functions[j].BeginAddress + cases[i].length[j];
+        }
+        memcpy(before, functions, sizeof(before));
+        SetLastError(0xdeadbeef);
+        ret = pRtlAddFunctionTable(functions, cases[i].count, (ULONG_PTR)code_mem);
+        error = GetLastError();
+        ok(ret, "RtlAddFunctionTable failed\n");
+        ok(error == 0xdeadbeef, "RtlAddFunctionTable changed last error to %lu\n", error);
+        ok(!memcmp(before, functions, sizeof(before)), "RtlAddFunctionTable changed entries\n");
+        if (!ret)
+        {
+            winetest_pop_context();
+            continue;
+        }
+        check_dynamic_table(functions, cases[i].count, (ULONG_PTR)code_mem,
+                            (ULONG_PTR)code_mem + minimum, (ULONG_PTR)code_mem + maximum,
+                            cases[i].type, cases[i].count != 0, TRUE);
+        for (j = 0; j < ARRAY_SIZE(cases[i].pc); ++j)
+        {
+            base = 0xdeadbeef;
+            entry = pRtlLookupFunctionEntry((ULONG_PTR)code_mem + 1024 + cases[i].pc[j], &base, NULL);
+            expected = cases[i].slot[j] < 0 ? NULL : functions + cases[i].slot[j];
+            ok(entry == expected, "Lookup offset %lu returned %p, expected %p\n",
+               cases[i].pc[j], entry, expected);
+            ok(base == (expected ? (ULONG_PTR)code_mem : 0xdeadbeef),
+               "Lookup offset %lu returned base %Ix\n", cases[i].pc[j], base);
+        }
+        SetLastError(0xdeadbeef);
+        ret = pRtlDeleteFunctionTable(functions);
+        error = GetLastError();
+        ok(ret, "RtlDeleteFunctionTable failed\n");
+        ok(error == 0xdeadbeef, "RtlDeleteFunctionTable changed last error to %lu\n", error);
+        ok(!memcmp(before, functions, sizeof(before)), "Function table entries changed\n");
+        if (!ret)
+        {
+            winetest_pop_context();
+            return;
+        }
+        check_dynamic_table(functions, 0, 0, 0, 0, 0, FALSE, FALSE);
+        winetest_pop_context();
+    }
+    HeapFree(GetProcessHeap(), 0, functions);
+}
+
 static void test_dynamic_unwind(void)
 {
     static const int code_offset = 1024;
@@ -3288,12 +3443,15 @@ static void test_dynamic_unwind(void)
     ok(!status, "RtlAddGrowableFunctionTable failed for runtime_func = %p (aligned), %#lx.\n", runtime_func, status );
     ok(growable_table != 0, "Unexpected table value.\n");
 
+    check_growable_table(runtime_func, 0, (ULONG_PTR)code_mem, (ULONG_PTR)code_mem + code_offset + 64, TRUE);
+
     /* Current count is 0. */
     func = pRtlLookupFunctionEntry( (ULONG_PTR)code_mem + code_offset + 8, &base, NULL );
     ok( func == NULL,
         "RtlLookupFunctionEntry didn't return expected function, expected: %p, got: %p\n", runtime_func, func );
 
     pRtlGrowFunctionTable( growable_table, 1 );
+    check_growable_table(runtime_func, 1, (ULONG_PTR)code_mem, (ULONG_PTR)code_mem + code_offset + 64, TRUE);
 
     base = 0xdeadbeef;
     func = pRtlLookupFunctionEntry( (ULONG_PTR)code_mem + code_offset + 8, &base, NULL );
@@ -3309,6 +3467,7 @@ static void test_dynamic_unwind(void)
         "RtlLookupFunctionEntry didn't return expected function, expected: %p, got: %p\n", runtime_func, func );
 
     pRtlGrowFunctionTable( growable_table, 2 );
+    check_growable_table(runtime_func, 2, (ULONG_PTR)code_mem, (ULONG_PTR)code_mem + code_offset + 64, TRUE);
 
     base = 0xdeadbeef;
     func = pRtlLookupFunctionEntry( (ULONG_PTR)code_mem + code_offset + 16, &base, NULL );
@@ -3337,6 +3496,7 @@ static void test_dynamic_unwind(void)
     ok( len == len2 || !ptr, "RtlLookupFunctionTable wrong len, got: %lu / %lu\n", len, len2 );
 
     pRtlDeleteGrowableFunctionTable( growable_table );
+    check_growable_table(runtime_func, 0, (ULONG_PTR)code_mem, (ULONG_PTR)code_mem + code_offset + 64, FALSE);
 
 #ifndef __REACTOS__
     param.Type = MemExtendedParameterAttributeFlags;
@@ -3430,6 +3590,7 @@ START_TEST(unwind)
     X(RtlDeleteFunctionTable);
     X(RtlDeleteGrowableFunctionTable);
     X(RtlGrowFunctionTable);
+    X(RtlGetFunctionTableListHead);
     X(RtlInstallFunctionTableCallback);
     X(RtlLookupFunctionEntry);
     X(RtlLookupFunctionTable);
@@ -3448,6 +3609,7 @@ START_TEST(unwind)
 #endif
 
     test_dynamic_unwind();
+    test_dynamic_function_order();
 }
 
 #else  /* !__i386__ */
