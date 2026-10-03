@@ -12980,7 +12980,6 @@ DxgkAdapterStart(
     /* QueryChildRelations requires Level Three, including an empty video
      * memory working set. Capture the potential connectors now, before the
      * paging context and desktop allocate persistent GPU resources. */
-    DxgkBlockInterruptCallbacks(Adapter);
     Status = DxgkPnpCacheInitialChildRelations(Adapter);
     DxgkpEnablePeriodicInterruptHandoff(Adapter);
     DxgkEndKmdExclusive(Adapter, TRUE);

@@ -865,7 +865,6 @@ DxgkPnpCacheInitialChildRelations(
     PAGED_CODE();
     ASSERT(Adapter->State == DxgkAdapterStateStarting);
     ASSERT(Adapter->KmdExclusiveOwnerThread == PsGetCurrentThread());
-    ASSERT(Adapter->InterruptCallbacksBlocked != 0);
     if (Adapter->NumberOfChildren == 0)
         return STATUS_SUCCESS;
     if (DXGK_CB(Adapter, DxgkDdiQueryChildRelations) == NULL)
