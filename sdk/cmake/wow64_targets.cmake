@@ -14,6 +14,7 @@ set(WOW64_I386_EXECUTABLES
     glmark2_runner
     msiexec
     notepad
+    reg
     regsvr32
     wglgears_runner
     winver)
