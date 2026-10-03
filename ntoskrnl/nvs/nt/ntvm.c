@@ -1225,7 +1225,7 @@ MiCopyAddressSpace(
     _In_ BOOLEAN WriteAccess)
 {
     PMI_MDL Mdl;
-    NTSTATUS Status;
+    NTSTATUS _SEH2_VOLATILE Status;
 
     Mdl = MiMdlAllocate(Space, (ULONG64)(ULONG_PTR)Address, Size);
     if (Mdl == NULL)
