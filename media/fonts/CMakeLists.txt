@@ -26,6 +26,7 @@ list(APPEND FONT_FILES
     lucon.ttf
     Marlett.ttf
     micross.ttf
+    NotoSansJP-Regular.otf
     pala.ttf
     palab.ttf
     palabi.ttf
@@ -70,3 +71,6 @@ list(APPEND FONT_FILES
 foreach(item ${FONT_FILES})
     add_cd_file(FILE "${CMAKE_CURRENT_SOURCE_DIR}/${item}" DESTINATION reactos/Fonts FOR all)
 endforeach(item)
+
+add_cd_file(FILE "${CMAKE_CURRENT_SOURCE_DIR}/doc/NotoSansJP/LICENSE.txt"
+    DESTINATION reactos NAME_ON_CD NotoSansJP-LICENSE.txt NO_CAB FOR all)
