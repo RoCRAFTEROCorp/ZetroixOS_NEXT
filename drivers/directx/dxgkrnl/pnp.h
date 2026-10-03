@@ -52,6 +52,8 @@ typedef struct _DXGK_CHILD_PDO_EXTENSION
     /* Adapter start epoch that most recently reported this child. */
     ULONG64                 EnumerationEpoch;
 
+    ULONG64                 ConnectSequence;
+
     /* Cached EDID blob (if obtained from DxgkDdiQueryDeviceDescriptor) */
     UCHAR                   Edid[128];
     BOOLEAN                 EdidValid;

@@ -2039,7 +2039,9 @@ DxgkpSnapshotHotPlugMonitor(
          * across rebuilds instead of depending on child list order.
          */
         if (ConnectedChild == NULL ||
-            (!ConnectedChild->EdidValid && Child->EdidValid))
+            (!ConnectedChild->EdidValid && Child->EdidValid) ||
+            (ConnectedChild->EdidValid == Child->EdidValid &&
+             Child->ConnectSequence > ConnectedChild->ConnectSequence))
         {
             ConnectedChild = Child;
         }
@@ -2198,6 +2200,78 @@ DxgkpRefreshHotPlugEdid(
         return STATUS_SUCCESS;
     DXGKRNL_WARN("DxgkpRefreshHotPlugEdid: ChildUid %lu descriptor query failed 0x%08lX; retaining existing modes\n", Snapshot->ChildUid, Status);
     return STATUS_SUCCESS;
+}
+
+static VOID
+DxgkpRefreshConnectedChildEdids(
+    _In_ PDXGKRNL_ADAPTER Adapter)
+{
+    PDXGKDDI_QUERY_DEVICE_DESCRIPTOR QueryDeviceDescriptor;
+    ULONG ChildUids[16];
+    ULONG64 ChildGenerations[16];
+    UCHAR Edid[128];
+    DXGK_DEVICE_DESCRIPTOR Descriptor;
+    PLIST_ENTRY Entry;
+    ULONG Count = 0;
+    ULONG Index;
+    KIRQL OldIrql;
+    NTSTATUS Status;
+
+    QueryDeviceDescriptor = DXGK_CB(Adapter, DxgkDdiQueryDeviceDescriptor);
+    if (QueryDeviceDescriptor == NULL)
+        return;
+    KeAcquireSpinLock(&Adapter->ChildListLock, &OldIrql);
+    for (Entry = Adapter->ChildListHead.Flink;
+         Entry != &Adapter->ChildListHead && Count < RTL_NUMBER_OF(ChildUids);
+         Entry = Entry->Flink)
+    {
+        PDXGK_CHILD_PDO_EXTENSION Child = CONTAINING_RECORD(Entry, DXGK_CHILD_PDO_EXTENSION, ListEntry);
+
+        if (!Child->Present || Child->Descriptor.ChildDeviceType != TypeVideoOutput ||
+            !Child->Connected || Child->EdidValid)
+            continue;
+        ChildUids[Count] = Child->Descriptor.ChildUid;
+        ChildGenerations[Count] = Child->StateGeneration;
+        Count++;
+    }
+    KeReleaseSpinLock(&Adapter->ChildListLock, OldIrql);
+
+    for (Index = 0; Index < Count; Index++)
+    {
+        RtlZeroMemory(&Descriptor, sizeof(Descriptor));
+        Descriptor.DescriptorOffset = 0;
+        Descriptor.DescriptorLength = sizeof(Edid);
+        Descriptor.DescriptorBuffer = Edid;
+        if (!DxgkAcquireKmdCall(Adapter))
+            return;
+        _SEH2_TRY
+        {
+            Status = QueryDeviceDescriptor(Adapter->MiniportDeviceContext, ChildUids[Index], &Descriptor);
+        }
+        _SEH2_EXCEPT(EXCEPTION_EXECUTE_HANDLER)
+        {
+            Status = _SEH2_GetExceptionCode();
+        }
+        _SEH2_END;
+        DxgkReleaseKmdCall(Adapter);
+        if (!NT_SUCCESS(Status))
+            continue;
+        KeAcquireSpinLock(&Adapter->ChildListLock, &OldIrql);
+        for (Entry = Adapter->ChildListHead.Flink; Entry != &Adapter->ChildListHead; Entry = Entry->Flink)
+        {
+            PDXGK_CHILD_PDO_EXTENSION Child = CONTAINING_RECORD(Entry, DXGK_CHILD_PDO_EXTENSION, ListEntry);
+
+            if (Child->Descriptor.ChildUid != ChildUids[Index])
+                continue;
+            if (Child->Connected && Child->StateGeneration == ChildGenerations[Index])
+            {
+                RtlCopyMemory(Child->Edid, Edid, sizeof(Child->Edid));
+                Child->EdidValid = TRUE;
+            }
+            break;
+        }
+        KeReleaseSpinLock(&Adapter->ChildListLock, OldIrql);
+    }
 }
 
 static NTSTATUS DxgkpVidPnRebuildForHotPlugGeneration(_In_ PDXGKRNL_ADAPTER Adapter, _In_ LONG64 ExpectedGeneration);
@@ -2909,6 +2983,7 @@ DxgkpVidPnRebuildForHotPlugGeneration(
         goto Cleanup;
     }
     DxgkpBindVidPnTargetsToChildren(Adapter, (PDXGKP_VIDPN)OldVidPn);
+    DxgkpRefreshConnectedChildEdids(Adapter);
     Status = DxgkpSnapshotHotPlugMonitor(Adapter, (PDXGKP_VIDPN)OldVidPn, ExpectedGeneration, &Snapshot);
     if (!NT_SUCCESS(Status))
         goto Cleanup;

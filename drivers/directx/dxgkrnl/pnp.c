@@ -143,7 +143,10 @@ DxgkpPublishChildConnection(
             Child->Connected = NewConnected;
             Child->EdidValid = FALSE;
             Child->StateGeneration++;
-            (VOID)DxgkHotPlugWorkCorePublishLocked(&Adapter->HotPlugGeneration);
+            if (NewConnected)
+                Child->ConnectSequence = (ULONG64)DxgkHotPlugWorkCorePublishLocked(&Adapter->HotPlugGeneration);
+            else
+                (VOID)DxgkHotPlugWorkCorePublishLocked(&Adapter->HotPlugGeneration);
             Changed = TRUE;
         }
         break;
@@ -1105,21 +1108,27 @@ DxgkpQueryBusRelations(
             if (ExistingChild != NULL)
             {
                 BOOLEAN NewConnected = ExistingChild->Connected;
+                BOOLEAN BecameConnected;
 
                 if (Desc->ChildCapabilities.HpdAwareness == HpdAwarenessAlwaysConnected)
                     NewConnected = TRUE;
                 else if (ConnectionKnown && ExistingChild->StateGeneration == BaselineGeneration)
                     NewConnected = Connected;
                 ChildChanged = RtlCompareMemory(&ExistingChild->Descriptor, Desc, sizeof(*Desc)) != sizeof(*Desc) || !ExistingChild->Present || ExistingChild->Connected != NewConnected || ExistingChild->EnumerationEpoch != ExpectedEpoch;
+                BecameConnected = NewConnected && !ExistingChild->Connected;
                 ExistingChild->Descriptor = *Desc;
                 ExistingChild->Present = TRUE;
                 ExistingChild->Connected = NewConnected;
                 ExistingChild->EnumerationEpoch = ExpectedEpoch;
                 if (ChildChanged)
                 {
+                    LONG64 Generation;
+
                     ExistingChild->EdidValid = FALSE;
                     ExistingChild->StateGeneration++;
-                    (VOID)DxgkHotPlugWorkCorePublishLocked(&Adapter->HotPlugGeneration);
+                    Generation = DxgkHotPlugWorkCorePublishLocked(&Adapter->HotPlugGeneration);
+                    if (BecameConnected)
+                        ExistingChild->ConnectSequence = (ULONG64)Generation;
                     TopologyChanged = TRUE;
                 }
             }
