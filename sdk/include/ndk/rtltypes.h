@@ -1100,6 +1100,13 @@ typedef struct _RTL_HEAP_USAGE
     ULONG_PTR Reserved[8];
 } RTL_HEAP_USAGE, *PRTL_HEAP_USAGE;
 
+#define RTL_HEAP_ENTRY_BUSY         0x0001
+#define RTL_HEAP_ENTRY_REGION       0x0002
+#define RTL_HEAP_ENTRY_BLOCK        0x0010
+#define RTL_HEAP_ENTRY_UNCOMMITTED  0x1000
+#define RTL_HEAP_ENTRY_COMMITTED    0x4000
+#define RTL_HEAP_ENTRY_LFH          0x8000
+
 typedef struct _RTL_HEAP_WALK_ENTRY
 {
     PVOID DataAddress;
@@ -1118,8 +1125,8 @@ typedef struct _RTL_HEAP_WALK_ENTRY
         } Block;
         struct
         {
-            ULONG_PTR CommittedSize;
-            ULONG_PTR UnCommittedSize;
+            ULONG CommittedSize;
+            ULONG UnCommittedSize;
             PVOID FirstEntry;
             PVOID LastEntry;
         } Segment;

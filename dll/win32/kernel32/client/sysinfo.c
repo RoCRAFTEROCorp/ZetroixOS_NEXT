@@ -689,6 +689,105 @@ GetSystemFirmwareTable(
                                    SystemFirmwareTable_Get);
 }
 
+BOOL
+WINAPI
+GetPhysicallyInstalledSystemMemory(PULONGLONG TotalMemoryInKilobytes)
+{
+    PUCHAR Buffer, Entry, End, Strings;
+    DWORD BufferSize, ReturnedSize, TableSize, ExtendedSize;
+    DWORD Error = ERROR_INVALID_DATA;
+    USHORT DeviceSize;
+    ULONGLONG TotalMemory = 0, DeviceMemory;
+    MEMORYSTATUSEX MemoryStatus;
+    BOOL Result = FALSE;
+
+    if (!TotalMemoryInKilobytes)
+    {
+        SetLastError(ERROR_INVALID_PARAMETER);
+        return FALSE;
+    }
+
+    BufferSize = GetSystemFirmwareTable('RSMB', 0, NULL, 0);
+    if (!BufferSize)
+        return FALSE;
+    Buffer = RtlAllocateHeap(RtlGetProcessHeap(), 0, BufferSize);
+    if (!Buffer)
+    {
+        SetLastError(ERROR_NOT_ENOUGH_MEMORY);
+        return FALSE;
+    }
+    ReturnedSize = GetSystemFirmwareTable('RSMB', 0, Buffer, BufferSize);
+    if (!ReturnedSize)
+    {
+        Error = GetLastError();
+        goto Exit;
+    }
+    if (ReturnedSize > BufferSize || ReturnedSize < 8)
+        goto Exit;
+    RtlCopyMemory(&TableSize, Buffer + 4, sizeof(TableSize));
+    if (TableSize > ReturnedSize - 8)
+        goto Exit;
+    Entry = Buffer + 8;
+    End = Entry + TableSize;
+    while (Entry < End)
+    {
+        if (End - Entry < 4 || Entry[1] < 4 || Entry[1] > End - Entry)
+            goto Exit;
+        Strings = Entry + Entry[1];
+        while (End - Strings >= 2 && (Strings[0] || Strings[1]))
+            ++Strings;
+        if (End - Strings < 2)
+            goto Exit;
+        if (Entry[0] == 127)
+            break;
+        if (Entry[0] == 17)
+        {
+            if (Entry[1] < 0x0e)
+                goto Exit;
+            RtlCopyMemory(&DeviceSize, Entry + 0x0c, sizeof(DeviceSize));
+            if (DeviceSize == 0xffff)
+                goto Exit;
+            if (DeviceSize == 0x7fff)
+            {
+                if (Entry[1] < 0x20)
+                    goto Exit;
+                RtlCopyMemory(&ExtendedSize, Entry + 0x1c, sizeof(ExtendedSize));
+                if (ExtendedSize & 0x80000000)
+                    goto Exit;
+                DeviceMemory = (ULONGLONG)ExtendedSize * 1024;
+            }
+            else if (DeviceSize & 0x8000)
+            {
+                DeviceMemory = DeviceSize & 0x7fff;
+            }
+            else
+            {
+                DeviceMemory = (ULONGLONG)DeviceSize * 1024;
+            }
+            if (DeviceMemory > MAXULONGLONG - TotalMemory)
+                goto Exit;
+            TotalMemory += DeviceMemory;
+        }
+        Entry = Strings + 2;
+    }
+    MemoryStatus.dwLength = sizeof(MemoryStatus);
+    if (!GlobalMemoryStatusEx(&MemoryStatus))
+    {
+        Error = GetLastError();
+        goto Exit;
+    }
+    if (!TotalMemory || TotalMemory < MemoryStatus.ullTotalPhys / 1024)
+        goto Exit;
+    *TotalMemoryInKilobytes = TotalMemory;
+    Result = TRUE;
+
+Exit:
+    RtlFreeHeap(RtlGetProcessHeap(), 0, Buffer);
+    if (!Result)
+        SetLastError(Error);
+    return Result;
+}
+
 /*
  * @unimplemented
  */

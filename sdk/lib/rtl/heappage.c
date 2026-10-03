@@ -993,7 +993,8 @@ RtlpDphSetProtectionBeforeUse(PDPH_HEAP_ROOT DphRoot, PUCHAR VirtualBlock, ULONG
     }
 
     // FIXME: It should be different, but for now it's fine
-    Protection = PAGE_READWRITE;
+    Protection = (DphRoot->HeapFlags & HEAP_CREATE_ENABLE_EXECUTE) ?
+                 PAGE_EXECUTE_READWRITE : PAGE_READWRITE;
 
     return RtlpDphProtectVm(Base, UserSize, Protection);
 }

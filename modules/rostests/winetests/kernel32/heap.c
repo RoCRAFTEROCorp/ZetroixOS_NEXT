@@ -57,6 +57,8 @@ static BOOL (WINAPI *pHeapQueryInformation)(HANDLE,HEAP_INFORMATION_CLASS,void*,
 static BOOL (WINAPI *pHeapSetInformation)(HANDLE,HEAP_INFORMATION_CLASS,void*,SIZE_T);
 static UINT (WINAPI *pGlobalFlags)(HGLOBAL);
 static ULONG (WINAPI *pRtlGetNtGlobalFlags)(void);
+static void *(WINAPI *pRtlCreateHeap)(ULONG,void*,SIZE_T,SIZE_T,void*,void*);
+static void *(WINAPI *pRtlDestroyHeap)(void*);
 
 static void load_functions(void)
 {
@@ -76,10 +78,61 @@ static void load_functions(void)
     LOAD_FUNC( kernel32, LocalAlloc );
     LOAD_FUNC( kernel32, LocalFree );
     LOAD_FUNC( ntdll, RtlGetNtGlobalFlags );
+    LOAD_FUNC( ntdll, RtlCreateHeap );
+    LOAD_FUNC( ntdll, RtlDestroyHeap );
     LOAD_FUNC( ntdll, RtlGetUserInfoHeap );
     LOAD_FUNC( ntdll, RtlSetUserValueHeap );
     LOAD_FUNC( ntdll, RtlSetUserFlagsHeap );
 #undef LOAD_FUNC
+}
+
+static void test_invalid_pointer_child( BOOL global, BOOL realloc )
+{
+    HANDLE mem, result;
+    void *invalid_ptr = LongToHandle( 0xdeadbee0 );
+
+    SetErrorMode( SEM_FAILCRITICALERRORS | SEM_NOGPFAULTERRORBOX );
+    mem = global ? GlobalAlloc( GMEM_MOVEABLE, 16 ) : LocalAlloc( LMEM_MOVEABLE, 16 );
+    if (global) GlobalFree( mem );
+    else LocalFree( mem );
+
+    SetLastError( 0xdeadbeef );
+    if (global)
+        result = realloc ? GlobalReAlloc( invalid_ptr, 0, GMEM_MOVEABLE ) : pGlobalFree( invalid_ptr );
+    else
+        result = realloc ? LocalReAlloc( invalid_ptr, 0, LMEM_MOVEABLE ) : pLocalFree( invalid_ptr );
+    trace( "%s%s returned %p, error %lu\n", global ? "Global" : "Local",
+           realloc ? "ReAlloc" : "Free", result, GetLastError() );
+}
+
+static void test_invalid_pointer( BOOL global, BOOL realloc )
+{
+    STARTUPINFOA startup = { sizeof(startup) };
+    PROCESS_INFORMATION info;
+    char command[2 * MAX_PATH], **argv;
+    DWORD wait, exit_code = 0;
+    BOOL ret;
+
+    winetest_get_mainargs( &argv );
+    sprintf( command, "\"%s\" heap invalid %u %u", argv[0], global, realloc );
+    ret = CreateProcessA( NULL, command, NULL, NULL, FALSE, 0, NULL, NULL, &startup, &info );
+    ok( ret, "CreateProcess failed, error %lu\n", GetLastError() );
+    if (!ret) return;
+
+    wait = WaitForSingleObject( info.hProcess, 10000 );
+    ok( wait == WAIT_OBJECT_0, "%s%s child wait returned %#lx\n",
+        global ? "Global" : "Local", realloc ? "ReAlloc" : "Free", wait );
+    if (wait != WAIT_OBJECT_0)
+    {
+        TerminateProcess( info.hProcess, WAIT_TIMEOUT );
+        WaitForSingleObject( info.hProcess, 1000 );
+    }
+    ret = GetExitCodeProcess( info.hProcess, &exit_code );
+    ok( ret, "GetExitCodeProcess failed, error %lu\n", GetLastError() );
+    ok( exit_code == STATUS_STACK_BUFFER_OVERRUN, "%s%s child exited with %#lx\n",
+        global ? "Global" : "Local", realloc ? "ReAlloc" : "Free", exit_code );
+    CloseHandle( info.hThread );
+    CloseHandle( info.hProcess );
 }
 
 struct heap
@@ -304,12 +357,19 @@ static void test_HeapCreate(void)
 
     ptr = HeapAlloc( heap, 0, 1 );
     ok( !!ptr, "HeapAlloc failed, error %lu\n", GetLastError() );
-    ptr1 = HeapReAlloc( heap, 0, ptr, 0 );
-    ok( !!ptr1, "HeapReAlloc failed, error %lu\n", GetLastError() );
-    size = HeapSize( heap, 0, ptr1 );
-    ok( size == 0, "HeapSize returned %#Ix, error %lu\n", size, GetLastError() );
-    ret = HeapFree( heap, 0, ptr );
-    ok( ret, "HeapFree failed, error %lu\n", GetLastError() );
+    if (ptr)
+    {
+        ptr1 = HeapReAlloc( heap, 0, ptr, 0 );
+        ok( !!ptr1, "HeapReAlloc failed, error %lu\n", GetLastError() );
+        if (ptr1)
+        {
+            ptr = ptr1;
+            size = HeapSize( heap, 0, ptr );
+            ok( size == 0, "HeapSize returned %#Ix, error %lu\n", size, GetLastError() );
+        }
+        ret = HeapFree( heap, 0, ptr );
+        ok( ret, "HeapFree failed, error %lu\n", GetLastError() );
+    }
 
     ptr = HeapAlloc( heap, 0, 5 * alloc_size + 1 );
     ok( !!ptr, "HeapAlloc failed, error %lu\n", GetLastError() );
@@ -442,19 +502,16 @@ static void test_HeapCreate(void)
 
     /* threshold between failure and success varies, and w7pro64 has a much larger overhead. */
 
-#ifdef __REACTOS__
-    if (is_reactos()) {
-        ok(FALSE, "FIXME: The rest of this test crashes on ReactOS!\n");
-        return;
-    }
-#endif
     ptr = HeapAlloc( heap, 0, alloc_size - (0x400 + 0x100 * sizeof(void *)) );
     ok( !!ptr, "HeapAlloc failed, error %lu\n", GetLastError() );
-    size = HeapSize( heap, 0, ptr );
-    ok( size == alloc_size - (0x400 + 0x100 * sizeof(void *)),
-        "HeapSize returned %#Ix, error %lu\n", size, GetLastError() );
-    ret = HeapFree( heap, 0, ptr );
-    ok( ret, "HeapFree failed, error %lu\n", GetLastError() );
+    if (ptr)
+    {
+        size = HeapSize( heap, 0, ptr );
+        ok( size == alloc_size - (0x400 + 0x100 * sizeof(void *)),
+            "HeapSize returned %#Ix, error %lu\n", size, GetLastError() );
+        ret = HeapFree( heap, 0, ptr );
+        ok( ret, "HeapFree failed, error %lu\n", GetLastError() );
+    }
 
     SetLastError( 0xdeadbeef );
     ptr1 = HeapAlloc( heap, 0, alloc_size - (0x200 + 0x80 * sizeof(void *)) );
@@ -473,8 +530,11 @@ static void test_HeapCreate(void)
 
     ptr = HeapAlloc( heap, 0, 0 );
     ok( !!ptr, "HeapAlloc failed, error %lu\n", GetLastError() );
-    size = HeapSize( heap, 0, ptr );
-    ok( size == 0, "HeapSize returned %#Ix, error %lu\n", size, GetLastError() );
+    if (ptr)
+    {
+        size = HeapSize( heap, 0, ptr );
+        ok( size == 0, "HeapSize returned %#Ix, error %lu\n", size, GetLastError() );
+    }
     ret = HeapFree( heap, 0, ptr );
     ok( ret, "HeapFree failed, error %lu\n", GetLastError() );
 
@@ -493,8 +553,11 @@ static void test_HeapCreate(void)
 
     ptr = HeapAlloc( heap, 0, alloc_size );
     ok( !!ptr, "HeapAlloc failed, error %lu\n", GetLastError() );
-    size = HeapSize( heap, 0, ptr );
-    ok( size == alloc_size, "HeapSize returned %#Ix, error %lu\n", size, GetLastError() );
+    if (ptr)
+    {
+        size = HeapSize( heap, 0, ptr );
+        ok( size == alloc_size, "HeapSize returned %#Ix, error %lu\n", size, GetLastError() );
+    }
     SetLastError( 0xdeadbeef );
     ptr1 = HeapAlloc( heap, 0, 4 * alloc_size );
     ok( !ptr1, "HeapAlloc succeeded\n" );
@@ -510,24 +573,31 @@ static void test_HeapCreate(void)
 
     ptr = HeapAlloc( heap, HEAP_ZERO_MEMORY, alloc_size );
     ok( !!ptr, "HeapAlloc failed, error %lu\n", GetLastError() );
-    size = HeapSize( heap, 0, ptr );
-    ok( size == alloc_size, "HeapSize returned %#Ix, error %lu\n", size, GetLastError() );
-    while (size) if (ptr[--size]) break;
-    ok( !size && !ptr[0], "memory wasn't zeroed\n" );
+    if (ptr)
+    {
+        size = HeapSize( heap, 0, ptr );
+        ok( size == alloc_size, "HeapSize returned %#Ix, error %lu\n", size, GetLastError() );
+        for (i = 0; i < alloc_size; ++i) if (ptr[i]) break;
+        ok( i == alloc_size, "memory wasn't zeroed\n" );
 
-    ptr = HeapReAlloc( heap, HEAP_ZERO_MEMORY, ptr, 2 * alloc_size );
-    ok( !!ptr, "HeapReAlloc failed, error %lu\n", GetLastError() );
-    size = HeapSize( heap, 0, ptr );
-    ok( size == 2 * alloc_size, "HeapSize returned %#Ix, error %lu\n", size, GetLastError() );
-    while (size) if (ptr[--size]) break;
-    ok( !size && !ptr[0], "memory wasn't zeroed\n" );
+        ptr1 = HeapReAlloc( heap, HEAP_ZERO_MEMORY, ptr, 2 * alloc_size );
+        ok( !!ptr1, "HeapReAlloc failed, error %lu\n", GetLastError() );
+        if (ptr1)
+        {
+            ptr = ptr1;
+            size = HeapSize( heap, 0, ptr );
+            ok( size == 2 * alloc_size, "HeapSize returned %#Ix, error %lu\n", size, GetLastError() );
+            for (i = 0; i < 2 * alloc_size; ++i) if (ptr[i]) break;
+            ok( i == 2 * alloc_size, "memory wasn't zeroed\n" );
 
-    ptr1 = HeapReAlloc( heap, HEAP_REALLOC_IN_PLACE_ONLY, ptr, alloc_size * 3 / 2 );
-    ok( ptr1 == ptr, "HeapReAlloc HEAP_REALLOC_IN_PLACE_ONLY failed, error %lu\n", GetLastError() );
-    ptr1 = HeapReAlloc( heap, HEAP_REALLOC_IN_PLACE_ONLY, ptr, 2 * alloc_size );
-    ok( ptr1 == ptr, "HeapReAlloc HEAP_REALLOC_IN_PLACE_ONLY failed, error %lu\n", GetLastError() );
-    ret = HeapFree( heap, 0, ptr1 );
-    ok( ret, "HeapFree failed, error %lu\n", GetLastError() );
+            ptr1 = HeapReAlloc( heap, HEAP_REALLOC_IN_PLACE_ONLY, ptr, alloc_size * 3 / 2 );
+            ok( ptr1 == ptr, "HeapReAlloc HEAP_REALLOC_IN_PLACE_ONLY failed, error %lu\n", GetLastError() );
+            ptr1 = HeapReAlloc( heap, HEAP_REALLOC_IN_PLACE_ONLY, ptr, 2 * alloc_size );
+            ok( ptr1 == ptr, "HeapReAlloc HEAP_REALLOC_IN_PLACE_ONLY failed, error %lu\n", GetLastError() );
+        }
+        ret = HeapFree( heap, 0, ptr );
+        ok( ret, "HeapFree failed, error %lu\n", GetLastError() );
+    }
 
     ret = HeapDestroy( heap );
     ok( ret, "HeapDestroy failed, error %lu\n", GetLastError() );
@@ -1436,6 +1506,28 @@ static BOOL is_mem_entry( HLOCAL handle )
     return ((UINT_PTR)handle & ((sizeof(void *) << 1) - 1)) == sizeof(void *);
 }
 
+static void check_global_conversion( HGLOBAL mem, const void *entry_ptr, SIZE_T retained_size )
+{
+    SIZE_T size, i;
+    BYTE *data;
+    BOOL ret;
+
+    data = GlobalLock( mem );
+    ok( !!data, "GlobalLock failed, error %lu\n", GetLastError() );
+    if (!data) return;
+    ok( data == entry_ptr, "got data %p, entry pointer %p\n", data, entry_ptr );
+    ok( GlobalHandle( data ) == mem, "GlobalHandle did not return %p\n", mem );
+    size = GlobalSize( mem );
+    ok( size >= retained_size, "got size %Iu, need %Iu initialized bytes\n", size, retained_size );
+    if (size >= retained_size)
+    {
+        for (i = 0; i < retained_size; ++i) if (data[i] != 0x5a) break;
+        ok( i == retained_size, "conversion changed data at %Iu of %Iu bytes\n", i, retained_size );
+    }
+    ret = GlobalUnlock( mem );
+    ok( !ret, "GlobalUnlock succeeded\n" );
+}
+
 static void test_GlobalAlloc(void)
 {
     static const UINT flags_tests[] =
@@ -1761,11 +1853,6 @@ static void test_GlobalAlloc(void)
         ok( GetLastError() == ERROR_INVALID_HANDLE, "got error %lu\n", GetLastError() );
     }
 
-#ifdef __REACTOS__
-    if (is_reactos()) {
-        ok(FALSE, "FIXME: invalid handle and invalid pointer tests crash on ReactOS!\n");
-    } else {
-#endif
     /* invalid handles are caught */
     SetLastError( 0xdeadbeef );
     tmp_mem = pGlobalFree( invalid_mem );
@@ -1809,21 +1896,13 @@ static void test_GlobalAlloc(void)
     }
 
     /* invalid pointers are caught */
-    SetLastError( 0xdeadbeef );
-    tmp_mem = pGlobalFree( invalid_ptr );
-    ok( tmp_mem == invalid_ptr, "GlobalFree succeeded\n" );
-    todo_wine
-#ifdef __REACTOS__
-    ok( GetLastError() == ERROR_NOACCESS || broken(GetLastError() == ERROR_INVALID_HANDLE) /* WS03 */, "got error %lu\n", GetLastError() );
-#else
-    ok( GetLastError() == ERROR_NOACCESS, "got error %lu\n", GetLastError() );
-#endif
+    test_invalid_pointer( TRUE, FALSE );
     SetLastError( 0xdeadbeef );
     flags = GlobalFlags( invalid_ptr );
     todo_wine
     ok( flags == GMEM_INVALID_HANDLE, "GlobalFlags succeeded\n" );
     todo_wine
-    ok( GetLastError() == ERROR_INVALID_HANDLE, "got error %lu\n", GetLastError() );
+    ok( GetLastError() == ERROR_NOACCESS, "got error %lu\n", GetLastError() );
     SetLastError( 0xdeadbeef );
     size = GlobalSize( invalid_ptr );
     ok( size == 0, "GlobalSize succeeded\n" );
@@ -1837,15 +1916,11 @@ static void test_GlobalAlloc(void)
     ret = GlobalUnlock( invalid_ptr );
     ok( ret, "GlobalUnlock failed, error %lu\n", GetLastError() );
     ok( GetLastError() == 0xdeadbeef, "got error %lu\n", GetLastError() );
-    SetLastError( 0xdeadbeef );
-    tmp_mem = GlobalReAlloc( invalid_ptr, 0, GMEM_MOVEABLE );
-    ok( !tmp_mem, "GlobalReAlloc succeeded\n" );
-    todo_wine
-    ok( GetLastError() == ERROR_NOACCESS, "got error %lu\n", GetLastError() );
+    test_invalid_pointer( TRUE, TRUE );
     SetLastError( 0xdeadbeef );
     tmp_mem = GlobalHandle( invalid_ptr );
     ok( !tmp_mem, "GlobalHandle succeeded\n" );
-    ok( GetLastError() == ERROR_INVALID_HANDLE, "got error %lu\n", GetLastError() );
+    ok( GetLastError() == ERROR_NOACCESS, "got error %lu\n", GetLastError() );
     if (0) /* crashes */
     {
         SetLastError( 0xdeadbeef );
@@ -1853,9 +1928,6 @@ static void test_GlobalAlloc(void)
         ok( ret, "RtlGetUserInfoHeap failed, error %lu\n", GetLastError() );
         ok( GetLastError() == ERROR_INVALID_HANDLE, "got error %lu\n", GetLastError() );
     }
-#ifdef __REACTOS__
-    }
-#endif
 
     /* GMEM_FIXED block doesn't allow resize, though it succeeds with GMEM_MODIFY */
     mem = GlobalAlloc( GMEM_FIXED, small_size );
@@ -1870,8 +1942,8 @@ static void test_GlobalAlloc(void)
     if (GetNTVersion() >= _WIN32_WINNT_VISTA) {
 #endif
     tmp_mem = GlobalReAlloc( mem, small_size, 0 );
-    ok( !tmp_mem, "GlobalReAlloc succeeded\n" );
-    ok( GetLastError() == ERROR_NOT_ENOUGH_MEMORY, "got error %lu\n", GetLastError() );
+    ok( tmp_mem == mem, "GlobalReAlloc returned %p, expected %p\n", tmp_mem, mem );
+    ok( GetLastError() == 0xdeadbeef, "got error %lu\n", GetLastError() );
 #ifdef __REACTOS__
     }
 #endif
@@ -1953,6 +2025,7 @@ static void test_GlobalAlloc(void)
         {
             ok( !is_mem_entry( tmp_mem ), "unexpected moveable %p\n", tmp_mem );
             if (flags & GMEM_DISCARDABLE) ok( !tmp_mem, "GlobalReAlloc succeeded\n" );
+            else if (flags == GMEM_MOVEABLE) ok( !!tmp_mem, "GlobalReAlloc failed, error %lu\n", GetLastError() );
             else ok( tmp_mem == mem, "GlobalReAlloc returned %p\n", tmp_mem );
         }
         else
@@ -1976,6 +2049,7 @@ static void test_GlobalAlloc(void)
         mem = pGlobalAlloc( GMEM_FIXED, small_size );
         ok( !!mem, "GlobalAlloc failed, error %lu\n", GetLastError() );
         ok( !is_mem_entry( mem ), "unexpected moveable %p\n", mem );
+        if (mem && expect_convert) memset( mem, 0x5a, small_size );
 
         tmp_mem = GlobalReAlloc( mem, 10, flags );
         if (!expect_convert)
@@ -1989,7 +2063,7 @@ static void test_GlobalAlloc(void)
         {
             ok( is_mem_entry( tmp_mem ), "unexpected moveable %p\n", tmp_mem );
             entry = *mem_entry_from_HANDLE( tmp_mem );
-            ok( entry.ptr == ptr, "got ptr %p was %p\n", entry.ptr, ptr );
+            check_global_conversion( tmp_mem, entry.ptr, small_size );
             if (flags & GMEM_DISCARDABLE) ok( (entry.flags & 0x7fff) == 0x7, "got flags %#Ix\n", entry.flags );
             else ok( (entry.flags & 0x7fff) == 0x3, "got flags %#Ix\n", entry.flags );
         }
@@ -2006,19 +2080,21 @@ static void test_GlobalAlloc(void)
         mem = pGlobalAlloc( GMEM_FIXED, nolfh_size );
         ok( !!mem, "GlobalAlloc failed, error %lu\n", GetLastError() );
         ok( !is_mem_entry( mem ), "unexpected moveable %p\n", mem );
+        if (mem && expect_convert) memset( mem, 0x5a, nolfh_size );
 
         tmp_mem = GlobalReAlloc( mem, 10, flags );
         if (!expect_convert)
         {
             ok( !is_mem_entry( tmp_mem ), "unexpected moveable %p\n", tmp_mem );
             if (flags & GMEM_DISCARDABLE) ok( !tmp_mem, "GlobalReAlloc succeeded\n" );
+            else if (flags == GMEM_MOVEABLE) ok( !!tmp_mem, "GlobalReAlloc failed, error %lu\n", GetLastError() );
             else ok( tmp_mem == mem, "GlobalReAlloc returned %p\n", tmp_mem );
         }
         else
         {
             ok( is_mem_entry( tmp_mem ), "unexpected moveable %p\n", tmp_mem );
             entry = *mem_entry_from_HANDLE( tmp_mem );
-            ok( entry.ptr != ptr, "got ptr %p was %p\n", entry.ptr, ptr );
+            check_global_conversion( tmp_mem, entry.ptr, nolfh_size );
             if (flags & GMEM_DISCARDABLE) ok( (entry.flags & 0x7fff) == 0x7, "got flags %#Ix\n", entry.flags );
             else ok( (entry.flags & 0x7fff) == 0x3, "got flags %#Ix\n", entry.flags );
         }
@@ -2035,6 +2111,7 @@ static void test_GlobalAlloc(void)
         mem = pGlobalAlloc( GMEM_FIXED, small_size );
         ok( !!mem, "GlobalAlloc failed, error %lu\n", GetLastError() );
         ok( !is_mem_entry( mem ), "unexpected moveable %p\n", mem );
+        if (mem && expect_convert) memset( mem, 0x5a, small_size );
 
         tmp_mem = GlobalReAlloc( mem, 0, flags );
         if (!expect_convert)
@@ -2048,7 +2125,7 @@ static void test_GlobalAlloc(void)
         {
             ok( is_mem_entry( tmp_mem ), "unexpected moveable %p\n", tmp_mem );
             entry = *mem_entry_from_HANDLE( tmp_mem );
-            ok( entry.ptr == ptr, "got ptr %p was %p\n", entry.ptr, ptr );
+            check_global_conversion( tmp_mem, entry.ptr, small_size );
             if (flags & GMEM_DISCARDABLE) ok( (entry.flags & 0x7fff) == 0x7, "got flags %#Ix\n", entry.flags );
             else ok( (entry.flags & 0x7fff) == 0x3, "got flags %#Ix\n", entry.flags );
         }
@@ -2065,19 +2142,21 @@ static void test_GlobalAlloc(void)
         mem = pGlobalAlloc( GMEM_FIXED, nolfh_size );
         ok( !!mem, "GlobalAlloc failed, error %lu\n", GetLastError() );
         ok( !is_mem_entry( mem ), "unexpected moveable %p\n", mem );
+        if (mem && expect_convert) memset( mem, 0x5a, nolfh_size );
 
         tmp_mem = GlobalReAlloc( mem, 0, flags );
         if (!expect_convert)
         {
             ok( !is_mem_entry( tmp_mem ), "unexpected moveable %p\n", tmp_mem );
             if (flags & GMEM_DISCARDABLE) ok( !tmp_mem, "GlobalReAlloc succeeded\n" );
+            else if (flags == GMEM_MOVEABLE) ok( !!tmp_mem, "GlobalReAlloc failed, error %lu\n", GetLastError() );
             else ok( tmp_mem == mem, "GlobalReAlloc returned %p\n", tmp_mem );
         }
         else
         {
             ok( is_mem_entry( tmp_mem ), "unexpected moveable %p\n", tmp_mem );
             entry = *mem_entry_from_HANDLE( tmp_mem );
-            ok( entry.ptr != ptr, "got ptr %p was %p\n", entry.ptr, ptr );
+            check_global_conversion( tmp_mem, entry.ptr, nolfh_size );
             if (flags & GMEM_DISCARDABLE) ok( (entry.flags & 0x7fff) == 0x7, "got flags %#Ix\n", entry.flags );
             else ok( (entry.flags & 0x7fff) == 0x3, "got flags %#Ix\n", entry.flags );
         }
@@ -2555,11 +2634,6 @@ static void test_LocalAlloc(void)
         ok( GetLastError() == ERROR_INVALID_HANDLE, "got error %lu\n", GetLastError() );
     }
 
-#ifdef __REACTOS__
-    if (is_reactos()) {
-        ok(FALSE, "FIXME: invalid handle and invalid pointer tests crash on ReactOS!\n");
-    } else {
-#endif
     /* invalid handles are caught */
     SetLastError( 0xdeadbeef );
     tmp_mem = pLocalFree( invalid_mem );
@@ -2594,15 +2668,7 @@ static void test_LocalAlloc(void)
     }
 
     /* invalid pointers are caught */
-    SetLastError( 0xdeadbeef );
-    tmp_mem = pLocalFree( invalid_ptr );
-    ok( tmp_mem == invalid_ptr, "LocalFree succeeded\n" );
-    todo_wine
-#ifdef __REACTOS__
-    ok( GetLastError() == ERROR_NOACCESS || broken(GetLastError() == ERROR_INVALID_HANDLE) /* WS03 */, "got error %lu\n", GetLastError() );
-#else
-    ok( GetLastError() == ERROR_NOACCESS, "got error %lu\n", GetLastError() );
-#endif
+    test_invalid_pointer( FALSE, FALSE );
     SetLastError( 0xdeadbeef );
     flags = LocalFlags( invalid_ptr );
     todo_wine
@@ -2625,11 +2691,7 @@ static void test_LocalAlloc(void)
     ret = LocalUnlock( invalid_ptr );
     ok( !ret, "LocalUnlock succeeded\n" );
     ok( GetLastError() == ERROR_NOT_LOCKED, "got error %lu\n", GetLastError() );
-    SetLastError( 0xdeadbeef );
-    tmp_mem = LocalReAlloc( invalid_ptr, 0, LMEM_MOVEABLE );
-    ok( !tmp_mem, "LocalReAlloc succeeded\n" );
-    todo_wine
-    ok( GetLastError() == ERROR_NOACCESS, "got error %lu\n", GetLastError() );
+    test_invalid_pointer( FALSE, TRUE );
     SetLastError( 0xdeadbeef );
     tmp_mem = LocalHandle( invalid_ptr );
     ok( !tmp_mem, "LocalHandle succeeded\n" );
@@ -2638,9 +2700,6 @@ static void test_LocalAlloc(void)
     ok( GetLastError() == ERROR_NOACCESS || broken(GetLastError() == ERROR_INVALID_HANDLE) /* WS03 */, "got error %lu\n", GetLastError() );
 #else
     ok( GetLastError() == ERROR_NOACCESS, "got error %lu\n", GetLastError() );
-#endif
-#ifdef __REACTOS__
-    }
 #endif
 
     /* LMEM_FIXED block doesn't allow resize, though it succeeds with LMEM_MODIFY */
@@ -2656,8 +2715,8 @@ static void test_LocalAlloc(void)
     if (GetNTVersion() >= _WIN32_WINNT_VISTA) {
 #endif
     tmp_mem = LocalReAlloc( mem, small_size, 0 );
-    ok( !tmp_mem, "LocalReAlloc succeeded\n" );
-    ok( GetLastError() == ERROR_NOT_ENOUGH_MEMORY, "got error %lu\n", GetLastError() );
+    ok( tmp_mem == mem, "LocalReAlloc returned %p, expected %p\n", tmp_mem, mem );
+    ok( GetLastError() == 0xdeadbeef, "got error %lu\n", GetLastError() );
 #ifdef __REACTOS__
     }
 #endif
@@ -2726,7 +2785,9 @@ static void test_LocalAlloc(void)
         ok( !is_mem_entry( tmp_mem ), "unexpected moveable %p\n", tmp_mem );
         if (flags & LMEM_MODIFY) ok( tmp_mem == mem, "LocalReAlloc returned %p\n", tmp_mem );
         else if (flags & LMEM_DISCARDABLE) ok( !tmp_mem, "LocalReAlloc succeeded\n" );
+        else if (flags == LMEM_MOVEABLE) ok( !!tmp_mem, "LocalReAlloc failed, error %lu\n", GetLastError() );
         else ok( tmp_mem == mem, "LocalReAlloc returned %p\n", tmp_mem );
+        if (tmp_mem) mem = tmp_mem;
         size = LocalSize( mem );
         if (flags & (LMEM_DISCARDABLE | LMEM_MODIFY)) ok( size == nolfh_size, "LocalSize returned %Iu\n", size );
         else ok( size == nolfh_size + 512, "LocalSize returned %Iu\n", size );
@@ -2760,7 +2821,9 @@ static void test_LocalAlloc(void)
         ok( !is_mem_entry( tmp_mem ), "unexpected moveable %p\n", tmp_mem );
         if (flags & LMEM_MODIFY) ok( tmp_mem == mem, "LocalReAlloc returned %p\n", tmp_mem );
         else if (flags & LMEM_DISCARDABLE) ok( !tmp_mem, "LocalReAlloc succeeded\n" );
+        else if (flags == LMEM_MOVEABLE) ok( !!tmp_mem, "LocalReAlloc failed, error %lu\n", GetLastError() );
         else ok( tmp_mem == mem, "LocalReAlloc returned %p\n", tmp_mem );
+        if (tmp_mem) mem = tmp_mem;
         size = LocalSize( mem );
         if (flags & (LMEM_DISCARDABLE | LMEM_MODIFY)) ok( size == nolfh_size, "LocalSize returned %Iu\n", size );
         else ok( size == 10, "LocalSize returned %Iu\n", size );
@@ -2794,7 +2857,9 @@ static void test_LocalAlloc(void)
         ok( !is_mem_entry( tmp_mem ), "unexpected moveable %p\n", tmp_mem );
         if (flags & LMEM_MODIFY) ok( tmp_mem == mem, "LocalReAlloc returned %p\n", tmp_mem );
         else if (flags & LMEM_DISCARDABLE) ok( !tmp_mem, "LocalReAlloc succeeded\n" );
+        else if (flags == LMEM_MOVEABLE) ok( !!tmp_mem, "LocalReAlloc failed, error %lu\n", GetLastError() );
         else ok( tmp_mem == mem, "LocalReAlloc returned %p\n", tmp_mem );
+        if (tmp_mem) mem = tmp_mem;
         size = LocalSize( mem );
         if (flags & (LMEM_DISCARDABLE | LMEM_MODIFY)) ok( size == nolfh_size, "LocalSize returned %Iu\n", size );
         else ok( size == 0 || broken( size == 1 ) /* w7 */, "LocalSize returned %Iu\n", size );
@@ -3471,9 +3536,9 @@ static void test_block_layout( HANDLE heap, DWORD global_flags, DWORD heap_flags
 
 static void test_heap_checks( DWORD flags )
 {
-    BYTE old, *p, *p2;
+    BYTE old, *p, *p2, tail[3], expected_tail;
     BOOL ret;
-    SIZE_T i, size, large_size = 3000 * 1024 + 37;
+    SIZE_T i, size, read, large_size = 3000 * 1024 + 37;
 
     if (flags & HEAP_PAGE_ALLOCS) return;  /* no tests for that case yet */
 
@@ -3625,10 +3690,14 @@ static void test_heap_checks( DWORD flags )
 
     if (flags & HEAP_TAIL_CHECKING_ENABLED)
     {
-        /* Windows doesn't do tail checking on large blocks */
-        ok( p[large_size] == 0, "wrong data %x\n", p[large_size] );
-        ok( p[large_size + 1] == 0, "wrong data %x\n", p[large_size + 1] );
-        ok( p[large_size + 2] == 0, "wrong data %x\n", p[large_size + 2] );
+        expected_tail = pRtlGetNtGlobalFlags() & FLG_HEAP_ENABLE_TAIL_CHECK ? 0xab : 0;
+        read = 0;
+        ret = ReadProcessMemory( GetCurrentProcess(), p + large_size, tail, sizeof(tail), &read );
+        ok( ret, "ReadProcessMemory failed, error %lu\n", GetLastError() );
+        ok( read == sizeof(tail), "ReadProcessMemory read %Iu bytes\n", read );
+        for (i = 0; i < read && i < sizeof(tail); ++i)
+            ok( tail[i] == expected_tail, "wrong tail byte %Iu: got %x, expected %x\n",
+                i, tail[i], expected_tail );
     }
 
     ret = HeapFree( GetProcessHeap(), 0, p );
@@ -3749,6 +3818,518 @@ static void test_heap_layout( HANDLE handle, DWORD global_flag, DWORD heap_flags
     }
 }
 
+static BOOL check_heap_block_protection( HANDLE heap, BYTE *ptr, SIZE_T size, DWORD protection )
+{
+    MEMORY_BASIC_INFORMATION info;
+    ULONG_PTR cursor = (ULONG_PTR)ptr, end = cursor + size, next;
+    SIZE_T actual, ret;
+    BOOL valid;
+
+    actual = HeapSize( heap, 0, ptr );
+    ok( actual == size, "HeapSize returned %#Ix, expected %#Ix\n", actual, size );
+    valid = HeapValidate( heap, 0, ptr );
+    ok( valid, "HeapValidate failed, error %lu\n", GetLastError() );
+    if (actual != size || !valid) return FALSE;
+    while (cursor < end)
+    {
+        ret = VirtualQuery( (void *)cursor, &info, sizeof(info) );
+        ok( ret == sizeof(info), "VirtualQuery returned %Iu, error %lu\n", ret, GetLastError() );
+        if (ret != sizeof(info)) return FALSE;
+        ok( info.State == MEM_COMMIT, "memory state is %#lx\n", info.State );
+        ok( info.Protect == protection, "protection is %#lx, expected %#lx\n", info.Protect, protection );
+        next = (ULONG_PTR)info.BaseAddress + info.RegionSize;
+        ok( (ULONG_PTR)info.BaseAddress <= cursor && next > cursor,
+            "invalid region %p size %#Ix for %p\n", info.BaseAddress, info.RegionSize, (void *)cursor );
+        if (info.State != MEM_COMMIT || (ULONG_PTR)info.BaseAddress > cursor || next <= cursor) return FALSE;
+        if (info.Protect != PAGE_READWRITE && info.Protect != PAGE_EXECUTE_READWRITE) return FALSE;
+        cursor = next;
+    }
+    return TRUE;
+}
+
+static void test_heap_execute(void)
+{
+    static const SIZE_T large_size = 3000 * 1024 + 37, small_size = 0x80000;
+    BYTE *blocks[17], *ptr, *next;
+    SIZE_T i, j, size;
+    DWORD flags, protection;
+    unsigned int api, executable, pass;
+    HANDLE heap;
+    BOOL ret;
+
+    for (api = 0; api < 2; ++api)
+    for (executable = 0; executable < 2; ++executable)
+    {
+        winetest_push_context( "%s executable %u", api ? "RtlCreateHeap" : "HeapCreate", executable );
+        flags = executable ? HEAP_CREATE_ENABLE_EXECUTE : 0;
+        protection = executable ? PAGE_EXECUTE_READWRITE : PAGE_READWRITE;
+        if (api)
+        {
+            ok( !!pRtlCreateHeap, "RtlCreateHeap is unavailable\n" );
+            if (!pRtlCreateHeap) goto done;
+            heap = pRtlCreateHeap( HEAP_GROWABLE | flags, NULL, 0, 0, NULL, NULL );
+        }
+        else heap = HeapCreate( flags, 0, 0 );
+        ok( !!heap, "heap creation failed, error %lu\n", GetLastError() );
+        if (!heap) goto done;
+        memset( blocks, 0, sizeof(blocks) );
+        blocks[0] = HeapAlloc( heap, HEAP_ZERO_MEMORY, 37 );
+        ok( !!blocks[0], "initial HeapAlloc failed, error %lu\n", GetLastError() );
+        if (blocks[0]) check_heap_block_protection( heap, blocks[0], 37, protection );
+        for (pass = 0; pass < 2; ++pass)
+        {
+            winetest_push_context( "allocation pass %u", pass );
+            for (i = 1; i < ARRAY_SIZE(blocks); ++i)
+            {
+                winetest_push_context( "block %Iu", i );
+                blocks[i] = HeapAlloc( heap, HEAP_ZERO_MEMORY, 0x18000 );
+                ok( !!blocks[i], "HeapAlloc failed, error %lu\n", GetLastError() );
+                if (blocks[i] && check_heap_block_protection( heap, blocks[i], 0x18000, protection ))
+                {
+                    blocks[i][0] = 0x59;
+                    blocks[i][0x17fff] = 0x93;
+                    ok( blocks[i][0] == 0x59 && blocks[i][0x17fff] == 0x93, "block is not writable\n" );
+                }
+                winetest_pop_context();
+            }
+            for (i = 1; i < ARRAY_SIZE(blocks); ++i)
+            {
+                if (!blocks[i]) continue;
+                ret = HeapFree( heap, 0, blocks[i] );
+                ok( ret, "HeapFree failed, error %lu\n", GetLastError() );
+                blocks[i] = NULL;
+            }
+            winetest_pop_context();
+        }
+        ptr = HeapAlloc( heap, HEAP_ZERO_MEMORY, large_size );
+        ok( !!ptr, "large HeapAlloc failed, error %lu\n", GetLastError() );
+        if (ptr)
+        {
+            if (check_heap_block_protection( heap, ptr, large_size, protection ))
+            {
+                ptr[0] = 0x59;
+                for (j = 0; j < 2; ++j)
+                {
+                    size = j ? large_size : small_size;
+                    next = HeapReAlloc( heap, HEAP_ZERO_MEMORY, ptr, size );
+                    ok( !!next, "HeapReAlloc to %#Ix failed, error %lu\n", size, GetLastError() );
+                    if (!next) break;
+                    ptr = next;
+                    if (!check_heap_block_protection( heap, ptr, size, protection )) break;
+                    ok( ptr[0] == 0x59, "HeapReAlloc lost the first byte\n" );
+                    for (i = 1; i < size; ++i) if (ptr[i]) break;
+                    ok( i == size, "HeapReAlloc returned nonzero byte at %#Ix\n", i );
+                }
+            }
+            ret = HeapFree( heap, 0, ptr );
+            ok( ret, "large HeapFree failed, error %lu\n", GetLastError() );
+        }
+        if (blocks[0])
+        {
+            ret = HeapFree( heap, 0, blocks[0] );
+            ok( ret, "initial HeapFree failed, error %lu\n", GetLastError() );
+        }
+        ret = HeapDestroy( heap );
+        ok( ret, "HeapDestroy failed, error %lu\n", GetLastError() );
+
+done:
+        winetest_pop_context();
+    }
+}
+
+static BYTE classic_heap_marker( SIZE_T offset )
+{
+    return (0x59 + offset * 29) ^ (offset >> 8);
+}
+
+static void check_classic_heap_contents( const BYTE *ptr, SIZE_T size, SIZE_T marked )
+{
+    BYTE buffer[4096], expected;
+    SIZE_T offset = 0, count, read, i, first_bad = size;
+    BOOL ret = TRUE;
+
+    while (offset < size)
+    {
+        count = min( sizeof(buffer), size - offset );
+        read = 0;
+        ret = ReadProcessMemory( GetCurrentProcess(), ptr + offset, buffer, count, &read );
+        if (!ret || read != count) break;
+        for (i = 0; i < count; ++i)
+        {
+            expected = offset + i < marked ? classic_heap_marker( offset + i ) : 0;
+            if (buffer[i] != expected && first_bad == size) first_bad = offset + i;
+        }
+        offset += count;
+    }
+    ok( ret && offset == size, "ReadProcessMemory stopped at %#Ix of %#Ix, error %lu\n",
+        offset, size, GetLastError() );
+    ok( first_bad == size, "contents differ at %#Ix of %#Ix\n", first_bad, size );
+}
+
+static BOOL check_classic_heap_block( HANDLE heap, BYTE *ptr, SIZE_T size, const BYTE *expected_tail )
+{
+    BYTE tail[3];
+    SIZE_T actual, read = 0, i;
+    BOOL ret;
+
+    actual = HeapSize( heap, 0, ptr );
+    ok( actual == size, "HeapSize returned %#Ix, expected %#Ix\n", actual, size );
+    ret = HeapValidate( heap, 0, ptr );
+    ok( ret, "HeapValidate failed, error %lu\n", GetLastError() );
+    if (actual != size || !ret) return FALSE;
+    ret = ReadProcessMemory( GetCurrentProcess(), ptr + size, tail, sizeof(tail), &read );
+    ok( ret, "tail ReadProcessMemory failed, error %lu\n", GetLastError() );
+    ok( read == sizeof(tail), "tail ReadProcessMemory read %Iu bytes\n", read );
+    if (ret && read == sizeof(tail))
+        for (i = 0; i < sizeof(tail); ++i)
+            ok( tail[i] == expected_tail[i], "tail[%Iu] is %#x, expected %#x\n",
+                i, tail[i], expected_tail[i] );
+    return TRUE;
+}
+
+static void test_classic_heap_realloc( DWORD heap_flags )
+{
+    static const SIZE_T large_size = 3000 * 1024 + 37, small_size = 0x80000;
+    static const BYTE zero_tail[3];
+    MEMORY_BASIC_INFORMATION initial, info;
+    BYTE *storage, *ptr = NULL, *next, tail[3];
+    ULONG_PTR old_last, old_address;
+    SIZE_T size, i;
+    DWORD error;
+    HANDLE heap = NULL;
+    BOOL ret;
+
+    winetest_push_context( "classic virtual realloc flags %#lx", heap_flags );
+    ok( !!pRtlCreateHeap, "RtlCreateHeap is unavailable\n" );
+    if (!pRtlCreateHeap) goto done;
+    storage = VirtualAlloc( NULL, 0x800000, MEM_RESERVE, PAGE_READWRITE );
+    ok( !!storage, "VirtualAlloc reserve failed, error %lu\n", GetLastError() );
+    if (!storage) goto done;
+    next = VirtualAlloc( storage, 0x10000, MEM_COMMIT, PAGE_READWRITE );
+    ok( next == storage, "VirtualAlloc commit returned %p, error %lu\n", next, GetLastError() );
+    if (next != storage) goto cleanup_storage;
+    heap = pRtlCreateHeap( HEAP_GROWABLE, storage, 0x800000, 0x10000, NULL, NULL );
+    ok( !!heap, "RtlCreateHeap failed, error %lu\n", GetLastError() );
+    if (!heap) goto cleanup_storage;
+    ptr = HeapAlloc( heap, 0, large_size );
+    ok( !!ptr, "HeapAlloc failed, error %lu\n", GetLastError() );
+    if (!ptr) goto cleanup_heap;
+    if (!check_classic_heap_block( heap, ptr, large_size, zero_tail )) goto cleanup_heap;
+    size = VirtualQuery( ptr, &initial, sizeof(initial) );
+    ok( size == sizeof(initial), "VirtualQuery returned %Iu\n", size );
+    if (size != sizeof(initial)) goto cleanup_heap;
+    ok( initial.State == MEM_COMMIT, "initial state is %#lx\n", initial.State );
+    ok( initial.AllocationBase != storage, "large allocation shares the supplied heap reservation\n" );
+    for (i = 0; i < large_size; ++i) ptr[i] = classic_heap_marker( i );
+    old_last = (ULONG_PTR)ptr + large_size - 1;
+    next = HeapReAlloc( heap, HEAP_REALLOC_IN_PLACE_ONLY, ptr, small_size );
+    ok( next == ptr, "in-place shrink returned %p, expected %p\n", next, ptr );
+    if (!next) goto cleanup_heap;
+    ptr = next;
+    for (i = 0; i < sizeof(tail); ++i)
+        tail[i] = heap_flags & HEAP_TAIL_CHECKING_ENABLED ? 0xab : classic_heap_marker( small_size + i );
+    if (!check_classic_heap_block( heap, ptr, small_size, tail )) goto cleanup_heap;
+    check_classic_heap_contents( ptr, small_size, small_size );
+    size = VirtualQuery( (void *)old_last, &info, sizeof(info) );
+    ok( size == sizeof(info), "VirtualQuery after shrink returned %Iu\n", size );
+    if (size == sizeof(info))
+    {
+        ok( info.State == MEM_RESERVE, "state after shrink is %#lx\n", info.State );
+        ok( info.AllocationBase == initial.AllocationBase, "allocation after shrink is %p, expected %p\n",
+            info.AllocationBase, initial.AllocationBase );
+    }
+    next = HeapReAlloc( heap, HEAP_REALLOC_IN_PLACE_ONLY | HEAP_ZERO_MEMORY, ptr, 0x90000 );
+    ok( !next, "in-place growth returned %p\n", next );
+    if (next)
+    {
+        ptr = next;
+        goto cleanup_heap;
+    }
+    if (!check_classic_heap_block( heap, ptr, small_size, tail )) goto cleanup_heap;
+    check_classic_heap_contents( ptr, small_size, small_size );
+    size = VirtualQuery( (void *)old_last, &info, sizeof(info) );
+    ok( size == sizeof(info), "VirtualQuery after in-place growth returned %Iu\n", size );
+    if (size == sizeof(info))
+    {
+        ok( info.State == MEM_RESERVE, "state after in-place growth is %#lx\n", info.State );
+        ok( info.AllocationBase == initial.AllocationBase, "allocation after in-place growth is %p, expected %p\n",
+            info.AllocationBase, initial.AllocationBase );
+    }
+    old_address = (ULONG_PTR)ptr;
+    next = HeapReAlloc( heap, HEAP_ZERO_MEMORY, ptr, large_size );
+    error = GetLastError();
+    size = VirtualQuery( (void *)old_last, &info, sizeof(info) );
+    ok( !!next, "movable growth failed, error %lu\n", error );
+    if (!next) goto cleanup_heap;
+    ok( (ULONG_PTR)next != old_address, "movable growth returned the original pointer\n" );
+    ptr = next;
+    ok( size == sizeof(info), "VirtualQuery after movable growth returned %Iu\n", size );
+    if (size == sizeof(info))
+        ok( info.State == MEM_FREE, "old reservation state after movable growth is %#lx\n", info.State );
+    if (!check_classic_heap_block( heap, ptr, large_size, zero_tail )) goto cleanup_heap;
+    check_classic_heap_contents( ptr, large_size, small_size );
+
+cleanup_heap:
+    if (ptr)
+    {
+        ret = HeapFree( heap, 0, ptr );
+        ok( ret, "HeapFree failed, error %lu\n", GetLastError() );
+    }
+    ret = HeapDestroy( heap );
+    ok( ret, "HeapDestroy failed, error %lu\n", GetLastError() );
+    if (!ret) goto done;
+
+cleanup_storage:
+    size = VirtualQuery( storage, &info, sizeof(info) );
+    ok( size == sizeof(info), "supplied storage VirtualQuery returned %Iu\n", size );
+    if (size != sizeof(info)) goto done;
+    ok( info.AllocationBase == storage, "supplied storage allocation is %p, expected %p\n",
+        info.AllocationBase, storage );
+    if (info.AllocationBase != storage) goto done;
+    ret = VirtualFree( storage, 0, MEM_RELEASE );
+    ok( ret, "VirtualFree supplied storage failed, error %lu\n", GetLastError() );
+    size = VirtualQuery( storage, &info, sizeof(info) );
+    ok( size == sizeof(info), "released storage VirtualQuery returned %Iu\n", size );
+    if (size == sizeof(info))
+        ok( info.State == MEM_FREE, "released storage state is %#lx\n", info.State );
+
+done:
+    winetest_pop_context();
+}
+
+static void check_heap_reuse_sentinel( const BYTE *ptr )
+{
+    BYTE bytes[37];
+    SIZE_T read = 0, i;
+    BOOL ret;
+
+    ret = ReadProcessMemory( GetCurrentProcess(), ptr, bytes, sizeof(bytes), &read );
+    ok( ret, "sentinel ReadProcessMemory failed, error %lu\n", GetLastError() );
+    ok( read == sizeof(bytes), "sentinel ReadProcessMemory read %Iu bytes\n", read );
+    if (!ret || read != sizeof(bytes)) return;
+    for (i = 0; i < sizeof(bytes); ++i)
+        ok( bytes[i] == 0xa5, "sentinel byte %Iu is %#x\n", i, bytes[i] );
+}
+
+static void test_heap_reuse(void)
+{
+    static const SIZE_T sizes[] = {0x3e000, 0x3f000};
+    BYTE *ptr, *sentinel, *zero;
+    HANDLE heap;
+    SIZE_T i;
+    unsigned int index, attempt;
+    BOOL ret, sentinel_ready;
+
+    for (index = 0; index < ARRAY_SIZE(sizes); ++index)
+    {
+        winetest_push_context( "fixed heap reuse size %#Ix", sizes[index] );
+        heap = HeapCreate( 0, 0x40000, 0x40000 );
+        ok( !!heap, "HeapCreate failed, error %lu\n", GetLastError() );
+        if (!heap) goto done;
+        ptr = sentinel = NULL;
+        sentinel_ready = FALSE;
+        for (attempt = 0; attempt < 3; ++attempt)
+        {
+            winetest_push_context( "attempt %u", attempt );
+            if (attempt == 2)
+            {
+                zero = HeapAlloc( heap, 0, 0 );
+                ok( !!zero, "zero HeapAlloc failed, error %lu\n", GetLastError() );
+                if (zero)
+                {
+                    ret = HeapFree( heap, 0, zero );
+                    ok( ret, "zero HeapFree failed, error %lu\n", GetLastError() );
+                }
+            }
+            if (sentinel_ready) check_heap_reuse_sentinel( sentinel );
+            ptr = HeapAlloc( heap, 0, sizes[index] );
+            ok( !!ptr, "HeapAlloc failed, error %lu\n", GetLastError() );
+            if (ptr && check_heap_block_protection( heap, ptr, sizes[index], PAGE_READWRITE ))
+            {
+                for (i = 0; i < sizes[index]; ++i) ptr[i] = classic_heap_marker( i );
+                check_classic_heap_contents( ptr, sizes[index], sizes[index] );
+                if (!attempt)
+                {
+                    sentinel = HeapAlloc( heap, 0, 37 );
+                    ok( !!sentinel, "sentinel HeapAlloc failed, error %lu\n", GetLastError() );
+                    if (sentinel && check_heap_block_protection( heap, sentinel, 37, PAGE_READWRITE ))
+                    {
+                        memset( sentinel, 0xa5, 37 );
+                        sentinel_ready = TRUE;
+                    }
+                    check_classic_heap_contents( ptr, sizes[index], sizes[index] );
+                }
+            }
+            if (sentinel_ready) check_heap_reuse_sentinel( sentinel );
+            if (ptr)
+            {
+                ret = HeapFree( heap, 0, ptr );
+                ok( ret, "HeapFree failed, error %lu\n", GetLastError() );
+                if (ret) ptr = NULL;
+            }
+            if (sentinel_ready) check_heap_reuse_sentinel( sentinel );
+            ret = HeapValidate( heap, 0, NULL );
+            ok( ret, "whole HeapValidate failed, error %lu\n", GetLastError() );
+            winetest_pop_context();
+            if (ptr || !sentinel_ready) break;
+        }
+        if (sentinel)
+        {
+            ret = HeapFree( heap, 0, sentinel );
+            ok( ret, "sentinel HeapFree failed, error %lu\n", GetLastError() );
+        }
+        ret = HeapDestroy( heap );
+        ok( ret, "HeapDestroy failed, error %lu\n", GetLastError() );
+    done:
+        winetest_pop_context();
+    }
+}
+
+static BOOL write_heap_tail_byte( BYTE *address, BYTE value )
+{
+    MEMORY_BASIC_INFORMATION info;
+    ULONG_PTR base;
+    SIZE_T size, written = 0, read = 0;
+    BYTE observed = 0;
+    BOOL ret;
+
+    size = VirtualQuery( address, &info, sizeof(info) );
+    ok( size == sizeof(info), "tail VirtualQuery returned %Iu, error %lu\n", size, GetLastError() );
+    if (size != sizeof(info)) return FALSE;
+    base = (ULONG_PTR)info.BaseAddress;
+    ret = info.State == MEM_COMMIT && info.Protect == PAGE_READWRITE &&
+          base <= (ULONG_PTR)address && info.RegionSize <= ~(ULONG_PTR)0 - base &&
+          (ULONG_PTR)address - base < info.RegionSize;
+    ok( ret, "tail region %p size %#Ix state %#lx protection %#lx for %p\n",
+        info.BaseAddress, info.RegionSize, info.State, info.Protect, address );
+    if (!ret) return FALSE;
+    ret = WriteProcessMemory( GetCurrentProcess(), address, &value, sizeof(value), &written );
+    ok( ret && written == sizeof(value), "tail WriteProcessMemory returned %u, wrote %Iu, error %lu\n",
+        ret, written, GetLastError() );
+    if (!ret || written != sizeof(value)) return FALSE;
+    ret = ReadProcessMemory( GetCurrentProcess(), address, &observed, sizeof(observed), &read );
+    ok( ret && read == sizeof(observed), "tail ReadProcessMemory returned %u, read %Iu, error %lu\n",
+        ret, read, GetLastError() );
+    if (!ret || read != sizeof(observed)) return FALSE;
+    ok( observed == value, "tail is %#x, expected %#x\n", observed, value );
+    return observed == value;
+}
+
+static void check_destroyed_heap_range( const void *address, SIZE_T size )
+{
+    MEMORY_BASIC_INFORMATION info;
+    ULONG_PTR cursor = (ULONG_PTR)address, end, base, next;
+    SIZE_T ret;
+
+    ok( size <= ~(ULONG_PTR)0 - cursor, "destroyed range %p size %#Ix overflows\n", address, size );
+    if (size > ~(ULONG_PTR)0 - cursor) return;
+    end = cursor + size;
+    while (cursor < end)
+    {
+        ret = VirtualQuery( (void *)cursor, &info, sizeof(info) );
+        ok( ret == sizeof(info), "destroyed VirtualQuery returned %Iu, error %lu\n", ret, GetLastError() );
+        if (ret != sizeof(info)) return;
+        base = (ULONG_PTR)info.BaseAddress;
+        ok( base <= cursor && info.RegionSize <= ~(ULONG_PTR)0 - base,
+            "invalid destroyed region %p size %#Ix for %p\n", info.BaseAddress, info.RegionSize, (void *)cursor );
+        if (base > cursor || info.RegionSize > ~(ULONG_PTR)0 - base) return;
+        next = base + info.RegionSize;
+        ok( next > cursor && info.State == MEM_FREE,
+            "destroyed region %p size %#Ix state %#lx\n", info.BaseAddress, info.RegionSize, info.State );
+        if (next <= cursor || info.State != MEM_FREE) return;
+        cursor = next;
+    }
+}
+
+static void test_heap_destroy( DWORD global_flags )
+{
+    static const SIZE_T sizes[] = {37, 64};
+    BYTE *blocks[2], tail = 0;
+    HANDLE heap, result;
+    SIZE_T i, j, read;
+    unsigned int api, corrupt;
+    DWORD error;
+    BOOL ret, changed, prepared, destroyed, expect_failure;
+
+    ok( !!pRtlDestroyHeap, "RtlDestroyHeap is unavailable\n" );
+    for (api = 0; api < 2; ++api)
+    for (corrupt = 0; corrupt < 2; ++corrupt)
+    {
+        winetest_push_context( "%s global %#lx corrupt %u", api ? "RtlDestroyHeap" : "HeapDestroy",
+                               global_flags, corrupt );
+        if (api && !pRtlDestroyHeap) goto done;
+        heap = HeapCreate( 0, 0x40000, 0x40000 );
+        ok( !!heap, "HeapCreate failed, error %lu\n", GetLastError() );
+        if (!heap) goto done;
+        memset( blocks, 0, sizeof(blocks) );
+        changed = prepared = FALSE;
+        for (i = 0; i < ARRAY_SIZE(blocks); ++i)
+        {
+            blocks[i] = HeapAlloc( heap, 0, sizes[i] );
+            ok( !!blocks[i], "HeapAlloc(%Iu) failed, error %lu\n", sizes[i], GetLastError() );
+            if (!blocks[i] || !check_heap_block_protection( heap, blocks[i], sizes[i], PAGE_READWRITE ))
+                goto cleanup;
+            for (j = 0; j < sizes[i]; ++j) blocks[i][j] = classic_heap_marker( j );
+            check_classic_heap_contents( blocks[i], sizes[i], sizes[i] );
+        }
+        prepared = TRUE;
+        if (corrupt)
+        {
+            read = 0;
+            ret = ReadProcessMemory( GetCurrentProcess(), blocks[0] + sizes[0], &tail, sizeof(tail), &read );
+            ok( ret && read == sizeof(tail), "tail ReadProcessMemory returned %u, read %Iu, error %lu\n",
+                ret, read, GetLastError() );
+            if (!ret || read != sizeof(tail)) goto cleanup;
+            ok( tail == 0xab, "initial tail is %#x\n", tail );
+            if (tail != 0xab) goto cleanup;
+            changed = TRUE;
+            if (!write_heap_tail_byte( blocks[0] + sizes[0], 0xcc )) goto cleanup;
+        }
+        expect_failure = corrupt && global_flags == FLG_HEAP_VALIDATE_ALL;
+        SetLastError( 0xdeadbeef );
+        if (api)
+        {
+            result = pRtlDestroyHeap( heap );
+            ok( result == (expect_failure ? heap : NULL), "RtlDestroyHeap returned %p, expected %p\n",
+                result, expect_failure ? heap : NULL );
+            if (result && result != heap) goto done;
+            destroyed = !result;
+        }
+        else
+        {
+            ret = HeapDestroy( heap );
+            error = GetLastError();
+            ok( !!ret == !expect_failure, "HeapDestroy returned %u, error %lu\n", ret, error );
+            if (!ret && expect_failure)
+                ok( error == ERROR_INVALID_HANDLE, "HeapDestroy error %lu, expected ERROR_INVALID_HANDLE\n", error );
+            destroyed = ret;
+        }
+        if (destroyed) goto released;
+    cleanup:
+        if (changed && !write_heap_tail_byte( blocks[0] + sizes[0], tail )) goto done;
+        if (prepared)
+        {
+            for (i = 0; i < ARRAY_SIZE(blocks); ++i)
+            {
+                check_classic_heap_contents( blocks[i], sizes[i], sizes[i] );
+                check_heap_block_protection( heap, blocks[i], sizes[i], PAGE_READWRITE );
+            }
+            ret = HeapValidate( heap, 0, NULL );
+            ok( ret, "restored whole HeapValidate failed, error %lu\n", GetLastError() );
+            if (!ret) goto done;
+        }
+        ret = HeapDestroy( heap );
+        ok( ret, "cleanup HeapDestroy failed, error %lu\n", GetLastError() );
+        if (!ret) goto done;
+    released:
+        check_destroyed_heap_range( heap, 0x40000 );
+        for (i = 0; i < ARRAY_SIZE(blocks); ++i)
+            if (blocks[i]) check_destroyed_heap_range( blocks[i], sizes[i] );
+    done:
+        winetest_pop_context();
+    }
+}
+
 static void test_child_heap( const char *arg )
 {
     char buffer[32];
@@ -3786,6 +4367,19 @@ static void test_child_heap( const char *arg )
     trace( "testing global flags %#lx, heap flags %08lx\n", global_flags, heap_flags );
 
     ok( pRtlGetNtGlobalFlags() == global_flags, "got global flags %#lx\n", pRtlGetNtGlobalFlags() );
+
+    if (global_flags == 0 || global_flags == FLG_HEAP_ENABLE_TAIL_CHECK ||
+        global_flags == FLG_HEAP_ENABLE_FREE_CHECK || global_flags == FLG_HEAP_VALIDATE_PARAMETERS ||
+        global_flags == FLG_HEAP_VALIDATE_ALL)
+        test_classic_heap_realloc( heap_flags );
+
+    if (!global_flags) test_heap_reuse();
+
+    if (global_flags == FLG_HEAP_ENABLE_TAIL_CHECK || global_flags == FLG_HEAP_VALIDATE_PARAMETERS ||
+        global_flags == FLG_HEAP_VALIDATE_ALL)
+        test_heap_destroy( global_flags );
+
+    if (global_flags == FLG_HEAP_PAGE_ALLOCS) test_heap_execute();
 
     test_heap_layout( GetProcessHeap(), global_flags, heap_flags|HEAP_GROWABLE );
 
@@ -4064,12 +4658,18 @@ START_TEST(heap)
     load_functions();
 
     argc = winetest_get_mainargs( &argv );
+    if (argc >= 5 && !strcmp( argv[2], "invalid" ))
+    {
+        test_invalid_pointer_child( atoi(argv[3]), atoi(argv[4]) );
+        return;
+    }
     if (argc >= 3)
     {
         test_child_heap( argv[2] );
         return;
     }
 
+    test_heap_execute();
     test_HeapCreate();
     test_GlobalAlloc();
     test_LocalAlloc();

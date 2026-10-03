@@ -50,7 +50,8 @@ HeapCreate(DWORD flOptions,
     ULONG Flags;
 
     /* Remove non-Win32 flags and tag this allocation */
-    Flags = (flOptions & (HEAP_GENERATE_EXCEPTIONS | HEAP_NO_SERIALIZE)) |
+    Flags = (flOptions & (HEAP_GENERATE_EXCEPTIONS | HEAP_NO_SERIALIZE |
+                          HEAP_CREATE_ENABLE_EXECUTE)) |
             HEAP_CLASS_1;
 
     /* Check if heap is growable and ensure max size is correct */
@@ -63,6 +64,8 @@ HeapCreate(DWORD flOptions,
            Fix it up by bumping it to the initial size whatever it is. */
         dwMaximumSize = dwInitialSize;
     }
+    else if (dwInitialSize > dwMaximumSize)
+        dwMaximumSize = dwInitialSize;
 
     /* Call RTL Heap */
     hRet = RtlCreateHeap(Flags,
@@ -291,18 +294,47 @@ WINAPI
 HeapWalk(HANDLE	hHeap,
          LPPROCESS_HEAP_ENTRY lpEntry)
 {
+    RTL_HEAP_WALK_ENTRY Entry = {0};
     NTSTATUS Status;
 
-    DPRINT1("Warning, HeapWalk is calling RtlWalkHeap with Win32 parameters\n");
+    if (!lpEntry)
+    {
+        SetLastError(ERROR_INVALID_PARAMETER);
+        return FALSE;
+    }
 
-    Status = RtlWalkHeap(hHeap, lpEntry);
+    Entry.DataAddress = lpEntry->lpData;
+    Entry.DataSize = lpEntry->cbData;
+    Entry.OverheadBytes = lpEntry->cbOverhead;
+    Entry.SegmentIndex = lpEntry->iRegionIndex;
+    if (lpEntry->wFlags & PROCESS_HEAP_ENTRY_BUSY)
+        Entry.Flags |= RTL_HEAP_ENTRY_BUSY;
+    if (lpEntry->wFlags & PROCESS_HEAP_REGION)
+        Entry.Flags |= RTL_HEAP_ENTRY_REGION;
+    if (lpEntry->wFlags & PROCESS_HEAP_UNCOMMITTED_RANGE)
+        Entry.Flags |= RTL_HEAP_ENTRY_UNCOMMITTED;
+    RtlCopyMemory(&Entry.Segment, &lpEntry->Region, sizeof(lpEntry->Region));
 
+    Status = RtlWalkHeap(hHeap, &Entry);
     if (!NT_SUCCESS(Status))
     {
         SetLastError(RtlNtStatusToDosError(Status));
         return FALSE;
     }
 
+    lpEntry->lpData = Entry.DataAddress;
+    lpEntry->cbData = Entry.DataSize;
+    lpEntry->cbOverhead = Entry.OverheadBytes;
+    lpEntry->iRegionIndex = Entry.SegmentIndex;
+    if (Entry.Flags & RTL_HEAP_ENTRY_BUSY)
+        lpEntry->wFlags = PROCESS_HEAP_ENTRY_BUSY;
+    else if (Entry.Flags & RTL_HEAP_ENTRY_REGION)
+        lpEntry->wFlags = PROCESS_HEAP_REGION;
+    else if (Entry.Flags & RTL_HEAP_ENTRY_UNCOMMITTED)
+        lpEntry->wFlags = PROCESS_HEAP_UNCOMMITTED_RANGE;
+    else
+        lpEntry->wFlags = 0;
+    RtlCopyMemory(&lpEntry->Region, &Entry.Segment, sizeof(lpEntry->Region));
     return TRUE;
 }
 
@@ -1210,7 +1242,6 @@ GlobalUnlock(HGLOBAL hMem)
             /* It's not, fail */
             BASE_TRACE_FAILURE();
             SetLastError(ERROR_INVALID_HANDLE);
-            RetVal = FALSE;
         }
         else
         {
@@ -1527,6 +1558,9 @@ LocalFlags(HLOCAL hMem)
     /* Start by locking the heap */
     RtlLockHeap(BaseHeap);
 
+    _SEH2_TRY
+    {
+
     /* Check if this is a simple RTL Heap Managed block */
     if (!((ULONG_PTR)hMem & BASE_HEAP_IS_HANDLE_ENTRY))
     {
@@ -1581,6 +1615,13 @@ LocalFlags(HLOCAL hMem)
     /* Check if by now, we still haven't gotten any useful flags */
     if (uFlags == LMEM_INVALID_HANDLE) SetLastError(ERROR_INVALID_HANDLE);
 
+    }
+    _SEH2_EXCEPT(EXCEPTION_EXECUTE_HANDLER)
+    {
+        BaseSetLastNTError(_SEH2_GetExceptionCode());
+    }
+    _SEH2_END;
+
     /* All done! Unlock heap and return Win32 Flags */
     RtlUnlockHeap(BaseHeap);
     return uFlags;
@@ -1615,9 +1656,18 @@ LPVOID
 NTAPI
 LocalLock(HLOCAL hMem)
 {
+    DWORD LastError;
+    LPVOID Pointer;
+
     /* This is the same as a GlobalLock, assuming these never change */
     C_ASSERT(LMEM_LOCKCOUNT == GMEM_LOCKCOUNT);
-    return GlobalLock(hMem);
+    if ((ULONG_PTR)hMem & BASE_HEAP_IS_HANDLE_ENTRY)
+        return GlobalLock(hMem);
+
+    LastError = GetLastError();
+    Pointer = GlobalLock(hMem);
+    SetLastError(LastError);
+    return Pointer;
 }
 
 HLOCAL
@@ -1629,6 +1679,13 @@ LocalReAlloc(HLOCAL hMem,
     PBASE_HEAP_HANDLE_ENTRY HandleEntry;
     LPVOID Ptr;
     ULONG Flags = 0;
+
+    if ((uFlags & ~(LMEM_VALID_FLAGS | LMEM_MODIFY)) ||
+        ((uFlags & LMEM_DISCARDABLE) && !(uFlags & LMEM_MODIFY)))
+    {
+        SetLastError(ERROR_INVALID_PARAMETER);
+        return NULL;
+    }
 
     /* Convert ZEROINIT */
     if (uFlags & LMEM_ZEROINIT) Flags |= HEAP_ZERO_MEMORY;

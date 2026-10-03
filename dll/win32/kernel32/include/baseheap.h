@@ -83,7 +83,7 @@ typedef struct _BASE_HEAP_HANDLE_ENTRY
 #define BASE_HEAP_ENTRY_FLAG_MOVABLE        0x0002
 #define BASE_HEAP_ENTRY_FLAG_REUSABLE       0x0004
 #define BASE_HEAP_ENTRY_FLAG_REUSE          0x0008
-#define BASE_HEAP_ENTRY_FLAG_DDESHARE       0x0010
+#define BASE_HEAP_ENTRY_FLAG_DDESHARE       0x8000
 
 //
 // Easy way to check if the global handle is actually an entry in our table
