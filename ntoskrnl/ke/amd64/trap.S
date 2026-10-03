@@ -739,6 +739,20 @@ FUNC KiDebugServiceTrap
     /* Increase Rip to skip the int3 */
     inc qword ptr [rbp + KTRAP_FRAME_Rip]
 
+    cmp word ptr [rbp + KTRAP_FRAME_SegCs], (KGDT64_R3_CMCODE OR RPL_MASK)
+    jne KiDebugServiceDispatch
+    mov eax, dword ptr [rbp + KTRAP_FRAME_Rax]
+    mov [rbp + KTRAP_FRAME_Rax], rax
+    mov eax, dword ptr [rbp + KTRAP_FRAME_Rcx]
+    mov [rbp + KTRAP_FRAME_Rcx], rax
+    mov eax, dword ptr [rbp + KTRAP_FRAME_Rdx]
+    mov [rbp + KTRAP_FRAME_Rdx], rax
+    mov eax, ebx
+    mov [rbp + KTRAP_FRAME_R8], rax
+    mov eax, edi
+    mov [rbp + KTRAP_FRAME_R9], rax
+
+KiDebugServiceDispatch:
     /* Dispatch the exception (Params = service, buffer, legth) */
     DispatchException STATUS_BREAKPOINT, 3, [rbp+KTRAP_FRAME_Rax], [rbp+KTRAP_FRAME_Rcx], [rbp+KTRAP_FRAME_Rdx]
 
