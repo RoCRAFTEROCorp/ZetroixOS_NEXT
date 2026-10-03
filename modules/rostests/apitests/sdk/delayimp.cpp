@@ -332,7 +332,8 @@ LONG ExceptionFilter(IN PEXCEPTION_POINTERS ExceptionInfo, ULONG ExceptionCode)
         ok(ExceptionRecord->ExceptionCode == expected, "Expected ExceptionCode to be 0x%lx, was 0x%lx\n",
             expected, ExceptionRecord->ExceptionCode);
         /* We can still continue. */
-        ok(ExceptionRecord->ExceptionFlags == 0, "Expected ExceptionFlags to be 0, was: 0x%lx\n",
+        ok((ExceptionRecord->ExceptionFlags & ~EXCEPTION_SOFTWARE_ORIGINATE) == 0,
+            "Expected only optional software-origin flags, was: 0x%lx\n",
             ExceptionRecord->ExceptionFlags);
         ok(ExceptionRecord->NumberParameters == 1, "Expected 1 parameter, got %lu\n",
             ExceptionRecord->NumberParameters);
