@@ -789,7 +789,7 @@ LdrpHandleOldFormatImportDescriptors(IN LPWSTR DllPath OPTIONAL,
                                      IN PLDR_DATA_TABLE_ENTRY LdrEntry,
                                      IN PIMAGE_IMPORT_DESCRIPTOR ImportEntry)
 {
-    LDRP_IAT_PROTECTION_CONTEXT ProtectionContext = {0};
+    _SEH2_VOLATILE LDRP_IAT_PROTECTION_CONTEXT ProtectionContext = {0};
     NTSTATUS Status = STATUS_SUCCESS;
     PVOID BaseAddress;
     SIZE_T RegionSize;
@@ -804,7 +804,7 @@ LdrpHandleOldFormatImportDescriptors(IN LPWSTR DllPath OPTIONAL,
             Status = LdrpHandleOneOldFormatImportDescriptor(DllPath,
                                                             LdrEntry,
                                                             &ImportEntry,
-                                                            &ProtectionContext);
+                                                            (PLDRP_IAT_PROTECTION_CONTEXT)&ProtectionContext);
             if (!NT_SUCCESS(Status)) break;
         }
     }
