@@ -337,8 +337,6 @@ DwmDxIssueSurface(const DWM_DX_SURFACE *Surface,
                                           DWM_ROUTINE_DXSURFACE);
     if (NT_SUCCESS(Status))
         *UpdateId = Exchange.UpdateId;
-    else if (Status != STATUS_DEVICE_BUSY)
-        DwmDxReportFailure("issue", Status);
     return Status;
 }
 
@@ -423,6 +421,7 @@ DwmpDxGetWindowSharedSurface(HWND Window,
     DWM_DX_SURFACE *Surface = NULL, *FreeSurface = NULL;
     RECT ClientRect;
     ULONG Width, Height, Index;
+    BOOL Registered = FALSE;
     NTSTATUS Status;
 
     UNREFERENCED_PARAMETER(Monitor);
@@ -539,9 +538,22 @@ DwmpDxGetWindowSharedSurface(HWND Window,
         DwmDxDestroySurface(FreeSurface);
         *FreeSurface = NewSurface;
         Surface = FreeSurface;
+        Registered = TRUE;
     }
 
     Status = DwmDxIssueSurface(Surface, &AdapterLuid, UpdateId);
+    if (Status == STATUS_INVALID_PARAMETER && !Registered)
+    {
+        RtlZeroMemory(&NewSurface, sizeof(NewSurface));
+        Status = DwmDxRegisterSurface(Window, &AdapterLuid, &NewSurface,
+                                      Width, Height);
+        if (NT_SUCCESS(Status))
+        {
+            DwmDxDestroySurface(Surface);
+            *Surface = NewSurface;
+            Status = DwmDxIssueSurface(Surface, &AdapterLuid, UpdateId);
+        }
+    }
     if (Status == STATUS_DEVICE_BUSY)
     {
         LeaveCriticalSection(&g_DxLock);
@@ -549,6 +561,7 @@ DwmpDxGetWindowSharedSurface(HWND Window,
     }
     if (!NT_SUCCESS(Status))
     {
+        DwmDxReportFailure("issue", Status);
         LeaveCriticalSection(&g_DxLock);
         return DwmDxStatusToHresult(Status);
     }
