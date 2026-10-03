@@ -103,6 +103,8 @@ DxgkpSelectDisplayDriver(
  */
 static ULONG g_DisplayDeviceNumber = 0;
 static BOOLEAN g_DisplayInitialModePending;
+static PVOID g_DisplayWin32kPhysDisp;
+static PVIDEO_WIN32K_CALLOUT g_DisplayWin32kCallout;
 static volatile LONG g_PresentShadowTraceCount = 0;
 static volatile LONG g_PresentDirtyTraceCount = 0;
 static volatile LONG g_ScanoutCopyCount = 0;
@@ -217,6 +219,26 @@ DxgkpDisplayPublishInitialMode(
     ZwClose(Key);
     if (NT_SUCCESS(Status))
         g_DisplayInitialModePending = FALSE;
+}
+
+VOID
+DxgkDisplayNotifyMonitorEvent(
+    _In_ PDXGKRNL_ADAPTER Adapter)
+{
+    VIDEO_WIN32K_CALLBACKS_PARAMS Params;
+    PVIDEO_WIN32K_CALLOUT Callout;
+
+    PAGED_CODE();
+
+    if (Adapter == NULL || g_DisplayAdapter != Adapter || !Adapter->VidPnCommitted)
+        return;
+    Callout = (PVIDEO_WIN32K_CALLOUT)InterlockedCompareExchangePointer((PVOID *)&g_DisplayWin32kCallout, NULL, NULL);
+    if (Callout == NULL)
+        return;
+    RtlZeroMemory(&Params, sizeof(Params));
+    Params.CalloutType = VideoDxgkMonitorEventCallout;
+    Params.PhysDisp = g_DisplayWin32kPhysDisp;
+    Callout(&Params);
 }
 
 /* ========================================================================
@@ -2289,6 +2311,11 @@ DxgkpDisplayDispatch(
 
                 Callbacks->bACPI = FALSE;
                 Callbacks->DualviewFlags = 0;
+                if (Irp->RequestorMode == KernelMode && Callbacks->Callout != NULL)
+                {
+                    g_DisplayWin32kPhysDisp = Callbacks->PhysDisp;
+                    InterlockedExchangePointer((PVOID *)&g_DisplayWin32kCallout, (PVOID)Callbacks->Callout);
+                }
                 BytesReturned = sizeof(VIDEO_WIN32K_CALLBACKS);
                 Status = STATUS_SUCCESS;
             }

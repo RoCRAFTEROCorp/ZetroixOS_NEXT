@@ -3428,6 +3428,10 @@ VOID
 DxgkpDisplayPublishInitialMode(
     _In_ PDXGKRNL_ADAPTER Adapter);
 
+VOID
+DxgkDisplayNotifyMonitorEvent(
+    _In_ PDXGKRNL_ADAPTER Adapter);
+
 NTSTATUS
 DxgkVidPnResolveTargetForSource(
     _In_ PDXGKRNL_ADAPTER Adapter,

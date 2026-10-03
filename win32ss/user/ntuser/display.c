@@ -1019,6 +1019,103 @@ leave:
     return lResult;
 }
 
+static volatile LONG gUserDisplayConfigurationPending;
+static volatile LONG gUserDisplayConfigurationQueued;
+static WORK_QUEUE_ITEM gUserDisplayConfigurationWorkItem;
+
+static
+VOID
+NTAPI
+UserpDisplayConfigurationWorker(
+    _In_ PVOID Context)
+{
+    MSG Msg;
+
+    UNREFERENCED_PARAMETER(Context);
+
+    InterlockedExchange(&gUserDisplayConfigurationQueued, 0);
+    UserEnterExclusive();
+    if (gptiDesktopThread != NULL)
+    {
+        RtlZeroMemory(&Msg, sizeof(Msg));
+        Msg.message = WM_NULL;
+        MsqPostMessage(gptiDesktopThread, &Msg, FALSE, QS_POSTMESSAGE, 0, 0);
+    }
+    UserLeave();
+}
+
+VOID
+NTAPI
+UserQueueDisplayConfigurationUpdate(VOID)
+{
+    InterlockedExchange(&gUserDisplayConfigurationPending, 1);
+    if (InterlockedExchange(&gUserDisplayConfigurationQueued, 1) == 0)
+    {
+        ExInitializeWorkItem(&gUserDisplayConfigurationWorkItem,
+                             UserpDisplayConfigurationWorker,
+                             NULL);
+        ExQueueWorkItem(&gUserDisplayConfigurationWorkItem, DelayedWorkQueue);
+    }
+}
+
+VOID
+NTAPI
+co_UserProcessDisplayConfigurationUpdate(VOID)
+{
+    PGRAPHICS_DEVICE pGraphicsDevice;
+    VIDEO_MODE_INFORMATION ModeInfo;
+    UNICODE_STRING ustrDevice;
+    DEVMODEW dm;
+    PPDEVOBJ ppdev;
+    ULONG iDevNum, cbReturned;
+    LONG lResult;
+
+    if (InterlockedExchange(&gUserDisplayConfigurationPending, 0) == 0)
+        return;
+
+    for (iDevNum = 0; (pGraphicsDevice = EngpFindGraphicsDevice(NULL, iDevNum)) != NULL; ++iDevNum)
+    {
+        RtlInitUnicodeString(&ustrDevice, pGraphicsDevice->szWinDeviceName);
+        ppdev = EngpGetPDEV(&ustrDevice);
+        if (ppdev == NULL)
+            continue;
+
+        RtlZeroMemory(&ModeInfo, sizeof(ModeInfo));
+        if (EngDeviceIoControl((HANDLE)pGraphicsDevice->DeviceObject,
+                               IOCTL_VIDEO_QUERY_CURRENT_MODE,
+                               NULL, 0,
+                               &ModeInfo, sizeof(ModeInfo),
+                               &cbReturned) != ERROR_SUCCESS ||
+            cbReturned < sizeof(ModeInfo) ||
+            ModeInfo.VisScreenWidth == 0 || ModeInfo.VisScreenHeight == 0)
+        {
+            PDEVOBJ_vRelease(ppdev);
+            continue;
+        }
+
+        RtlZeroMemory(&dm, sizeof(dm));
+        dm.dmSize = sizeof(dm);
+        dm.dmFields = DM_PELSWIDTH | DM_PELSHEIGHT | DM_BITSPERPEL;
+        dm.dmPelsWidth = ModeInfo.VisScreenWidth;
+        dm.dmPelsHeight = ModeInfo.VisScreenHeight;
+        dm.dmBitsPerPel = ppdev->pdmwDev->dmBitsPerPel;
+        if (ModeInfo.Frequency != 0)
+        {
+            dm.dmFields |= DM_DISPLAYFREQUENCY;
+            dm.dmDisplayFrequency = ModeInfo.Frequency;
+        }
+        PDEVOBJ_vRefreshModeList(ppdev);
+        PDEVOBJ_vRelease(ppdev);
+
+        lResult = UserChangeDisplaySettings(&ustrDevice, &dm, CDS_RESET, NULL);
+        if (lResult != DISP_CHANGE_SUCCESSFUL)
+        {
+            ERR("Display %wZ: monitor change to %lux%lu failed (%ld)\n",
+                &ustrDevice, dm.dmPelsWidth, dm.dmPelsHeight, lResult);
+        }
+    }
+}
+
 VOID
 UserDisplayNotifyShutdown(
     PPROCESSINFO ppiCurrent)

@@ -2947,6 +2947,7 @@ DxgkpVidPnRebuildForHotPlugGeneration(
     BOOLEAN RecoveryRequired = FALSE;
     PDXGK_CHILD_PDO_EXTENSION MatchingChild = NULL;
     KIRQL ChildOldIrql;
+    BOOLEAN NotifyMonitorEvent = FALSE;
     NTSTATUS Status;
 
     PAGED_CODE();
@@ -3070,6 +3071,9 @@ DxgkpVidPnRebuildForHotPlugGeneration(
     KeReleaseMutex(&Adapter->VidPnMutex, FALSE);
     DxgkpDisplayPublishInitialMode(Adapter);
     DxgkVidPnDestroyDisplayModeCache(Adapter);
+    NotifyMonitorEvent = CommitResult.VidPnCommitted &&
+                         (Snapshot.Connected ||
+                          CommitResult.CommittedWidth != OldCommittedWidth || CommitResult.CommittedHeight != OldCommittedHeight);
     if (CommitResult.CommittedWidth != OldCommittedWidth || CommitResult.CommittedHeight != OldCommittedHeight ||
         (!Snapshot.Connected && !CommitResult.HeadlessDesktop))
         DxgkpDestroySharedPrimaryLocked(Adapter);
@@ -3100,6 +3104,8 @@ Cleanup:
         DxgkVidPnDestroy(OldVidPn);
     if (Candidate != NULL)
         DxgkVidPnDestroy(Candidate);
+    if (NotifyMonitorEvent && NT_SUCCESS(Status))
+        DxgkDisplayNotifyMonitorEvent(Adapter);
     return Status;
 }
 

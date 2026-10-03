@@ -112,4 +112,12 @@ InitDisplayDriver(
     IN PWSTR pwszDeviceName,
     IN PWSTR pwszRegKey);
 
+VOID
+NTAPI
+UserQueueDisplayConfigurationUpdate(VOID);
+
+VOID
+NTAPI
+co_UserProcessDisplayConfigurationUpdate(VOID);
+
 /* EOF */

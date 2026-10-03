@@ -492,6 +492,13 @@ VideoPortCallout(
             break;
         }
 
+        case VideoDxgkMonitorEventCallout:
+        {
+            UserQueueDisplayConfigurationUpdate();
+            CallbackParams->Status = STATUS_SUCCESS;
+            break;
+        }
+
         case VideoPowerNotifyCallout:
         case VideoDisplaySwitchCallout:
         case VideoEnumChildPdoNotifyCallout:
@@ -499,7 +506,6 @@ VideoPortCallout(
         case VideoChangeDisplaySettingsCallout:
         case VideoPnpNotifyCallout:
         case VideoDxgkDisplaySwitchCallout:
-        case VideoDxgkMonitorEventCallout:
         case VideoDxgkFindAdapterTdrCallout:
             ERR("VideoPortCallout: CalloutType 0x%x is UNIMPLEMENTED!\n", CallbackParams->CalloutType);
             CallbackParams->Status = STATUS_NOT_IMPLEMENTED;

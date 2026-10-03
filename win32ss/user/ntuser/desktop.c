@@ -1578,6 +1578,7 @@ VOID NTAPI DesktopThreadMain(VOID)
         {
             IntDispatchMessage(&Msg);
         }
+        co_UserProcessDisplayConfigurationUpdate();
     }
 
     UserLeave();
