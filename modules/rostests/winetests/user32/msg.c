@@ -13584,18 +13584,29 @@ struct sendmsg_info
     HWND  hwnd;
     DWORD timeout;
     DWORD ret;
+    DWORD flags;
     HANDLE ready;
+    HANDLE done;
+    HANDLE release;
 };
+
+static HANDLE send_msg_done, send_msg_release;
 
 static DWORD CALLBACK send_msg_thread( LPVOID arg )
 {
     struct sendmsg_info *info = arg;
     SetLastError( 0xdeadbeef );
     SetEvent( info->ready );
-    info->ret = SendMessageTimeoutA( info->hwnd, WM_USER, 0, 0, 0, info->timeout, NULL );
+    info->ret = SendMessageTimeoutA( info->hwnd, WM_USER, 0, 0, info->flags, info->timeout, NULL );
     if (!info->ret) ok( GetLastError() == ERROR_TIMEOUT ||
                         broken(GetLastError() == 0),  /* win9x */
                         "unexpected error %ld\n", GetLastError());
+    if (info->done) ok( SetEvent( info->done ), "SetEvent failed: %lu\n", GetLastError() );
+    if (info->release)
+    {
+        DWORD wait = WaitForSingleObject( info->release, 5000 );
+        ok( wait == WAIT_OBJECT_0, "Sender release wait returned %#lx\n", wait );
+    }
     return 0;
 }
 
@@ -13610,7 +13621,19 @@ static void wait_for_thread( HANDLE thread )
 
 static LRESULT WINAPI send_msg_delay_proc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam)
 {
-    if (message == WM_USER) Sleep(200);
+    if (message == WM_USER)
+    {
+        DWORD flags = InSendMessageEx( NULL );
+        DWORD wait;
+
+        ok( flags == ISMEX_SEND, "Wrong initial send flags %#lx\n", flags );
+        wait = WaitForSingleObject( send_msg_done, 5000 );
+        ok( wait == WAIT_OBJECT_0, "Sender wait returned %#lx\n", wait );
+        flags = InSendMessageEx( NULL );
+        ok( flags == (ISMEX_SEND | ISMEX_REPLIED), "Wrong timed-out send flags %#lx\n", flags );
+        ok( InSendMessage(), "InSendMessage returned false after timeout\n" );
+        ok( SetEvent( send_msg_release ), "SetEvent(release) failed: %lu\n", GetLastError() );
+    }
     return MsgCheckProcA( hwnd, message, wParam, lParam );
 }
 
@@ -13621,6 +13644,9 @@ static void test_SendMessageTimeout(void)
     DWORD tid;
     BOOL is_win9x;
 
+    info.flags = SMTO_NORMAL;
+    info.done = NULL;
+    info.release = NULL;
     info.ready = CreateEventA( NULL, 0, 0, NULL );
     info.hwnd = CreateWindowA( "TestWindowClass", NULL, WS_OVERLAPPEDWINDOW,
                                100, 100, 200, 200, 0, 0, 0, NULL);
@@ -13692,6 +13718,15 @@ static void test_SendMessageTimeout(void)
         ok_sequence( WmEmptySeq, "WmEmptySeq", FALSE );
     }
 
+    info.done = CreateEventA( NULL, TRUE, FALSE, NULL );
+    ok( info.done != NULL, "CreateEvent failed: %lu\n", GetLastError() );
+    if (!info.done) goto cleanup;
+    info.release = CreateEventA( NULL, TRUE, FALSE, NULL );
+    ok( info.release != NULL, "CreateEvent(release) failed: %lu\n", GetLastError() );
+    if (!info.release) goto cleanup;
+    send_msg_done = info.done;
+    send_msg_release = info.release;
+
     /* now check for timeout during message processing */
     SetWindowLongPtrA( info.hwnd, GWLP_WNDPROC, (LONG_PTR)send_msg_delay_proc );
     info.timeout = 100;
@@ -13704,8 +13739,30 @@ static void test_SendMessageTimeout(void)
     /* we should time out but still get the message */
     ok( info.ret == 0, "SendMessageTimeout failed\n" );
     ok_sequence( WmUser, "WmUser", FALSE );
+    ok( InSendMessageEx( NULL ) == ISMEX_NOSEND, "Unexpected send state outside callback\n" );
 
+    info.flags = SMTO_BLOCK;
+    info.ret = 0xdeadbeef;
+    ok( ResetEvent( info.done ), "ResetEvent failed: %lu\n", GetLastError() );
+    ok( ResetEvent( info.release ), "ResetEvent(release) failed: %lu\n", GetLastError() );
+    ResetEvent( info.ready );
+    thread = CreateThread( NULL, 0, send_msg_thread, &info, 0, &tid );
+    ok( thread != NULL, "CreateThread failed: %lu\n", GetLastError() );
+    if (thread)
+    {
+        WaitForSingleObject( info.ready, INFINITE );
+        wait_for_thread( thread );
+        CloseHandle( thread );
+        ok( info.ret == 0, "SendMessageTimeout succeeded\n" );
+        ok_sequence( WmUser, "WmUser", FALSE );
+        ok( InSendMessageEx( NULL ) == ISMEX_NOSEND, "Unexpected send state outside callback\n" );
+    }
+
+cleanup:
     DestroyWindow( info.hwnd );
+    if (info.done) CloseHandle( info.done );
+    if (info.release) ok( CloseHandle( info.release ), "CloseHandle(release) failed: %lu\n", GetLastError() );
+    send_msg_done = send_msg_release = NULL;
     CloseHandle( info.ready );
 }
 
@@ -21332,6 +21389,731 @@ static void test_InSendMessage(void)
     UnregisterClassA( "InSendMessage_test", GetModuleHandleA(NULL) );
 }
 
+struct notimeout_info
+{
+    HWND hwnd;
+    HANDLE done, release;
+    DWORD flags, delay, count, before, after, done_wait, error;
+    LRESULT ret;
+    DWORD_PTR result;
+};
+
+static LRESULT CALLBACK notimeout_test_proc( HWND hwnd, UINT msg, WPARAM wp, LPARAM lp )
+{
+    struct notimeout_info *info = (void *)GetWindowLongPtrA( hwnd, GWLP_USERDATA );
+    DWORD count;
+
+    if (msg == WM_USER && info)
+    {
+        count = ++info->count;
+        if (count == 1)
+        {
+            info->before = InSendMessageEx( NULL );
+            Sleep( info->delay );
+            info->after = InSendMessageEx( NULL );
+            info->done_wait = WaitForSingleObject( info->done, 0 );
+        }
+        return 0x6000 + count;
+    }
+    return DefWindowProcA( hwnd, msg, wp, lp );
+}
+
+static DWORD WINAPI notimeout_test_thread( void *arg )
+{
+    struct notimeout_info *info = arg;
+
+    SetLastError( 0xdeadbeef );
+    info->ret = SendMessageTimeoutA( info->hwnd, WM_USER, 0, 0, info->flags, 200, &info->result );
+    info->error = GetLastError();
+    if (!SetEvent( info->done )) return 1;
+    if (WaitForSingleObject( info->release, 5000 ) != WAIT_OBJECT_0) return 2;
+    return 0;
+}
+
+static void test_SendMessageTimeout_notimeout(void)
+{
+    struct notimeout_info info;
+    WNDCLASSA cls;
+    HWND hwnd;
+    HANDLE thread;
+    MSG msg;
+    DWORD code, wait, start;
+    unsigned int mode;
+    BOOL ret;
+
+    memset( &cls, 0, sizeof(cls) );
+    cls.lpfnWndProc = notimeout_test_proc;
+    cls.hInstance = GetModuleHandleA( NULL );
+    cls.lpszClassName = "SendMessageTimeout_notimeout_test";
+    ret = RegisterClassA( &cls );
+    ok( ret, "RegisterClass failed: %lu\n", GetLastError() );
+    if (!ret) return;
+    hwnd = CreateWindowA( cls.lpszClassName, NULL, 0, 0, 0, 0, 0, NULL, NULL, cls.hInstance, NULL );
+    ok( hwnd != NULL, "CreateWindow failed: %lu\n", GetLastError() );
+    if (!hwnd) goto unregister;
+
+    for (mode = 0; mode < 4; ++mode)
+    {
+        trace( "SendMessageTimeout notimeout case %u\n", mode );
+        memset( &info, 0, sizeof(info) );
+        info.hwnd = hwnd;
+        info.flags = SMTO_NOTIMEOUTIFNOTHUNG | (mode % 2 ? SMTO_BLOCK : SMTO_NORMAL);
+        info.delay = mode < 2 ? 600 : 0;
+        info.result = 0xcccccccc;
+        info.done_wait = WAIT_FAILED;
+        info.done = CreateEventA( NULL, TRUE, FALSE, NULL );
+        info.release = CreateEventA( NULL, TRUE, FALSE, NULL );
+        ok( info.done && info.release, "Case %u CreateEvent failed: %lu\n", mode, GetLastError() );
+        thread = NULL;
+        if (!info.done || !info.release) goto close_events;
+        SetWindowLongPtrA( hwnd, GWLP_USERDATA, (LONG_PTR)&info );
+        thread = CreateThread( NULL, 0, notimeout_test_thread, &info, 0, NULL );
+        ok( thread != NULL, "Case %u CreateThread failed: %lu\n", mode, GetLastError() );
+        if (!thread) goto close_events;
+        start = GetTickCount();
+        do
+        {
+            wait = MsgWaitForMultipleObjects( 1, &info.done, FALSE, 50, QS_ALLINPUT );
+            if (wait == WAIT_OBJECT_0 + 1)
+                while (PeekMessageA( &msg, NULL, 0, 0, PM_REMOVE )) DispatchMessageA( &msg );
+        } while ((wait == WAIT_OBJECT_0 + 1 || wait == WAIT_TIMEOUT) && GetTickCount() - start < 5000);
+        ok( wait == WAIT_OBJECT_0, "Case %u completion wait %#lx\n", mode, wait );
+        while (PeekMessageA( &msg, NULL, 0, 0, PM_REMOVE )) DispatchMessageA( &msg );
+        ok( SetEvent( info.release ), "Case %u SetEvent(release) failed: %lu\n", mode, GetLastError() );
+        wait_for_thread( thread );
+        code = 0xdeadbeef;
+        ret = GetExitCodeThread( thread, &code );
+        ok( ret && !code, "Case %u sender exit %lu, GetExitCodeThread %d\n", mode, code, ret );
+        ok( info.ret, "Case %u SendMessageTimeout failed: %lu\n", mode, info.error );
+        ok( info.result == 0x6001, "Case %u result %llx\n", mode, (unsigned long long)info.result );
+        ok( info.count == 1, "Case %u deliveries %lu\n", mode, info.count );
+        ok( info.before == ISMEX_SEND, "Case %u initial flags %#lx\n", mode, info.before );
+        ok( info.after == ISMEX_SEND, "Case %u flags after delay %#lx\n", mode, info.after );
+        ok( info.done_wait == WAIT_TIMEOUT, "Case %u sender completed during delivery: %#lx\n", mode, info.done_wait );
+        ok( CloseHandle( thread ), "Case %u CloseHandle(thread) failed: %lu\n", mode, GetLastError() );
+close_events:
+        SetWindowLongPtrA( hwnd, GWLP_USERDATA, 0 );
+        if (info.done) ok( CloseHandle( info.done ), "Case %u CloseHandle(done) failed: %lu\n", mode, GetLastError() );
+        if (info.release) ok( CloseHandle( info.release ), "Case %u CloseHandle(release) failed: %lu\n", mode, GetLastError() );
+        if (!thread) break;
+    }
+    ok( DestroyWindow( hwnd ), "DestroyWindow failed: %lu\n", GetLastError() );
+unregister:
+    ok( UnregisterClassA( cls.lpszClassName, cls.hInstance ), "UnregisterClass failed: %lu\n", GetLastError() );
+}
+
+struct reply_message_info
+{
+    HWND hwnd;
+    HANDLE done;
+    unsigned int mode, count;
+    DWORD wait, reply_error, second_error, send_error;
+    BOOL reply, second_reply;
+    LRESULT send_ret;
+    DWORD_PTR result;
+};
+
+static LRESULT CALLBACK reply_message_proc( HWND hwnd, UINT msg, WPARAM wp, LPARAM lp )
+{
+    struct reply_message_info *info = (void *)GetWindowLongPtrA( hwnd, GWLP_USERDATA );
+
+    if (msg == WM_USER && info)
+    {
+        info->count++;
+        if (info->mode == 3) info->wait = WaitForSingleObject( info->done, 2000 );
+        SetLastError( 0xdeadbeef );
+        info->reply = ReplyMessage( 0x1234 );
+        info->reply_error = GetLastError();
+        if (info->mode == 4)
+        {
+            SetLastError( 0xdeadbeef );
+            info->second_reply = ReplyMessage( 0xabcd );
+            info->second_error = GetLastError();
+        }
+        if (info->mode != 3) info->wait = WaitForSingleObject( info->done, 1000 );
+        return 0x5678;
+    }
+    return DefWindowProcA( hwnd, msg, wp, lp );
+}
+
+static DWORD WINAPI reply_message_thread( void *arg )
+{
+    struct reply_message_info *info = arg;
+
+    SetLastError( 0xdeadbeef );
+    if (info->mode == 0 || info->mode == 4)
+        info->send_ret = SendMessageA( info->hwnd, WM_USER, 0, 0 );
+    else if (info->mode == 5)
+        info->send_ret = SendNotifyMessageA( info->hwnd, WM_USER, 0, 0 );
+    else
+        info->send_ret = SendMessageTimeoutA( info->hwnd, WM_USER, 0, 0,
+                                             info->mode == 2 ? SMTO_BLOCK : SMTO_NORMAL,
+                                             info->mode == 3 ? 100 : 2000, &info->result );
+    info->send_error = GetLastError();
+    return SetEvent( info->done ) ? 0 : 1;
+}
+
+static void test_ReplyMessage(void)
+{
+    struct reply_message_info info;
+    WNDCLASSA cls;
+    HANDLE thread;
+    HWND hwnd;
+    MSG msg;
+    DWORD code;
+    unsigned int mode;
+    BOOL ret;
+
+    memset( &cls, 0, sizeof(cls) );
+    cls.lpfnWndProc = reply_message_proc;
+    cls.hInstance = GetModuleHandleA( NULL );
+    cls.lpszClassName = "ReplyMessage_test";
+    ret = RegisterClassA( &cls );
+    ok( ret, "RegisterClass failed: %lu\n", GetLastError() );
+    if (!ret) return;
+    hwnd = CreateWindowA( cls.lpszClassName, NULL, 0, 0, 0, 0, 0, NULL, NULL, cls.hInstance, NULL );
+    ok( hwnd != NULL, "CreateWindow failed: %lu\n", GetLastError() );
+    if (!hwnd) goto unregister;
+
+    for (mode = 0; mode < 6; ++mode)
+    {
+        trace( "ReplyMessage case %u\n", mode );
+        memset( &info, 0, sizeof(info) );
+        info.mode = mode;
+        info.hwnd = hwnd;
+        info.result = 0xcccccccc;
+        info.wait = WAIT_FAILED;
+        info.done = CreateEventA( NULL, TRUE, FALSE, NULL );
+        ok( info.done != NULL, "Case %u CreateEvent failed: %lu\n", mode, GetLastError() );
+        if (!info.done) break;
+        SetWindowLongPtrA( hwnd, GWLP_USERDATA, (LONG_PTR)&info );
+        thread = CreateThread( NULL, 0, reply_message_thread, &info, 0, NULL );
+        ok( thread != NULL, "Case %u CreateThread failed: %lu\n", mode, GetLastError() );
+        if (!thread)
+        {
+            SetWindowLongPtrA( hwnd, GWLP_USERDATA, 0 );
+            CloseHandle( info.done );
+            break;
+        }
+        wait_for_thread( thread );
+        while (PeekMessageA( &msg, NULL, 0, 0, PM_REMOVE )) DispatchMessageA( &msg );
+        code = 0xdeadbeef;
+        ret = GetExitCodeThread( thread, &code );
+        ok( ret && !code, "Case %u sender exit %lu, GetExitCodeThread %d\n", mode, code, ret );
+        ok( info.count == 1, "Case %u callback count %u\n", mode, info.count );
+        ok( info.wait == WAIT_OBJECT_0, "Case %u sender completion before callback return: %#lx\n",
+            mode, info.wait );
+        ok( info.reply == (mode != 3), "Case %u ReplyMessage returned %d\n", mode, info.reply );
+        ok( info.reply_error == 0xdeadbeef, "Case %u ReplyMessage error %#lx\n", mode, info.reply_error );
+        if (mode == 4)
+        {
+            ok( !info.second_reply, "Second ReplyMessage succeeded\n" );
+            ok( info.second_error == 0xdeadbeef, "Second ReplyMessage error %#lx\n", info.second_error );
+        }
+        if (mode == 0 || mode == 4)
+            ok( info.send_ret == 0x1234, "Case %u SendMessage result %llx\n",
+                mode, (unsigned long long)info.send_ret );
+        else
+            ok( info.send_ret == (mode != 3), "Case %u send return %lld\n", mode, (long long)info.send_ret );
+        ok( info.send_error == (mode == 3 ? ERROR_TIMEOUT : 0xdeadbeef),
+            "Case %u send error %#lx\n", mode, info.send_error );
+        if (mode == 1 || mode == 2 || mode == 3)
+            ok( info.result == (mode == 3 ? 0 : 0x1234), "Case %u send result %llx\n",
+                mode, (unsigned long long)info.result );
+        SetWindowLongPtrA( hwnd, GWLP_USERDATA, 0 );
+        ok( CloseHandle( thread ), "Case %u CloseHandle(thread) failed: %lu\n", mode, GetLastError() );
+        ok( CloseHandle( info.done ), "Case %u CloseHandle(done) failed: %lu\n", mode, GetLastError() );
+    }
+    ok( DestroyWindow( hwnd ), "DestroyWindow failed: %lu\n", GetLastError() );
+unregister:
+    ok( UnregisterClassA( cls.lpszClassName, cls.hInstance ), "UnregisterClass failed: %lu\n", GetLastError() );
+}
+
+static struct
+{
+    HWND hwnd;
+    HANDLE callback_done, receiver_done;
+    unsigned int mode, count, callback_count;
+    BOOL cross_thread, reply, second_reply, send_ret;
+    DWORD entry_flags, reply_flags, reply_error, second_error, send_error;
+    DWORD receiver_wait, callback_wait, sender_wait, callback_flags;
+    DWORD sender_id, callback_id, callback_failure, receiver_failure;
+    LRESULT result;
+} callback_message;
+
+static void CALLBACK callback_message_complete( HWND hwnd, UINT msg, ULONG_PTR data, LRESULT result )
+{
+    callback_message.callback_count++;
+    callback_message.callback_id = GetCurrentThreadId();
+    callback_message.callback_flags = InSendMessageEx( NULL );
+    callback_message.result = result;
+    callback_message.callback_wait = WaitForSingleObject( callback_message.receiver_done, 0 );
+    if (hwnd != callback_message.hwnd || msg != WM_USER || data != 0x13579bdf)
+        callback_message.callback_failure++;
+    if (!SetEvent( callback_message.callback_done )) callback_message.callback_failure++;
+}
+
+static LRESULT CALLBACK callback_message_proc( HWND hwnd, UINT msg, WPARAM wp, LPARAM lp )
+{
+    if (hwnd == callback_message.hwnd && msg == WM_USER)
+    {
+        callback_message.count++;
+        callback_message.entry_flags = InSendMessageEx( NULL );
+        if (callback_message.mode)
+        {
+            SetLastError( 0xdeadbeef );
+            callback_message.reply = ReplyMessage( 0x1234 );
+            callback_message.reply_error = GetLastError();
+            if (callback_message.mode == 2)
+            {
+                SetLastError( 0xdeadbeef );
+                callback_message.second_reply = ReplyMessage( 0xabcd );
+                callback_message.second_error = GetLastError();
+            }
+        }
+        callback_message.reply_flags = InSendMessageEx( NULL );
+        if (callback_message.cross_thread)
+            callback_message.receiver_wait = WaitForSingleObject( callback_message.callback_done,
+                                                                 callback_message.mode ? 1000 : 0 );
+        if (!SetEvent( callback_message.receiver_done )) callback_message.receiver_failure++;
+        return 0x5678;
+    }
+    return DefWindowProcA( hwnd, msg, wp, lp );
+}
+
+static DWORD WINAPI callback_message_thread( void *arg )
+{
+    MSG msg;
+    DWORD start, wait;
+
+    callback_message.sender_id = GetCurrentThreadId();
+    SetLastError( 0xdeadbeef );
+    callback_message.send_ret = SendMessageCallbackA( callback_message.hwnd, WM_USER, 0, 0,
+                                                     callback_message_complete, 0x13579bdf );
+    callback_message.send_error = GetLastError();
+    if (!callback_message.send_ret) return 1;
+    start = GetTickCount();
+    do
+    {
+        wait = MsgWaitForMultipleObjects( 1, &callback_message.callback_done, FALSE, 50, QS_ALLINPUT );
+        if (wait == WAIT_OBJECT_0 + 1)
+            while (PeekMessageA( &msg, NULL, 0, 0, PM_REMOVE )) DispatchMessageA( &msg );
+    } while ((wait == WAIT_OBJECT_0 + 1 || wait == WAIT_TIMEOUT) && GetTickCount() - start < 5000);
+    if (wait != WAIT_OBJECT_0) return 2;
+    callback_message.sender_wait = WaitForSingleObject( callback_message.receiver_done, 2000 );
+    return callback_message.sender_wait == WAIT_OBJECT_0 ? 0 : 3;
+}
+
+static void test_ReplyMessage_callback(void)
+{
+    WNDCLASSA cls;
+    HANDLE thread;
+    HWND hwnd;
+    DWORD code, flags;
+    unsigned int index;
+    BOOL ret, replied;
+
+    memset( &cls, 0, sizeof(cls) );
+    cls.lpfnWndProc = callback_message_proc;
+    cls.hInstance = GetModuleHandleA( NULL );
+    cls.lpszClassName = "ReplyMessage_callback_test";
+    ret = RegisterClassA( &cls );
+    ok( ret, "RegisterClass failed: %lu\n", GetLastError() );
+    if (!ret) return;
+    hwnd = CreateWindowA( cls.lpszClassName, NULL, 0, 0, 0, 0, 0, NULL, NULL, cls.hInstance, NULL );
+    ok( hwnd != NULL, "CreateWindow failed: %lu\n", GetLastError() );
+    if (!hwnd) goto unregister;
+
+    for (index = 0; index < 6; ++index)
+    {
+        trace( "ReplyMessage callback case %u\n", index );
+        memset( &callback_message, 0, sizeof(callback_message) );
+        callback_message.hwnd = hwnd;
+        callback_message.mode = index % 3;
+        callback_message.cross_thread = index / 3;
+        callback_message.callback_done = CreateEventA( NULL, TRUE, FALSE, NULL );
+        callback_message.receiver_done = CreateEventA( NULL, TRUE, FALSE, NULL );
+        ok( callback_message.callback_done && callback_message.receiver_done,
+            "Case %u CreateEvent failed: %lu\n", index, GetLastError() );
+        if (!callback_message.callback_done || !callback_message.receiver_done)
+        {
+            if (callback_message.callback_done) CloseHandle( callback_message.callback_done );
+            if (callback_message.receiver_done) CloseHandle( callback_message.receiver_done );
+            break;
+        }
+        if (callback_message.cross_thread)
+        {
+            thread = CreateThread( NULL, 0, callback_message_thread, NULL, 0, NULL );
+            ok( thread != NULL, "Case %u CreateThread failed: %lu\n", index, GetLastError() );
+            if (!thread)
+            {
+                CloseHandle( callback_message.receiver_done );
+                CloseHandle( callback_message.callback_done );
+                break;
+            }
+            wait_for_thread( thread );
+            code = 0xdeadbeef;
+            ret = GetExitCodeThread( thread, &code );
+            ok( ret, "Case %u GetExitCodeThread failed: %lu\n", index, GetLastError() );
+            ok( CloseHandle( thread ), "Case %u CloseHandle(thread) failed: %lu\n", index, GetLastError() );
+        }
+        else code = callback_message_thread( NULL );
+        replied = callback_message.cross_thread && callback_message.mode;
+        flags = callback_message.cross_thread ? ISMEX_CALLBACK : ISMEX_NOSEND;
+        ok( !code, "Case %u worker exit %lu\n", index, code );
+        ok( callback_message.send_ret, "Case %u SendMessageCallback failed: %lu\n", index, callback_message.send_error );
+        ok( callback_message.send_error == 0xdeadbeef, "Case %u send error %#lx\n", index, callback_message.send_error );
+        ok( callback_message.count == 1 && callback_message.callback_count == 1,
+            "Case %u deliveries %u, callbacks %u\n", index, callback_message.count, callback_message.callback_count );
+        ok( callback_message.entry_flags == flags, "Case %u entry flags %#lx\n", index, callback_message.entry_flags );
+        ok( callback_message.reply_flags == (flags | (replied ? ISMEX_REPLIED : 0)),
+            "Case %u reply flags %#lx\n", index, callback_message.reply_flags );
+        if (callback_message.mode)
+        {
+            ok( callback_message.reply == replied, "Case %u ReplyMessage returned %d\n", index, callback_message.reply );
+            ok( callback_message.reply_error == 0xdeadbeef, "Case %u reply error %#lx\n", index, callback_message.reply_error );
+        }
+        if (callback_message.mode == 2)
+        {
+            ok( !callback_message.second_reply, "Case %u repeated reply succeeded\n", index );
+            ok( callback_message.second_error == 0xdeadbeef, "Case %u repeated reply error %#lx\n", index, callback_message.second_error );
+        }
+        if (callback_message.cross_thread)
+            ok( callback_message.receiver_wait == (replied ? WAIT_OBJECT_0 : WAIT_TIMEOUT),
+                "Case %u receiver wait %#lx\n", index, callback_message.receiver_wait );
+        ok( callback_message.callback_wait == (replied ? WAIT_TIMEOUT : WAIT_OBJECT_0),
+            "Case %u receiver completion at callback %#lx\n", index, callback_message.callback_wait );
+        ok( callback_message.result == (replied ? 0x1234 : 0x5678),
+            "Case %u callback result %llx\n", index, (unsigned long long)callback_message.result );
+        ok( callback_message.callback_flags == ISMEX_NOSEND,
+            "Case %u completion callback flags %#lx\n", index, callback_message.callback_flags );
+        ok( callback_message.sender_id == callback_message.callback_id,
+            "Case %u sender thread %lu, callback thread %lu\n", index,
+            callback_message.sender_id, callback_message.callback_id );
+        ok( callback_message.sender_wait == WAIT_OBJECT_0, "Case %u sender wait %#lx\n", index, callback_message.sender_wait );
+        ok( !callback_message.callback_failure && !callback_message.receiver_failure,
+            "Case %u callback failures %lu, receiver failures %lu\n", index,
+            callback_message.callback_failure, callback_message.receiver_failure );
+        ok( CloseHandle( callback_message.receiver_done ), "Case %u CloseHandle(receiver_done) failed: %lu\n", index, GetLastError() );
+        ok( CloseHandle( callback_message.callback_done ), "Case %u CloseHandle(callback_done) failed: %lu\n", index, GetLastError() );
+        if (code) break;
+    }
+    ok( DestroyWindow( hwnd ), "DestroyWindow failed: %lu\n", GetLastError() );
+unregister:
+    ok( UnregisterClassA( cls.lpszClassName, cls.hInstance ), "UnregisterClass failed: %lu\n", GetLastError() );
+}
+
+struct reply_lifetime_info
+{
+    HWND hwnd;
+    HANDLE thread, done, allow_exit;
+    unsigned int mode, joined, count;
+    DWORD entry_flags, reply_flags, final_flags;
+    DWORD wait, thread_wait, thread_exit, reply_error, second_error, send_error, failures;
+    BOOL reply, second_reply;
+    LRESULT send_ret;
+    DWORD_PTR result;
+};
+
+static LRESULT CALLBACK reply_lifetime_proc( HWND hwnd, UINT msg, WPARAM wp, LPARAM lp )
+{
+    struct reply_lifetime_info *info = (void *)GetWindowLongPtrA( hwnd, GWLP_USERDATA );
+
+    if (msg == WM_USER && info)
+    {
+        info->count++;
+        info->entry_flags = InSendMessageEx( NULL );
+        if (info->mode == 3) info->wait = WaitForSingleObject( info->done, 2000 );
+        SetLastError( 0xdeadbeef );
+        info->reply = ReplyMessage( 0x1234 );
+        info->reply_error = GetLastError();
+        if (info->mode == 4)
+        {
+            SetLastError( 0xdeadbeef );
+            info->second_reply = ReplyMessage( 0xabcd );
+            info->second_error = GetLastError();
+        }
+        info->reply_flags = InSendMessageEx( NULL );
+        if (info->mode != 3) info->wait = WaitForSingleObject( info->done, 2000 );
+        if (info->joined && !SetEvent( info->allow_exit )) info->failures++;
+        info->thread_wait = WaitForSingleObject( info->thread, info->joined ? 2000 : 0 );
+        if (!GetExitCodeThread( info->thread, &info->thread_exit )) info->failures++;
+        info->final_flags = InSendMessageEx( NULL );
+        if (!info->joined && !SetEvent( info->allow_exit )) info->failures++;
+        return 0x5678;
+    }
+    return DefWindowProcA( hwnd, msg, wp, lp );
+}
+
+static DWORD WINAPI reply_lifetime_thread( void *arg )
+{
+    struct reply_lifetime_info *info = arg;
+
+    SetLastError( 0xdeadbeef );
+    if (info->mode == 0 || info->mode == 4)
+        info->send_ret = SendMessageA( info->hwnd, WM_USER, 0, 0 );
+    else if (info->mode == 5)
+        info->send_ret = SendNotifyMessageA( info->hwnd, WM_USER, 0, 0 );
+    else
+        info->send_ret = SendMessageTimeoutA( info->hwnd, WM_USER, 0, 0,
+                                             info->mode == 2 ? SMTO_BLOCK : SMTO_NORMAL,
+                                             info->mode == 3 ? 100 : 2000, &info->result );
+    info->send_error = GetLastError();
+    if (!SetEvent( info->done )) return 1;
+    if (WaitForSingleObject( info->allow_exit, 5000 ) != WAIT_OBJECT_0) return 2;
+    return 0;
+}
+
+static void test_ReplyMessage_lifetime(void)
+{
+    struct reply_lifetime_info info;
+    WNDCLASSA cls;
+    HWND hwnd;
+    MSG msg;
+    DWORD code, expected;
+    unsigned int index;
+    BOOL ret;
+
+    memset( &cls, 0, sizeof(cls) );
+    cls.lpfnWndProc = reply_lifetime_proc;
+    cls.hInstance = GetModuleHandleA( NULL );
+    cls.lpszClassName = "ReplyMessage_lifetime_test";
+    ret = RegisterClassA( &cls );
+    ok( ret, "RegisterClass failed: %lu\n", GetLastError() );
+    if (!ret) return;
+    hwnd = CreateWindowA( cls.lpszClassName, NULL, 0, 0, 0, 0, 0, NULL, NULL, cls.hInstance, NULL );
+    ok( hwnd != NULL, "CreateWindow failed: %lu\n", GetLastError() );
+    if (!hwnd) goto unregister;
+
+    for (index = 0; index < 12; ++index)
+    {
+        trace( "ReplyMessage lifetime case %u\n", index );
+        memset( &info, 0, sizeof(info) );
+        info.hwnd = hwnd;
+        info.mode = index % 6;
+        info.joined = index / 6;
+        info.result = 0xcccccccc;
+        info.wait = info.thread_wait = WAIT_FAILED;
+        info.thread_exit = 0xcccccccc;
+        info.done = CreateEventA( NULL, TRUE, FALSE, NULL );
+        info.allow_exit = CreateEventA( NULL, TRUE, FALSE, NULL );
+        ok( info.done && info.allow_exit, "Case %u CreateEvent failed: %lu\n", index, GetLastError() );
+        if (!info.done || !info.allow_exit) goto close_events;
+        SetWindowLongPtrA( hwnd, GWLP_USERDATA, (LONG_PTR)&info );
+        info.thread = CreateThread( NULL, 0, reply_lifetime_thread, &info, 0, NULL );
+        ok( info.thread != NULL, "Case %u CreateThread failed: %lu\n", index, GetLastError() );
+        if (!info.thread) goto close_events;
+        wait_for_thread( info.thread );
+        while (PeekMessageA( &msg, NULL, 0, 0, PM_REMOVE )) DispatchMessageA( &msg );
+        code = 0xdeadbeef;
+        ret = GetExitCodeThread( info.thread, &code );
+        ok( ret && !code, "Case %u sender exit %lu, GetExitCodeThread %d\n", index, code, ret );
+        ok( info.count == 1, "Case %u deliveries %u\n", index, info.count );
+        ok( !info.failures, "Case %u control failures %lu\n", index, info.failures );
+        ok( info.wait == WAIT_OBJECT_0, "Case %u sender completion wait %#lx\n", index, info.wait );
+        expected = info.mode == 5 ? ISMEX_NOTIFY : ISMEX_SEND;
+        ok( info.entry_flags == expected, "Case %u entry flags %#lx\n", index, info.entry_flags );
+        expected |= info.mode == 5 ? 0 : ISMEX_REPLIED;
+        ok( info.reply_flags == expected, "Case %u reply flags %#lx\n", index, info.reply_flags );
+        if (info.joined && info.mode != 5) expected = ISMEX_NOTIFY | ISMEX_REPLIED;
+        ok( info.final_flags == expected, "Case %u final flags %#lx, expected %#lx\n", index, info.final_flags, expected );
+        ok( info.thread_wait == (info.joined ? WAIT_OBJECT_0 : WAIT_TIMEOUT),
+            "Case %u sender lifetime wait %#lx\n", index, info.thread_wait );
+        ok( info.thread_exit == (info.joined ? 0 : STILL_ACTIVE),
+            "Case %u sender lifetime exit %lu\n", index, info.thread_exit );
+        ok( info.reply == (info.mode != 3), "Case %u ReplyMessage returned %d\n", index, info.reply );
+        ok( info.reply_error == 0xdeadbeef, "Case %u reply error %#lx\n", index, info.reply_error );
+        if (info.mode == 4)
+        {
+            ok( !info.second_reply, "Case %u repeated reply succeeded\n", index );
+            ok( info.second_error == 0xdeadbeef, "Case %u repeated reply error %#lx\n", index, info.second_error );
+        }
+        if (info.mode == 0 || info.mode == 4)
+            ok( info.send_ret == 0x1234, "Case %u SendMessage result %llx\n", index, (unsigned long long)info.send_ret );
+        else
+            ok( info.send_ret == (info.mode != 3), "Case %u send return %lld\n", index, (long long)info.send_ret );
+        ok( info.send_error == (info.mode == 3 ? ERROR_TIMEOUT : 0xdeadbeef),
+            "Case %u send error %#lx\n", index, info.send_error );
+        if (info.mode == 1 || info.mode == 2 || info.mode == 3)
+            ok( info.result == (info.mode == 3 ? 0 : 0x1234), "Case %u send result %llx\n", index, (unsigned long long)info.result );
+        ok( CloseHandle( info.thread ), "Case %u CloseHandle(thread) failed: %lu\n", index, GetLastError() );
+close_events:
+        SetWindowLongPtrA( hwnd, GWLP_USERDATA, 0 );
+        if (info.done) ok( CloseHandle( info.done ), "Case %u CloseHandle(done) failed: %lu\n", index, GetLastError() );
+        if (info.allow_exit) ok( CloseHandle( info.allow_exit ), "Case %u CloseHandle(allow_exit) failed: %lu\n", index, GetLastError() );
+        if (!info.thread) break;
+    }
+    ok( DestroyWindow( hwnd ), "DestroyWindow failed: %lu\n", GetLastError() );
+unregister:
+    ok( UnregisterClassA( cls.lpszClassName, cls.hInstance ), "UnregisterClass failed: %lu\n", GetLastError() );
+}
+
+static struct
+{
+    HWND hwnd;
+    HANDLE thread, allow_exit, callback_done;
+    unsigned int mode, count, callback_count;
+    DWORD entry_flags, exited_flags, reply_flags, final_flags;
+    DWORD wait, thread_exit, reply_error, second_error, send_error;
+    DWORD sender_id, callback_id, callback_flags, failures;
+    BOOL reply, second_reply, send_ret;
+    LRESULT result;
+} callback_exit;
+
+static void CALLBACK callback_exit_complete( HWND hwnd, UINT msg, ULONG_PTR data, LRESULT result )
+{
+    callback_exit.callback_count++;
+    callback_exit.callback_id = GetCurrentThreadId();
+    callback_exit.callback_flags = InSendMessageEx( NULL );
+    callback_exit.result = result;
+    ok( hwnd == callback_exit.hwnd && msg == WM_USER && data == 0x13579bdf,
+        "Unexpected completion arguments %p, %#x, %#llx\n", hwnd, msg, (unsigned long long)data );
+    ok( SetEvent( callback_exit.callback_done ), "SetEvent(callback_done) failed: %lu\n", GetLastError() );
+}
+
+static LRESULT CALLBACK callback_exit_proc( HWND hwnd, UINT msg, WPARAM wp, LPARAM lp )
+{
+    if (hwnd == callback_exit.hwnd && msg == WM_USER)
+    {
+        callback_exit.count++;
+        callback_exit.entry_flags = InSendMessageEx( NULL );
+        if (callback_exit.mode == 2)
+        {
+            SetLastError( 0xdeadbeef );
+            callback_exit.reply = ReplyMessage( 0x1234 );
+            callback_exit.reply_error = GetLastError();
+            callback_exit.reply_flags = InSendMessageEx( NULL );
+        }
+        if (!SetEvent( callback_exit.allow_exit )) callback_exit.failures++;
+        callback_exit.wait = WaitForSingleObject( callback_exit.thread, 4000 );
+        if (!GetExitCodeThread( callback_exit.thread, &callback_exit.thread_exit )) callback_exit.failures++;
+        callback_exit.exited_flags = InSendMessageEx( NULL );
+        if (callback_exit.mode != 2)
+        {
+            SetLastError( 0xdeadbeef );
+            callback_exit.reply = ReplyMessage( 0x1234 );
+            callback_exit.reply_error = GetLastError();
+            callback_exit.reply_flags = InSendMessageEx( NULL );
+        }
+        else
+        {
+            SetLastError( 0xdeadbeef );
+            callback_exit.second_reply = ReplyMessage( 0xabcd );
+            callback_exit.second_error = GetLastError();
+        }
+        callback_exit.final_flags = InSendMessageEx( NULL );
+        return 0x5678;
+    }
+    return DefWindowProcA( hwnd, msg, wp, lp );
+}
+
+static DWORD WINAPI callback_exit_thread( void *arg )
+{
+    MSG msg;
+    DWORD start, wait;
+
+    callback_exit.sender_id = GetCurrentThreadId();
+    SetLastError( 0xdeadbeef );
+    callback_exit.send_ret = SendMessageCallbackA( callback_exit.hwnd, WM_USER, 0, 0,
+                                                  callback_exit_complete, 0x13579bdf );
+    callback_exit.send_error = GetLastError();
+    if (!callback_exit.send_ret) return 1;
+    if (callback_exit.mode == 2)
+    {
+        start = GetTickCount();
+        do
+        {
+            wait = MsgWaitForMultipleObjects( 1, &callback_exit.callback_done, FALSE, 50, QS_ALLINPUT );
+            if (wait == WAIT_OBJECT_0 + 1)
+                while (PeekMessageA( &msg, NULL, 0, 0, PM_REMOVE )) DispatchMessageA( &msg );
+        } while ((wait == WAIT_OBJECT_0 + 1 || wait == WAIT_TIMEOUT) && GetTickCount() - start < 5000);
+        if (wait != WAIT_OBJECT_0) return 2;
+    }
+    if (callback_exit.mode && WaitForSingleObject( callback_exit.allow_exit, 5000 ) != WAIT_OBJECT_0) return 3;
+    return 0;
+}
+
+static void test_ReplyMessage_callback_exit(void)
+{
+    WNDCLASSA cls;
+    HWND hwnd;
+    MSG msg;
+    DWORD code, wait;
+    unsigned int mode;
+    BOOL ret;
+
+    memset( &cls, 0, sizeof(cls) );
+    cls.lpfnWndProc = callback_exit_proc;
+    cls.hInstance = GetModuleHandleA( NULL );
+    cls.lpszClassName = "ReplyMessage_callback_exit_test";
+    ret = RegisterClassA( &cls );
+    ok( ret, "RegisterClass failed: %lu\n", GetLastError() );
+    if (!ret) return;
+    hwnd = CreateWindowA( cls.lpszClassName, NULL, 0, 0, 0, 0, 0, NULL, NULL, cls.hInstance, NULL );
+    ok( hwnd != NULL, "CreateWindow failed: %lu\n", GetLastError() );
+    if (!hwnd) goto unregister;
+
+    for (mode = 0; mode < 3; ++mode)
+    {
+        trace( "ReplyMessage callback exit case %u\n", mode );
+        memset( &callback_exit, 0, sizeof(callback_exit) );
+        callback_exit.mode = mode;
+        callback_exit.hwnd = hwnd;
+        callback_exit.allow_exit = CreateEventA( NULL, TRUE, FALSE, NULL );
+        callback_exit.callback_done = CreateEventA( NULL, TRUE, FALSE, NULL );
+        ok( callback_exit.allow_exit && callback_exit.callback_done, "Case %u CreateEvent failed: %lu\n", mode, GetLastError() );
+        if (!callback_exit.allow_exit || !callback_exit.callback_done) goto close_events;
+        callback_exit.thread = CreateThread( NULL, 0, callback_exit_thread, NULL, 0, NULL );
+        ok( callback_exit.thread != NULL, "Case %u CreateThread failed: %lu\n", mode, GetLastError() );
+        if (!callback_exit.thread) goto close_events;
+        if (!mode)
+        {
+            wait = WaitForSingleObject( callback_exit.thread, 5000 );
+            ok( wait == WAIT_OBJECT_0, "Sender wait %#lx\n", wait );
+            if (wait != WAIT_OBJECT_0) wait_for_thread( callback_exit.thread );
+        }
+        else wait_for_thread( callback_exit.thread );
+        while (PeekMessageA( &msg, NULL, 0, 0, PM_REMOVE )) DispatchMessageA( &msg );
+        code = 0xdeadbeef;
+        ret = GetExitCodeThread( callback_exit.thread, &code );
+        ok( ret && !code, "Case %u sender exit %lu, GetExitCodeThread %d\n", mode, code, ret );
+        ok( callback_exit.send_ret, "Case %u SendMessageCallback failed: %lu\n", mode, callback_exit.send_error );
+        ok( callback_exit.send_error == 0xdeadbeef, "Case %u send error %#lx\n", mode, callback_exit.send_error );
+        ok( callback_exit.count == !!mode, "Case %u deliveries %u\n", mode, callback_exit.count );
+        ok( callback_exit.callback_count == (mode == 2), "Case %u callbacks %u\n", mode, callback_exit.callback_count );
+        ok( !callback_exit.failures, "Case %u control failures %lu\n", mode, callback_exit.failures );
+        if (mode)
+        {
+            ok( callback_exit.wait == WAIT_OBJECT_0 && !callback_exit.thread_exit,
+                "Case %u in-callback sender wait %#lx, exit %lu\n", mode, callback_exit.wait, callback_exit.thread_exit );
+            ok( callback_exit.entry_flags == ISMEX_CALLBACK, "Case %u entry flags %#lx\n", mode, callback_exit.entry_flags );
+            ok( callback_exit.exited_flags == (ISMEX_CALLBACK | (mode == 2 ? ISMEX_REPLIED : 0)),
+                "Case %u flags after sender exit %#lx\n", mode, callback_exit.exited_flags );
+            ok( callback_exit.reply, "Case %u ReplyMessage failed\n", mode );
+            ok( callback_exit.reply_error == 0xdeadbeef, "Case %u reply error %#lx\n", mode, callback_exit.reply_error );
+            ok( callback_exit.reply_flags == (ISMEX_CALLBACK | ISMEX_REPLIED), "Case %u reply flags %#lx\n", mode, callback_exit.reply_flags );
+            ok( callback_exit.final_flags == (ISMEX_CALLBACK | ISMEX_REPLIED), "Case %u final flags %#lx\n", mode, callback_exit.final_flags );
+        }
+        if (mode == 2)
+        {
+            ok( !callback_exit.second_reply, "Repeated reply succeeded\n" );
+            ok( callback_exit.second_error == 0xdeadbeef, "Repeated reply error %#lx\n", callback_exit.second_error );
+            ok( callback_exit.result == 0x1234, "Callback result %llx\n", (unsigned long long)callback_exit.result );
+            ok( callback_exit.callback_flags == ISMEX_NOSEND, "Callback flags %#lx\n", callback_exit.callback_flags );
+            ok( callback_exit.callback_id == callback_exit.sender_id, "Callback thread %lu, sender thread %lu\n",
+                callback_exit.callback_id, callback_exit.sender_id );
+        }
+        ok( CloseHandle( callback_exit.thread ), "Case %u CloseHandle(thread) failed: %lu\n", mode, GetLastError() );
+close_events:
+        if (callback_exit.allow_exit) ok( CloseHandle( callback_exit.allow_exit ), "CloseHandle(allow_exit) failed: %lu\n", GetLastError() );
+        if (callback_exit.callback_done) ok( CloseHandle( callback_exit.callback_done ), "CloseHandle(callback_done) failed: %lu\n", GetLastError() );
+        if (!callback_exit.thread) break;
+    }
+    ok( DestroyWindow( hwnd ), "DestroyWindow failed: %lu\n", GetLastError() );
+unregister:
+    ok( UnregisterClassA( cls.lpszClassName, cls.hInstance ), "UnregisterClass failed: %lu\n", GetLastError() );
+}
+
 static const struct message DoubleSetCaptureSeq[] =
 {
     { EVENT_SYSTEM_CAPTURESTART, winevent_hook|wparam|lparam, 0, 0 },
@@ -22114,6 +22896,10 @@ START_TEST(msg)
     if (msg_test_selected("test_SendMessage_other_thread")) test_SendMessage_other_thread();
     if (msg_test_selected("test_setparent_status")) test_setparent_status();
     if (msg_test_selected("test_InSendMessage")) test_InSendMessage();
+    if (msg_test_selected("test_ReplyMessage")) test_ReplyMessage();
+    if (msg_test_selected("test_ReplyMessage_lifetime")) test_ReplyMessage_lifetime();
+    if (msg_test_selected("test_ReplyMessage_callback")) test_ReplyMessage_callback();
+    if (msg_test_selected("test_ReplyMessage_callback_exit")) test_ReplyMessage_callback_exit();
     if (msg_test_selected("test_SetFocus")) test_SetFocus();
     if (msg_test_selected("test_radiobutton_focus")) test_radiobutton_focus();
     if (msg_test_selected("test_SetParent")) test_SetParent();
@@ -22155,6 +22941,10 @@ START_TEST(msg)
     test_SendMessage_other_thread();
     test_setparent_status();
     test_InSendMessage();
+    test_ReplyMessage();
+    test_ReplyMessage_lifetime();
+    test_ReplyMessage_callback();
+    test_ReplyMessage_callback_exit();
     test_SetFocus();
     test_radiobutton_focus();
     test_SetParent();
@@ -22207,6 +22997,7 @@ START_TEST(msg)
     if (msg_test_selected("test_DestroyWindow")) test_DestroyWindow();
     if (msg_test_selected("test_DispatchMessage")) test_DispatchMessage();
     if (msg_test_selected("test_SendMessageTimeout")) test_SendMessageTimeout();
+    if (msg_test_selected("test_SendMessageTimeout_notimeout")) test_SendMessageTimeout_notimeout();
     if (msg_test_selected("test_edit_messages")) test_edit_messages();
     if (msg_test_selected("test_quit_message")) test_quit_message();
     if (msg_test_selected("test_notify_message")) test_notify_message();
@@ -22221,6 +23012,7 @@ START_TEST(msg)
     test_DestroyWindow();
     test_DispatchMessage();
     test_SendMessageTimeout();
+    test_SendMessageTimeout_notimeout();
     test_edit_messages();
     test_quit_message();
     test_notify_message();

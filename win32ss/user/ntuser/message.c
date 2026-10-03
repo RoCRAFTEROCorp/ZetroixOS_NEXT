@@ -1859,21 +1859,15 @@ co_IntSendMessageTimeoutSingle( HWND hWnd,
         goto Cleanup; // Return FALSE
     }
 
-    do
-    {
-        Status = co_MsqSendMessage( ptiSendTo,
-                                    hWnd,
-                                    Msg,
-                                    wParam,
-                                    lParam,
-                                    uTimeout,
-                                    (uFlags & SMTO_BLOCK),
-                                    MSQ_NORMAL,
-                                    uResult );
-    }
-    while ((Status == STATUS_TIMEOUT) &&
-           (uFlags & SMTO_NOTIMEOUTIFNOTHUNG) &&
-           !MsqIsHung(ptiSendTo, MSQ_HUNG)); // FIXME: Set window hung and add to a list.
+    Status = co_MsqSendMessage( ptiSendTo,
+                                hWnd,
+                                Msg,
+                                wParam,
+                                lParam,
+                                uTimeout,
+                                uFlags,
+                                MSQ_NORMAL,
+                                uResult );
 
     if (Status == STATUS_TIMEOUT)
     {

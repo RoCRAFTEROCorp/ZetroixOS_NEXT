@@ -1001,7 +1001,7 @@ co_MsqDispatchOneSentMessage(
    }
 
    /* If the message is a callback, insert it in the callback senders MessageQueue */
-   if (Message->CompletionCallback)
+   if (Message->CompletionCallback && Message->ptiCallBackSender)
    {
       if (Message->ptiCallBackSender)
       {
@@ -1011,6 +1011,7 @@ co_MsqDispatchOneSentMessage(
          /* insert it in the callers message queue */
          UserDomainLockExclusive(DLT_QUEUE);
          RemoveEntryList(&Message->ListEntry);
+         Message->ptiReceiver = Message->ptiCallBackSender;
          InsertTailList(&Message->ptiCallBackSender->SentMessagesListHead, &Message->ListEntry);
          MsqWakeQueue(Message->ptiCallBackSender, QS_SENDMESSAGE, TRUE);
          UserDomainUnlockExclusive(DLT_QUEUE);
@@ -1110,7 +1111,7 @@ co_MsqSendMessage(PTHREADINFO ptirec,
                   WPARAM wParam,
                   LPARAM lParam,
                   UINT uTimeout,
-                  BOOL Block,
+                  UINT Flags,
                   INT HookMessage,
                   ULONG_PTR *uResult)
 {
@@ -1225,25 +1226,31 @@ co_MsqSendMessage(PTHREADINFO ptirec,
    }
    pti->cEnterCount++;
 
-   if (Block)
+   if (Flags & SMTO_BLOCK)
    {
       PVOID WaitObjects[2];
 
       WaitObjects[0] = Message->pkCompletionEvent; // Wait 0
       WaitObjects[1] = ptirec->pEThread;           // Wait 1
 
-      UserLeaveCo();
+      do
+      {
+         UserLeaveCo();
 
-      WaitStatus = KeWaitForMultipleObjects( 2,
-                                             WaitObjects,
-                                             WaitAny,
-                                             UserRequest,
-                                             UserMode,
-                                             FALSE,
-                                            (uTimeout ? &Timeout : NULL),
-                                             NULL );
+         WaitStatus = KeWaitForMultipleObjects( 2,
+                                                WaitObjects,
+                                                WaitAny,
+                                                UserRequest,
+                                                UserMode,
+                                                FALSE,
+                                               (uTimeout ? &Timeout : NULL),
+                                                NULL );
 
-      UserEnterCo();
+         UserEnterCo();
+      }
+      while (WaitStatus == STATUS_TIMEOUT &&
+             (Flags & SMTO_NOTIMEOUTIFNOTHUNG) &&
+             !MsqIsHung(ptirec, MSQ_HUNG));
 
       if (WaitStatus == STATUS_TIMEOUT)
       {
@@ -1302,6 +1309,9 @@ co_MsqSendMessage(PTHREADINFO ptirec,
 
          if (WaitStatus == STATUS_TIMEOUT)
          {
+            if ((Flags & SMTO_NOTIMEOUTIFNOTHUNG) && !MsqIsHung(ptirec, MSQ_HUNG))
+               continue;
+
             /* Look up if the message has not yet been dispatched, if so
                make sure it can't pass a result and it must not set the completion event anymore */
             UserDomainLockExclusive(DLT_QUEUE);
@@ -1335,7 +1345,7 @@ co_MsqSendMessage(PTHREADINFO ptirec,
 
          while (co_MsqDispatchOneSentMessage(pti))
             ;
-      } while (WaitStatus == STATUS_WAIT_1);
+      } while (WaitStatus == STATUS_WAIT_1 || WaitStatus == STATUS_TIMEOUT);
    }
 
    // Count is nil, restore swapping of the stack.
@@ -1351,8 +1361,6 @@ co_MsqSendMessage(PTHREADINFO ptirec,
      TRACE("User APC\n");
 
      // The Message will be on the Trouble list until Thread cleanup.
-     Message->flags |= SMF_SENDERDIED;
-
      co_IntDeliverUserAPC();
      ERR("User APC Returned\n"); // Should not see this message.
    }
@@ -2336,6 +2344,45 @@ MsqInitializeMessageQueue(PTHREADINFO pti, PUSER_MESSAGE_QUEUE MessageQueue)
 }
 
 VOID FASTCALL
+MsqCleanupThreadCallbacks(PTHREADINFO pti)
+{
+   PPROCESSINFO Process;
+   PTHREADINFO Receiver;
+   PLIST_ENTRY Entry, Next;
+   PUSER_SENT_MESSAGE Message;
+
+   ASSERT(UserIsEnteredExclusive());
+
+   for (Process = gppiList; Process; Process = Process->ppiNext)
+   {
+      for (Receiver = Process->ptiList; Receiver; Receiver = Receiver->ptiSibling)
+      {
+         for (Entry = Receiver->SentMessagesListHead.Flink;
+              Entry != &Receiver->SentMessagesListHead;
+              Entry = Next)
+         {
+            Next = Entry->Flink;
+            Message = CONTAINING_RECORD(Entry, USER_SENT_MESSAGE, ListEntry);
+            if (!Message->CompletionCallback || Message->ptiCallBackSender != pti)
+               continue;
+
+            ClearMsgBitsMask(Receiver, Message->QS_Flags);
+            if (Message->HasPackedLParam && Message->Msg.lParam)
+               ExFreePool((PVOID)Message->Msg.lParam);
+            FreeUserMessage(Message);
+         }
+      }
+   }
+
+   for (Entry = usmList.Flink; Entry != &usmList; Entry = Entry->Flink)
+   {
+      Message = CONTAINING_RECORD(Entry, USER_SENT_MESSAGE, ListEntry);
+      if (Message->CompletionCallback && Message->ptiCallBackSender == pti)
+         Message->ptiCallBackSender = NULL;
+   }
+}
+
+VOID FASTCALL
 MsqCleanupThreadMsgs(PTHREADINFO pti)
 {
    PLIST_ENTRY CurrentEntry;
@@ -2601,7 +2648,7 @@ MsqGetMessageExtraInfo(VOID)
 BOOL FASTCALL
 co_MsqReplyMessage( LRESULT lResult )
 {
-   PUSER_SENT_MESSAGE Message;
+   PUSER_SENT_MESSAGE Message, CallbackMessage = NULL;
    PTHREADINFO pti;
 
    pti = PsGetCurrentThreadWin32Thread();
@@ -2609,13 +2656,39 @@ co_MsqReplyMessage( LRESULT lResult )
 
    if (!Message) return FALSE;
 
-   if (Message->QS_Flags & QS_SMRESULT) return FALSE;
+   if ((Message->QS_Flags & QS_SMRESULT) ||
+       (Message->ptiSender && (Message->flags & SMF_RECEIVERFREE))) return FALSE;
+
+   if (Message->CompletionCallback && Message->ptiCallBackSender)
+   {
+      CallbackMessage = AllocateUserMessage(FALSE);
+      if (!CallbackMessage) return FALSE;
+      CallbackMessage->Msg = Message->Msg;
+      CallbackMessage->ptiReceiver = Message->ptiCallBackSender;
+      CallbackMessage->ptiCallBackSender = Message->ptiCallBackSender;
+      CallbackMessage->CompletionCallback = Message->CompletionCallback;
+      CallbackMessage->CompletionCallbackContext = Message->CompletionCallbackContext;
+      CallbackMessage->lResult = lResult;
+      CallbackMessage->QS_Flags = QS_SENDMESSAGE | QS_SMRESULT;
+      CallbackMessage->flags = SMF_RECEIVERFREE;
+      CallbackMessage->HookMessage = MSQ_NORMAL;
+   }
 
    //     SendMessageXxx  || Callback msg and not a notify msg
    if (Message->ptiSender || Message->CompletionCallback)
    {
       Message->lResult = lResult;
       Message->QS_Flags |= QS_SMRESULT;
+      if (CallbackMessage)
+      {
+         Message->ptiCallBackSender = NULL;
+         UserDomainLockExclusive(DLT_QUEUE);
+         InsertTailList(&CallbackMessage->ptiReceiver->SentMessagesListHead, &CallbackMessage->ListEntry);
+         MsqWakeQueue(CallbackMessage->ptiReceiver, QS_SENDMESSAGE, TRUE);
+         UserDomainUnlockExclusive(DLT_QUEUE);
+      }
+      if (Message->pkCompletionEvent != NULL)
+         KeSetEvent(Message->pkCompletionEvent, EVENT_INCREMENT, FALSE);
    // See co_MsqDispatchOneSentMessage, change bits already accounted for and cleared and this msg is going away..
    }
    return TRUE;

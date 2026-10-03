@@ -880,6 +880,8 @@ ExitThreadCallback(PETHREAD Thread)
     PEPROCESS Process;
     PTHREADINFO ptiCurrent;
     PWINDOWLIST pwl, pwlNext;
+    PLIST_ENTRY Entry;
+    PUSER_SENT_MESSAGE Message;
 
     Process = (PEPROCESS)PsGetThreadProcess(Thread);
 
@@ -988,11 +990,20 @@ ExitThreadCallback(PETHREAD Thread)
         }
     }
 
+    for (Entry = usmList.Flink; Entry != &usmList; Entry = Entry->Flink)
+    {
+        Message = CONTAINING_RECORD(Entry, USER_SENT_MESSAGE, ListEntry);
+        if (Message->ptiSender == ptiCurrent)
+            Message->flags |= SMF_SENDERDIED;
+    }
+
     if (ptiCurrent->cEnterCount)
     {
        KeSetKernelStackSwapEnable(TRUE);
        ptiCurrent->cEnterCount = 0;
     }
+
+    MsqCleanupThreadCallbacks(ptiCurrent);
 
     /* Find the THREADINFO in the PROCESSINFO's list */
     ppti = &ppiCurrent->ptiList;

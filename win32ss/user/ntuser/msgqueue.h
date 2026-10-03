@@ -135,7 +135,7 @@ BOOL FASTCALL MsqIsHung(PTHREADINFO pti, DWORD TimeOut);
 VOID CALLBACK HungAppSysTimerProc(HWND,UINT,UINT_PTR,DWORD);
 NTSTATUS FASTCALL co_MsqSendMessage(PTHREADINFO ptirec,
            HWND Wnd, UINT Msg, WPARAM wParam, LPARAM lParam,
-           UINT uTimeout, BOOL Block, INT HookMessage, ULONG_PTR *uResult);
+           UINT uTimeout, UINT Flags, INT HookMessage, ULONG_PTR *uResult);
 PUSER_MESSAGE FASTCALL MsqCreateMessage(LPMSG Msg);
 VOID FASTCALL MsqDestroyMessage(PUSER_MESSAGE Message);
 VOID FASTCALL MsqPostMessage(PTHREADINFO, MSG*, BOOLEAN, DWORD, DWORD, LONG_PTR);
@@ -163,6 +163,7 @@ co_MsqPeekHardwareMessage(IN PTHREADINFO pti,
 	                      OUT MSG* pMsg);
 BOOLEAN FASTCALL MsqInitializeMessageQueue(PTHREADINFO, PUSER_MESSAGE_QUEUE);
 PUSER_MESSAGE_QUEUE FASTCALL MsqCreateMessageQueue(PTHREADINFO);
+VOID FASTCALL MsqCleanupThreadCallbacks(PTHREADINFO);
 VOID FASTCALL MsqCleanupThreadMsgs(PTHREADINFO);
 VOID FASTCALL MsqDestroyMessageQueue(_In_ PTHREADINFO pti);
 CODE_SEG("INIT") NTSTATUS NTAPI MsqInitializeImpl(VOID);

@@ -277,7 +277,7 @@ NtUserGetThreadState(
            ret = ISMEX_NOSEND;
            if (Message)
            {
-             if (Message->ptiSender)
+             if (Message->ptiSender && !(Message->flags & SMF_SENDERDIED))
                 ret = ISMEX_SEND;
              else
              {
@@ -287,7 +287,9 @@ NtUserGetThreadState(
                    ret = ISMEX_NOTIFY;
              }
              /* If ReplyMessage */
-             if (Message->QS_Flags & QS_SMRESULT) ret |= ISMEX_REPLIED;
+             if ((Message->QS_Flags & QS_SMRESULT) ||
+                 (Message->ptiSender && (Message->flags & SMF_RECEIVERFREE)))
+                ret |= ISMEX_REPLIED;
            }
 
            break;

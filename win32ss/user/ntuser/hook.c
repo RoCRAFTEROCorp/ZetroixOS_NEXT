@@ -300,7 +300,7 @@ co_IntCallLowLevelHook(PHOOK Hook,
                                 wParam,
                                (LPARAM)pHP,
                                 uTimeout,
-                                Block,
+                                Block ? SMTO_BLOCK : SMTO_NORMAL,
                                 MSQ_ISHOOK,
                                &uResult);
     if (!NT_SUCCESS(Status))
