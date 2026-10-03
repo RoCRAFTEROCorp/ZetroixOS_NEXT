@@ -7298,14 +7298,14 @@ DxgkCbNotifyInterrupt(
 #endif
     if (NotifyInterruptData->InterruptType == DXGK_INTERRUPT_CRTC_VSYNC)
     {
-        ULONG TargetId = NotifyInterruptData->CrtcVsync.VidPnTargetId;
+        ULONG SourceId = DxgkVidPnVsyncSourceFromTarget(Adapter, NotifyInterruptData->CrtcVsync.VidPnTargetId);
 
-        if (TargetId < RTL_NUMBER_OF(Adapter->VsyncScanoutAddress))
+        if (SourceId < RTL_NUMBER_OF(Adapter->VsyncScanoutAddress))
         {
-            InterlockedExchange64(&Adapter->VsyncScanoutAddress[TargetId],
+            InterlockedExchange64(&Adapter->VsyncScanoutAddress[SourceId],
                                   NotifyInterruptData->CrtcVsync.PhysicalAddress.QuadPart);
-            InterlockedIncrement64(&Adapter->VsyncScanoutSequence[TargetId]);
-            InterlockedOr(&Adapter->VsyncPending, (LONG)(1UL << TargetId));
+            InterlockedIncrement64(&Adapter->VsyncScanoutSequence[SourceId]);
+            InterlockedOr(&Adapter->VsyncPending, (LONG)(1UL << SourceId));
         }
     }
 
@@ -12182,6 +12182,7 @@ DxgkpDestroyAdapterVidPn(
     Adapter->VidPn = NULL;
     Adapter->VidPnCommitted = FALSE;
     Adapter->HeadlessDesktop = FALSE;
+    DxgkVidPnPublishVsyncTargetMap(Adapter, NULL);
     Adapter->CommittedWidth = 0;
     Adapter->CommittedHeight = 0;
     KeReleaseMutex(&Adapter->VidPnMutex, FALSE);

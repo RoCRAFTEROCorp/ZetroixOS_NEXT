@@ -1172,6 +1172,7 @@ struct _DXGKRNL_ADAPTER
      * close admission without racing a DIRQL callback. */
     DECLSPEC_ALIGN(8) volatile LONG64 VsyncScanoutAddress[32];
     DECLSPEC_ALIGN(8) volatile LONG64 VsyncScanoutSequence[32];
+    DECLSPEC_ALIGN(8) volatile LONG64 VsyncTargetSourceMap[32];
 
     /*
      * Tracks DMA buffers that remain owned by the miniport until it signals
@@ -1276,6 +1277,7 @@ C_ASSERT((FIELD_OFFSET(DXGKRNL_ADAPTER, SubmittedFenceIdentities) & (sizeof(LONG
 C_ASSERT((FIELD_OFFSET(DXGKRNL_ADAPTER, VBlankResetGeneration) & (sizeof(LONG64) - 1)) == 0);
 C_ASSERT((FIELD_OFFSET(DXGKRNL_ADAPTER, VsyncScanoutAddress) & (sizeof(LONG64) - 1)) == 0);
 C_ASSERT((FIELD_OFFSET(DXGKRNL_ADAPTER, VsyncScanoutSequence) & (sizeof(LONG64) - 1)) == 0);
+C_ASSERT((FIELD_OFFSET(DXGKRNL_ADAPTER, VsyncTargetSourceMap) & (sizeof(LONG64) - 1)) == 0);
 C_ASSERT((DXGK_SUBMITTED_FENCE_IDENTITY_CAPACITY & (DXGK_SUBMITTED_FENCE_IDENTITY_CAPACITY - 1)) == 0);
 
 /* Convenience macro: cast a PDEVICE_OBJECT to its DXGKRNL_ADAPTER extension. */
@@ -3211,6 +3213,16 @@ DxgkVidPnReference(
 VOID
 DxgkVidPnDestroy(
     _In_ D3DKMDT_HVIDPN hVidPn);
+
+VOID
+DxgkVidPnPublishVsyncTargetMap(
+    _Inout_ PDXGKRNL_ADAPTER Adapter,
+    _In_opt_ D3DKMDT_HVIDPN hVidPn);
+
+ULONG
+DxgkVidPnVsyncSourceFromTarget(
+    _In_ PDXGKRNL_ADAPTER Adapter,
+    _In_ D3DDDI_VIDEO_PRESENT_TARGET_ID TargetId);
 
 NTSTATUS
 DxgkVidPnRebuildForHotPlug(

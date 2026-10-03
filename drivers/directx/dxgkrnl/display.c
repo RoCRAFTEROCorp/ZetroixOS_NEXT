@@ -1481,6 +1481,7 @@ DxgkpDisplayCommitVidPnWhileSharedPrimaryLocked(
             Adapter->CommittedHeight = Result.CommittedHeight;
             Adapter->VidPnCommitted = Result.VidPnCommitted;
             Adapter->HeadlessDesktop = Result.HeadlessDesktop;
+            DxgkVidPnPublishVsyncTargetMap(Adapter, Result.VidPnCommitted ? hVidPn : NULL);
         }
         else
             Status = STATUS_RETRY;

@@ -1439,6 +1439,54 @@ DxgkVidPnTargetIndexFromId(
     return MAXULONG;
 }
 
+
+VOID
+DxgkVidPnPublishVsyncTargetMap(
+    _Inout_ PDXGKRNL_ADAPTER Adapter,
+    _In_opt_ D3DKMDT_HVIDPN hVidPn)
+{
+    PDXGKP_VIDPN VidPn = (PDXGKP_VIDPN)hVidPn;
+    ULONG Count = 0;
+    SIZE_T Index;
+
+    for (Index = 0;
+         VidPn != NULL && Index < VidPn->NumPaths &&
+         Count < RTL_NUMBER_OF(Adapter->VsyncTargetSourceMap);
+         Index++)
+    {
+        D3DDDI_VIDEO_PRESENT_SOURCE_ID SourceId = VidPn->Paths[Index].VidPnSourceId;
+
+        if (SourceId >= RTL_NUMBER_OF(Adapter->VsyncScanoutSequence))
+            continue;
+        InterlockedExchange64(&Adapter->VsyncTargetSourceMap[Count++],
+                              (LONG64)(((ULONG64)VidPn->Paths[Index].VidPnTargetId << 32) |
+                                       (ULONG64)(SourceId + 1)));
+    }
+    while (Count < RTL_NUMBER_OF(Adapter->VsyncTargetSourceMap))
+        InterlockedExchange64(&Adapter->VsyncTargetSourceMap[Count++], 0);
+}
+
+ULONG
+DxgkVidPnVsyncSourceFromTarget(
+    _In_ PDXGKRNL_ADAPTER Adapter,
+    _In_ D3DDDI_VIDEO_PRESENT_TARGET_ID TargetId)
+{
+    ULONG Index;
+    LONG64 Entry;
+
+    for (Index = 0; Index < RTL_NUMBER_OF(Adapter->VsyncTargetSourceMap); Index++)
+    {
+        Entry = InterlockedCompareExchange64(&Adapter->VsyncTargetSourceMap[Index], 0, 0);
+        if (Entry == 0)
+            break;
+        if ((ULONG)((ULONG64)Entry >> 32) == TargetId)
+            return (ULONG)(Entry & 0xFFFFFFFF) - 1;
+    }
+    if (TargetId < RTL_NUMBER_OF(Adapter->VsyncScanoutSequence))
+        return TargetId;
+    return MAXULONG;
+}
+
 static PDXGKP_VIDPN_TARGET_MODESET
 DxgkpAllocateTargetModeSet(
     _In_ PDXGKP_VIDPN VidPn,
@@ -3127,6 +3175,7 @@ DxgkpVidPnRebuildForHotPlugGeneration(
 
             (VOID)KeWaitForSingleObject(&Adapter->VidPnMutex, Executive, KernelMode, FALSE, NULL);
             Adapter->VidPnCommitted = FALSE;
+            DxgkVidPnPublishVsyncTargetMap(Adapter, NULL);
             KeReleaseMutex(&Adapter->VidPnMutex, FALSE);
             InterlockedExchange(&Adapter->TdrOwnershipUncertain, 1);
             RecoveryRequired = TRUE;
@@ -3153,6 +3202,7 @@ DxgkpVidPnRebuildForHotPlugGeneration(
     Adapter->CommittedHeight = CommitResult.CommittedHeight;
     Adapter->VidPnCommitted = CommitResult.VidPnCommitted;
     Adapter->HeadlessDesktop = CommitResult.HeadlessDesktop;
+    DxgkVidPnPublishVsyncTargetMap(Adapter, CommitResult.VidPnCommitted ? Candidate : NULL);
     if (Snapshot.Connected && Snapshot.EdidValid && MatchingChild != NULL)
     {
         RtlCopyMemory(MatchingChild->Edid, Snapshot.Edid, sizeof(MatchingChild->Edid));
@@ -7013,6 +7063,7 @@ DxgkVidPnSetVideoMode(
             Adapter->CommittedHeight = Result.CommittedHeight;
             Adapter->VidPnCommitted = TRUE;
             Adapter->HeadlessDesktop = FALSE;
+            DxgkVidPnPublishVsyncTargetMap(Adapter, (D3DKMDT_HVIDPN)Candidate);
             Candidate = NULL;
         }
         else
@@ -7030,6 +7081,7 @@ DxgkVidPnSetVideoMode(
         {
             (VOID)KeWaitForSingleObject(&Adapter->VidPnMutex, Executive, KernelMode, FALSE, NULL);
             Adapter->VidPnCommitted = FALSE;
+            DxgkVidPnPublishVsyncTargetMap(Adapter, NULL);
             KeReleaseMutex(&Adapter->VidPnMutex, FALSE);
             RecoveryRequired = TRUE;
             DXGKRNL_ERR("DxgkVidPnSetVideoMode: commit 0x%08lX, rollback 0x%08lX; failing adapter closed\n", Status, RollbackStatus);
