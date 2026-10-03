@@ -13,6 +13,79 @@ typedef struct _TEST_HANDLE_ENTRY
     ULONG Data;
 } TEST_HANDLE_ENTRY, *PTEST_HANDLE_ENTRY;
 
+static VOID
+TestHandleTableLimit(VOID)
+{
+    SYSTEM_INFO SystemInfo;
+    RTL_HANDLE_TABLE HandleTable;
+    PRTL_HANDLE_TABLE_ENTRY HandleEntry, LastEntry = NULL;
+    PUCHAR Guard;
+    ULONG Index, Count, i, Changed = 0;
+    BOOLEAN Freed;
+
+    GetSystemInfo(&SystemInfo);
+    Count = SystemInfo.dwAllocationGranularity / sizeof(TEST_HANDLE_ENTRY);
+    RtlInitializeHandleTable(Count, sizeof(TEST_HANDLE_ENTRY), &HandleTable);
+    HandleEntry = RtlAllocateHandle(&HandleTable, &Index);
+    ok(HandleEntry != NULL, "Initial handle allocation failed\n");
+    if (!HandleEntry)
+        return;
+
+    Guard = VirtualAlloc(HandleTable.MaxReservedHandles,
+                         SystemInfo.dwAllocationGranularity,
+                         MEM_RESERVE | MEM_COMMIT,
+                         PAGE_READWRITE);
+    if (!Guard)
+    {
+        skip("Could not allocate the adjacent region, error %lu\n", GetLastError());
+        RtlDestroyHandleTable(&HandleTable);
+        return;
+    }
+    ok(Guard == (PUCHAR)HandleTable.MaxReservedHandles,
+       "Guard = %p, expected %p\n", Guard, HandleTable.MaxReservedHandles);
+    if (Guard != (PUCHAR)HandleTable.MaxReservedHandles)
+    {
+        VirtualFree(Guard, 0, MEM_RELEASE);
+        RtlDestroyHandleTable(&HandleTable);
+        return;
+    }
+    RtlFillMemory(Guard, SystemInfo.dwAllocationGranularity, 0xa5);
+
+    for (i = 1; i < Count; ++i)
+    {
+        HandleEntry = RtlAllocateHandle(&HandleTable, &Index);
+        if (!HandleEntry)
+            break;
+        LastEntry = HandleEntry;
+    }
+    ok(i == Count, "Allocated %lu of %lu handles\n", i, Count);
+    if (i == Count)
+    {
+        Index = 0x55555555;
+        HandleEntry = RtlAllocateHandle(&HandleTable, &Index);
+        ok(HandleEntry == NULL, "HandleEntry = %p\n", HandleEntry);
+        ok(Index == 0x55555555, "Index = 0x%lx\n", Index);
+        ok(HandleTable.UnCommittedHandles == HandleTable.MaxReservedHandles,
+           "UnCommittedHandles = %p, MaxReservedHandles = %p\n",
+           HandleTable.UnCommittedHandles, HandleTable.MaxReservedHandles);
+        ok(HandleTable.FreeHandles == NULL, "FreeHandles = %p\n", HandleTable.FreeHandles);
+        for (i = 0; i < SystemInfo.dwAllocationGranularity; ++i)
+            Changed += Guard[i] != 0xa5;
+        ok(Changed == 0, "Changed %lu bytes in the adjacent region\n", Changed);
+
+        LastEntry->Flags = RTL_HANDLE_VALID;
+        Freed = RtlFreeHandle(&HandleTable, LastEntry);
+        ok(Freed, "Could not free the last handle\n");
+        Index = 0x55555555;
+        HandleEntry = RtlAllocateHandle(&HandleTable, &Index);
+        ok(HandleEntry == LastEntry, "HandleEntry = %p, expected %p\n", HandleEntry, LastEntry);
+        ok(Index == Count - 1, "Index = %lu, expected %lu\n", Index, Count - 1);
+    }
+
+    RtlDestroyHandleTable(&HandleTable);
+    VirtualFree(Guard, 0, MEM_RELEASE);
+}
+
 START_TEST(RtlHandle)
 {
     const ULONG MaxHandles = 2048;
@@ -194,4 +267,6 @@ START_TEST(RtlHandle)
     /* Finally, destroy the table */
     RtlDestroyHandleTable(&HandleTable);
     ok((PUCHAR)HandleTable.CommittedHandles == HandleBase, "CommittedHandles = %p\n", HandleTable.CommittedHandles);
+
+    TestHandleTableLimit();
 }
