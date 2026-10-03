@@ -562,6 +562,8 @@ TiDispatch(
 
 static
 NTSTATUS TiCreateSecurityDescriptor(
+    _In_ ACCESS_MASK WorldAccess,
+    _In_ ACCESS_MASK RestrictedAccess,
     _Out_ PSECURITY_DESCRIPTOR *SecurityDescriptor)
 {
     NTSTATUS Status;
@@ -581,9 +583,10 @@ NTSTATUS TiCreateSecurityDescriptor(
 
     /* Setup a DACL */
     DaclSize = sizeof(ACL) +
+               sizeof(ACCESS_ALLOWED_ACE) + RtlLengthSid(SeExports->SeWorldSid) +
                sizeof(ACCESS_ALLOWED_ACE) + RtlLengthSid(SeExports->SeLocalSystemSid) +
                sizeof(ACCESS_ALLOWED_ACE) + RtlLengthSid(SeExports->SeAliasAdminsSid) +
-               sizeof(ACCESS_ALLOWED_ACE) + RtlLengthSid(SeExports->SeNetworkServiceSid);
+               sizeof(ACCESS_ALLOWED_ACE) + RtlLengthSid(SeExports->SeRestrictedSid);
     Dacl = ExAllocatePoolWithTag(PagedPool,
                                  DaclSize,
                                  DEVICE_OBJ_SECURITY_TAG);
@@ -606,6 +609,16 @@ NTSTATUS TiCreateSecurityDescriptor(
     /* Setup access */
     Status = RtlAddAccessAllowedAce(Dacl,
                                     ACL_REVISION,
+                                    WorldAccess,
+                                    SeExports->SeWorldSid);
+    if (!NT_SUCCESS(Status))
+    {
+        TI_DbgPrint(MIN_TRACE, ("Failed to add access allowed ACE for World SID (0x%X)\n", Status));
+        goto Quit;
+    }
+
+    Status = RtlAddAccessAllowedAce(Dacl,
+                                    ACL_REVISION,
                                     GENERIC_ALL,
                                     SeExports->SeLocalSystemSid);
     if (!NT_SUCCESS(Status))
@@ -626,11 +639,11 @@ NTSTATUS TiCreateSecurityDescriptor(
 
     Status = RtlAddAccessAllowedAce(Dacl,
                                     ACL_REVISION,
-                                    GENERIC_ALL,
-                                    SeExports->SeNetworkServiceSid);
+                                    RestrictedAccess,
+                                    SeExports->SeRestrictedSid);
     if (!NT_SUCCESS(Status))
     {
-        TI_DbgPrint(MIN_TRACE, ("Failed to add access allowed ACE for Network Service SID (0x%X)\n", Status));
+        TI_DbgPrint(MIN_TRACE, ("Failed to add access allowed ACE for Restricted SID (0x%X)\n", Status));
         goto Quit;
     }
 
@@ -715,14 +728,16 @@ Quit:
 
 static
 NTSTATUS TiSetupTcpDeviceSD(
-    _In_ PDEVICE_OBJECT DeviceObject)
+    _In_ PDEVICE_OBJECT DeviceObject,
+    _In_ ACCESS_MASK WorldAccess,
+    _In_ ACCESS_MASK RestrictedAccess)
 {
     NTSTATUS Status;
     PSECURITY_DESCRIPTOR Sd = NULL;
     SECURITY_INFORMATION Info = OWNER_SECURITY_INFORMATION | GROUP_SECURITY_INFORMATION | DACL_SECURITY_INFORMATION;
 
     /* Obtain a security descriptor */
-    Status = TiCreateSecurityDescriptor(&Sd);
+    Status = TiCreateSecurityDescriptor(WorldAccess, RestrictedAccess, &Sd);
     if (!NT_SUCCESS(Status))
     {
         TI_DbgPrint(MIN_TRACE, ("Failed to create a security descriptor for the device object\n"));
@@ -749,14 +764,18 @@ NTSTATUS TiSecurityStartup(
     NTSTATUS Status;
 
     /* Set security data for the TCP and IP device objects */
-    Status = TiSetupTcpDeviceSD(TCPDeviceObject);
+    Status = TiSetupTcpDeviceSD(TCPDeviceObject,
+                                FILE_GENERIC_EXECUTE,
+                                FILE_GENERIC_EXECUTE);
     if (!NT_SUCCESS(Status))
     {
         TI_DbgPrint(MIN_TRACE, ("Failed to set security data for TCP device object\n"));
         return Status;
     }
 
-    Status = TiSetupTcpDeviceSD(IPDeviceObject);
+    Status = TiSetupTcpDeviceSD(IPDeviceObject,
+                                FILE_GENERIC_READ | FILE_GENERIC_WRITE | FILE_GENERIC_EXECUTE,
+                                FILE_GENERIC_READ | FILE_GENERIC_EXECUTE);
     if (!NT_SUCCESS(Status))
     {
         TI_DbgPrint(MIN_TRACE, ("Failed to set security data for IP device object\n"));
