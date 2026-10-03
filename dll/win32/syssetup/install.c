@@ -1135,6 +1135,74 @@ Exit:
     return bResult;
 }
 
+static VOID
+StartServiceAccountServices(VOID)
+{
+    LPENUM_SERVICE_STATUS_PROCESSW pServices = NULL;
+    LPQUERY_SERVICE_CONFIGW pConfig = NULL;
+    SC_HANDLE hManager, hService;
+    DWORD dwBytesNeeded = 0, dwCount = 0, dwResume = 0, dwConfigSize = 0, i;
+    BOOL bConfig;
+
+    hManager = OpenSCManagerW(NULL, NULL, SC_MANAGER_ENUMERATE_SERVICE);
+    if (hManager == NULL)
+        return;
+
+    EnumServicesStatusExW(hManager, SC_ENUM_PROCESS_INFO, SERVICE_WIN32, SERVICE_INACTIVE,
+                          NULL, 0, &dwBytesNeeded, &dwCount, &dwResume, NULL);
+    if (GetLastError() != ERROR_MORE_DATA)
+        goto done;
+
+    pServices = HeapAlloc(GetProcessHeap(), 0, dwBytesNeeded);
+    if (pServices == NULL)
+        goto done;
+
+    dwResume = 0;
+    if (!EnumServicesStatusExW(hManager, SC_ENUM_PROCESS_INFO, SERVICE_WIN32, SERVICE_INACTIVE,
+                               (LPBYTE)pServices, dwBytesNeeded, &dwBytesNeeded, &dwCount, &dwResume, NULL))
+    {
+        goto done;
+    }
+
+    for (i = 0; i < dwCount; i++)
+    {
+        hService = OpenServiceW(hManager, pServices[i].lpServiceName, SERVICE_QUERY_CONFIG | SERVICE_START);
+        if (hService == NULL)
+            continue;
+
+        bConfig = QueryServiceConfigW(hService, pConfig, dwConfigSize, &dwBytesNeeded);
+        if (!bConfig && GetLastError() == ERROR_INSUFFICIENT_BUFFER)
+        {
+            if (pConfig != NULL)
+                HeapFree(GetProcessHeap(), 0, pConfig);
+            dwConfigSize = dwBytesNeeded;
+            pConfig = HeapAlloc(GetProcessHeap(), 0, dwConfigSize);
+            if (pConfig == NULL)
+                dwConfigSize = 0;
+            else
+                bConfig = QueryServiceConfigW(hService, pConfig, dwConfigSize, &dwBytesNeeded);
+        }
+
+        if (bConfig &&
+            pConfig->dwStartType == SERVICE_AUTO_START &&
+            pConfig->lpServiceStartName != NULL &&
+            (_wcsicmp(pConfig->lpServiceStartName, L"NT AUTHORITY\\LocalService") == 0 ||
+             _wcsicmp(pConfig->lpServiceStartName, L"NT AUTHORITY\\NetworkService") == 0))
+        {
+            StartServiceW(hService, 0, NULL);
+        }
+
+        CloseServiceHandle(hService);
+    }
+
+done:
+    if (pConfig != NULL)
+        HeapFree(GetProcessHeap(), 0, pConfig);
+    if (pServices != NULL)
+        HeapFree(GetProcessHeap(), 0, pServices);
+    CloseServiceHandle(hManager);
+}
+
 static
 DWORD
 InstallLiveCD(VOID)
@@ -1186,6 +1254,8 @@ InstallLiveCD(VOID)
     _SEH2_END;
 
     SetupCloseInfFile(hSysSetupInf);
+
+    StartServiceAccountServices();
 
     /* Run the shell with a fresh system environment, as winlogon does for
      * a shell without a user token: ours was inherited from SMSS before it
