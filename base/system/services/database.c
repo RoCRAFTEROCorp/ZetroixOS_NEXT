@@ -436,6 +436,16 @@ ScmIsLocalSystemAccount(
 
 static
 BOOL
+ScmIsBuiltinServiceAccount(
+    _In_ PCWSTR pszAccountName)
+{
+    return (_wcsicmp(pszAccountName, L"NT AUTHORITY\\LocalService") == 0 ||
+            _wcsicmp(pszAccountName, L"NT AUTHORITY\\NetworkService") == 0);
+}
+
+
+static
+BOOL
 ScmEnableBackupRestorePrivileges(
     _In_ HANDLE hToken,
     _In_ BOOL bEnable)
@@ -499,7 +509,8 @@ ScmLogonService(
     DPRINT("ScmLogonService(%p %p)\n", pService, pImage);
     DPRINT("Service %S\n", pService->lpServiceName);
 
-    if (ScmIsLocalSystemAccount(pImage->pszAccountName) || ScmLiveSetup || ScmSetupInProgress)
+    if (ScmIsLocalSystemAccount(pImage->pszAccountName) ||
+        ((ScmLiveSetup || ScmSetupInProgress) && !ScmIsBuiltinServiceAccount(pImage->pszAccountName)))
         return ERROR_SUCCESS;
 
     /* Get the user and domain names */
