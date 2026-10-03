@@ -1034,14 +1034,13 @@ struct module* pe_load_native_module(struct process* pcs, const WCHAR* name,
  *		pe_load_nt_header
  *
  */
-BOOL pe_load_nt_header(HANDLE hProc, DWORD64 base, IMAGE_NT_HEADERS* nth, BOOL* is_builtin)
+BOOL pe_load_nt_header(const struct process *pcs, DWORD64 base, IMAGE_NT_HEADERS* nth, BOOL* is_builtin)
 {
     IMAGE_DOS_HEADER    dos;
 
-    if (!ReadProcessMemory(hProc, (char*)(DWORD_PTR)base, &dos, sizeof(dos), NULL) ||
+    if (!read_process_memory(pcs, base, &dos, sizeof(dos)) ||
         dos.e_magic != IMAGE_DOS_SIGNATURE ||
-        !ReadProcessMemory(hProc, (char*)(DWORD_PTR)(base + dos.e_lfanew),
-                           nth, sizeof(*nth), NULL) ||
+        !read_process_memory(pcs, base + dos.e_lfanew, nth, sizeof(*nth)) ||
         nth->Signature != IMAGE_NT_SIGNATURE)
         return FALSE;
     if (is_builtin)
@@ -1049,7 +1048,7 @@ BOOL pe_load_nt_header(HANDLE hProc, DWORD64 base, IMAGE_NT_HEADERS* nth, BOOL* 
         if (dos.e_lfanew >= sizeof(dos) + sizeof(builtin_signature))
         {
             char sig[sizeof(builtin_signature)];
-            *is_builtin = ReadProcessMemory(hProc, (char*)(DWORD_PTR)base + sizeof(dos), sig, sizeof(sig), NULL) &&
+            *is_builtin = read_process_memory(pcs, base + sizeof(dos), sig, sizeof(sig)) &&
                 !memcmp(sig, builtin_signature, sizeof(builtin_signature));
         }
         else *is_builtin = FALSE;
@@ -1071,7 +1070,7 @@ struct module* pe_load_builtin_module(struct process* pcs, const WCHAR* name,
         IMAGE_NT_HEADERS    nth;
         BOOL is_builtin;
 
-        if (pe_load_nt_header(pcs->handle, base, &nth, &is_builtin))
+        if (pe_load_nt_header(pcs, base, &nth, &is_builtin))
         {
             if (!size) size = nth.OptionalHeader.SizeOfImage;
             module = module_new(pcs, name, DMT_PE, is_builtin, FALSE, base, size,

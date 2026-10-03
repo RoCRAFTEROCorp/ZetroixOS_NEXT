@@ -7,6 +7,7 @@ include_directories(
 )
 
 list(APPEND SOURCE
+    MiniDumpSnapshot.c
     pdb.c
     rsym.c
     data.c

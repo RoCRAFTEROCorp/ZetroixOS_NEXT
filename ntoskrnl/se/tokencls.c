@@ -149,7 +149,7 @@ static const INFORMATION_CLASS_INFO SeTokenInformationClass[] = {
     /* TokenRestrictedSids */
     IQS_SAME(TOKEN_GROUPS, ULONG, ICIF_QUERY | ICIF_QUERY_SIZE_VARIABLE),
     /* TokenSessionId */
-    IQS_SAME(ULONG, ULONG, ICIF_QUERY | ICIF_SET),
+    IQS_SAME(ULONG, ULONG, ICIF_QUERY | ICIF_QUERY_SIZE_VARIABLE | ICIF_SET),
     /* TokenGroupsAndPrivileges */
     IQS_SAME(TOKEN_GROUPS_AND_PRIVILEGES, ULONG, ICIF_QUERY | ICIF_QUERY_SIZE_VARIABLE),
     /* TokenSessionReference */
@@ -1391,25 +1391,27 @@ NtQueryInformationToken(
 
             case TokenSessionId:
             {
-                ULONG SessionId = 0;
-
                 DPRINT("NtQueryInformationToken(TokenSessionId)\n");
+                RequiredLength = sizeof(ULONG);
 
-                Status = SeQuerySessionIdToken(Token, &SessionId);
-                if (NT_SUCCESS(Status))
+                _SEH2_TRY
                 {
-                    _SEH2_TRY
+                    if (TokenInformationLength >= RequiredLength)
                     {
-                        /* Buffer size was already verified, no need to check here again */
-                        *(PULONG)TokenInformation = SessionId;
-                        *ReturnLength = RequiredLength;
+                        *(PULONG)TokenInformation = Token->SessionId;
                     }
-                    _SEH2_EXCEPT(EXCEPTION_EXECUTE_HANDLER)
+                    else
                     {
-                        Status = _SEH2_GetExceptionCode();
+                        Status = STATUS_BUFFER_TOO_SMALL;
                     }
-                    _SEH2_END;
+
+                    *ReturnLength = RequiredLength;
                 }
+                _SEH2_EXCEPT(EXCEPTION_EXECUTE_HANDLER)
+                {
+                    Status = _SEH2_GetExceptionCode();
+                }
+                _SEH2_END;
 
                 break;
             }

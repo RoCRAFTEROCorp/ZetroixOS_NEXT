@@ -2472,7 +2472,7 @@ NtOpenThreadTokenEx(
      * At first open the thread token for information access and verify
      * that the token associated with the thread is valid.
      */
-    Status = ObReferenceObjectByHandle(ThreadHandle, THREAD_QUERY_INFORMATION,
+    Status = ObReferenceObjectByHandle(ThreadHandle, THREAD_QUERY_LIMITED_INFORMATION,
                                        PsThreadType, PreviousMode, (PVOID*)&Thread,
                                        NULL);
     if (!NT_SUCCESS(Status))

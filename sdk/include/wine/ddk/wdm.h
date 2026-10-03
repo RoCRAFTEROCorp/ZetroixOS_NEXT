@@ -1401,9 +1401,20 @@ typedef struct _KUSER_SHARED_DATA {
     KSYSTEM_TIME FeatureConfigurationChangeStamp;          /* 0x720 */
     ULONG Spare;
     ULONG64 UserPointerAuthMask;                           /* 0x730 */
+#if defined(_ARM64_)
+    XSTATE_CONFIGURATION XStateArm64;
+#else
+    ULONG Reserved10[210];
+#endif
 } KUSER_SHARED_DATA, *PKUSER_SHARED_DATA;
 
-C_ASSERT( sizeof(KUSER_SHARED_DATA) == 0x738 );
+C_ASSERT( FIELD_OFFSET(KUSER_SHARED_DATA, UserPointerAuthMask) == 0x730 );
+#if defined(_ARM64_)
+C_ASSERT( FIELD_OFFSET(KUSER_SHARED_DATA, XStateArm64) == 0x738 );
+#else
+C_ASSERT( FIELD_OFFSET(KUSER_SHARED_DATA, Reserved10) == 0x738 );
+#endif
+C_ASSERT( sizeof(KUSER_SHARED_DATA) == 0xa80 );
 
 #define SHARED_GLOBAL_FLAGS_QPC_BYPASS_ENABLED 0x01
 #define SHARED_GLOBAL_FLAGS_QPC_BYPASS_USE_HV_PAGE 0x02

@@ -675,7 +675,6 @@
 @ stdcall GetTempPathA(long ptr)
 @ stdcall GetTempPathW(long ptr)
 @ stdcall GetThreadContext(long ptr)
-@ stdcall -version=0xA00+ GetThreadDescription(ptr ptr)
 @ stdcall -version=0x602+ GetThreadInformation(long long ptr long) kernelbase.GetThreadInformation
 @ stdcall -version=0x600+ GetThreadErrorMode() kernelbase.GetThreadErrorMode
 @ stdcall -version=0x601+ GetThreadGroupAffinity(long ptr)
@@ -1195,7 +1194,6 @@
 @ stdcall SetThreadAffinityMask(long long)
 @ stdcall -version=0x601+ SetThreadGroupAffinity(long ptr ptr)
 @ stdcall SetThreadContext(long ptr)
-@ stdcall -version=0xA00+ SetThreadDescription(ptr wstr)
 @ stdcall -version=0x600+ SetThreadErrorMode(long ptr) kernelbase.SetThreadErrorMode
 @ stdcall SetThreadExecutionState(long)
 @ stdcall SetThreadIdealProcessor(long long)
@@ -1409,3 +1407,5 @@
 ;@ stdcall -arch=x86_64 uaw_wcsrchr(wstr long)
 @ stdcall QueryInterruptTime(ptr)
 @ stdcall QueryInterruptTimePrecise(ptr)
+@ stdcall GetThreadDescription(ptr ptr)
+@ stdcall SetThreadDescription(ptr wstr)

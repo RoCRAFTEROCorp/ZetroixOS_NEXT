@@ -25,6 +25,7 @@
 #include "wine/test.h"
 #include "winternl.h"
 #include "winnt.h"
+#include "ddk/wdm.h"
 #include "wine/test.h"
 
 static HRESULT (WINAPI *pSetThreadDescription)(HANDLE,PCWSTR);
@@ -90,6 +91,92 @@ static BOOL minidump_write(HANDLE proc, const WCHAR *filename, MINIDUMP_TYPE typ
     return ret;
 }
 
+struct minidump_function_tables
+{
+    MINIDUMP_FUNCTION_TABLE_DESCRIPTOR *descriptors;
+    ULONG count;
+    SIZE_T file_size;
+};
+
+static void minidump_check_function_tables(const char *filename, const MINIDUMP_HEADER *header,
+                                          struct minidump_function_tables *functions)
+{
+    WIN32_FILE_ATTRIBUTE_DATA attributes;
+    MINIDUMP_FUNCTION_TABLE_STREAM table;
+    MINIDUMP_FUNCTION_TABLE_DESCRIPTOR descriptor;
+    MINIDUMP_DIRECTORY directory;
+    const BYTE *data = (const BYTE *)header, *stream;
+    ULONGLONG file_size;
+    SIZE_T pos;
+    ULONG i, size;
+    BOOL ret;
+
+    memset(functions, 0, sizeof(*functions));
+    ret = GetFileAttributesExA(filename, GetFileExInfoStandard, &attributes);
+    ok(ret, "Couldn't get dump file size, error %lu\n", GetLastError());
+    if (!ret || !header) return;
+    file_size = ((ULONGLONG)attributes.nFileSizeHigh << 32) | attributes.nFileSizeLow;
+    ok(file_size >= sizeof(*header) && file_size <= (SIZE_T)-1, "Invalid dump file size %I64u\n", file_size);
+    if (file_size < sizeof(*header) || file_size > (SIZE_T)-1) return;
+    functions->file_size = file_size;
+    ok(header->StreamDirectoryRva <= file_size && header->NumberOfStreams <=
+       (file_size - header->StreamDirectoryRva) / sizeof(directory), "Directory outside file\n");
+    if (header->StreamDirectoryRva > file_size || header->NumberOfStreams >
+        (file_size - header->StreamDirectoryRva) / sizeof(directory)) return;
+    for (i = 0; i < header->NumberOfStreams; ++i)
+    {
+        memcpy(&directory, data + header->StreamDirectoryRva + (SIZE_T)i * sizeof(directory), sizeof(directory));
+        if (directory.StreamType == FunctionTableStream) break;
+    }
+    if (i == header->NumberOfStreams) return;
+    size = directory.Location.DataSize;
+    ok(directory.Location.Rva <= file_size && size <= file_size - directory.Location.Rva,
+       "Function-table stream outside file\n");
+    if (directory.Location.Rva > file_size || size > file_size - directory.Location.Rva) return;
+    ok(size >= sizeof(table), "Truncated function-table header\n");
+    if (size < sizeof(table)) return;
+    stream = data + directory.Location.Rva;
+    memcpy(&table, stream, sizeof(table));
+    ok(table.SizeOfHeader == sizeof(table), "Unexpected header size %lu\n", table.SizeOfHeader);
+    ok(table.SizeOfDescriptor == sizeof(descriptor), "Unexpected descriptor size %lu\n", table.SizeOfDescriptor);
+    if (table.SizeOfHeader != sizeof(table) || table.SizeOfDescriptor != sizeof(descriptor)) return;
+    ok(table.SizeOfAlignPad <= size - table.SizeOfHeader, "Truncated header padding\n");
+    if (table.SizeOfAlignPad > size - table.SizeOfHeader) return;
+    pos = table.SizeOfHeader + table.SizeOfAlignPad;
+    ok(table.NumberOfDescriptors <= (size - pos) / sizeof(descriptor), "Invalid descriptor count %lu\n",
+       table.NumberOfDescriptors);
+    if (table.NumberOfDescriptors > (size - pos) / sizeof(descriptor)) return;
+    if (!table.NumberOfDescriptors) return;
+    functions->descriptors = malloc((SIZE_T)table.NumberOfDescriptors * sizeof(descriptor));
+    ok(functions->descriptors != NULL, "Couldn't allocate function descriptors\n");
+    if (!functions->descriptors) return;
+    for (i = 0; i < table.NumberOfDescriptors; ++i)
+    {
+        ok(table.SizeOfDescriptor <= size - pos, "Truncated descriptor %lu\n", i);
+        if (table.SizeOfDescriptor > size - pos) return;
+        memcpy(&descriptor, stream + pos, sizeof(descriptor));
+        ok(descriptor.MinimumAddress <= descriptor.MaximumAddress, "Invalid function range %I64x-%I64x\n",
+           descriptor.MinimumAddress, descriptor.MaximumAddress);
+        if (descriptor.MinimumAddress > descriptor.MaximumAddress) return;
+        pos += table.SizeOfDescriptor;
+        ok(table.SizeOfNativeDescriptor <= size - pos, "Truncated native descriptor %lu\n", i);
+        if (table.SizeOfNativeDescriptor > size - pos) return;
+        pos += table.SizeOfNativeDescriptor;
+        if (descriptor.EntryCount)
+        {
+            ok(table.SizeOfFunctionEntry != 0 && descriptor.EntryCount <= (size - pos) / table.SizeOfFunctionEntry,
+               "Truncated function entries for descriptor %lu\n", i);
+            if (!table.SizeOfFunctionEntry || descriptor.EntryCount > (size - pos) / table.SizeOfFunctionEntry) return;
+        }
+        pos += (SIZE_T)descriptor.EntryCount * table.SizeOfFunctionEntry;
+        ok(descriptor.SizeOfAlignPad <= size - pos, "Truncated descriptor padding %lu\n", i);
+        if (descriptor.SizeOfAlignPad > size - pos) return;
+        pos += descriptor.SizeOfAlignPad;
+        functions->descriptors[i] = descriptor;
+    }
+    functions->count = table.NumberOfDescriptors;
+}
+
 typedef DWORD64 stream_mask_t;
 #define STREAM2MASK(st) (((stream_mask_t)1) << (st))
 
@@ -121,6 +208,7 @@ static void test_minidump_contents(void)
         {MiniDumpWithIptTrace,          BASIC_STREAM_MASK, BASIC_STREAM_TODO_MASK},
     };
     stream_mask_t expected_mask;
+    struct minidump_function_tables functions;
     MINIDUMP_HEADER *hdr;
     void *where;
     ULONG size;
@@ -135,6 +223,8 @@ static void test_minidump_contents(void)
         if (minidump_write(GetCurrentProcess(), L"foo.mdmp", streams_table[i].type, i >= 6, NULL, NULL))
         {
             hdr = minidump_open_for_read("foo.mdmp");
+            minidump_check_function_tables("foo.mdmp", hdr, &functions);
+            free(functions.descriptors);
             /* native keeps (likely padding) some unused streams at the end of directory, but lists them here */
             ok(hdr->NumberOfStreams >= popcount64(streams_table[i].streams_mask), "Unexpected number of streams %u <> %u\n",
                hdr->NumberOfStreams, popcount64(streams_table[i].streams_mask));
@@ -148,7 +238,7 @@ static void test_minidump_contents(void)
                 todo_wine_if(streams_table[i].todo_wine_mask & STREAM2MASK(j))
                 if (expected_mask & STREAM2MASK(j))
                     ok((ret && where) || broken(BASIC_STREAM_BROKEN_MASK & STREAM2MASK(j)), "Expecting stream %d to be present\n", j);
-                else
+                else if (j != FunctionTableStream)
                     ok(!ret, "Not expecting stream %d to be present\n", j);
             }
 
@@ -402,16 +492,30 @@ struct memory_walker
     unsigned num_directories[IMAGE_NUMBEROF_DIRECTORY_ENTRIES]; /* number of locations in side the directories' content */
     unsigned num_text; /* number of locations inside .text section */
     unsigned num_unwind_info;
+    unsigned num_shared_data;
 };
 
-static void minidump_walk_memory(void *data, struct memory_walker *walker)
+static void minidump_walk_memory(void *data, struct memory_walker *walker,
+                                 const struct minidump_function_tables *functions)
 {
     MINIDUMP_MEMORY_LIST *memory_list;
+    MINIDUMP_DIRECTORY *directory;
+    ULONG size, j;
     BOOL ret;
     int i;
 
-    ret = MiniDumpReadDumpStream(data, MemoryListStream, NULL, (void**)&memory_list, NULL);
+    ret = MiniDumpReadDumpStream(data, MemoryListStream, &directory, (void**)&memory_list, &size);
     ok(ret && memory_list, "Couldn't find memory-list stream\n");
+    if (!ret || !memory_list) return;
+    ok(directory->Location.Rva <= functions->file_size && size <= functions->file_size - directory->Location.Rva,
+       "Memory-list stream outside file\n");
+    if (directory->Location.Rva > functions->file_size || size > functions->file_size - directory->Location.Rva) return;
+    ok(size >= sizeof(memory_list->NumberOfMemoryRanges), "Truncated memory-list header\n");
+    if (size < sizeof(memory_list->NumberOfMemoryRanges)) return;
+    ok(memory_list->NumberOfMemoryRanges <= (size - sizeof(memory_list->NumberOfMemoryRanges)) /
+       sizeof(memory_list->MemoryRanges[0]), "Truncated memory descriptors\n");
+    if (memory_list->NumberOfMemoryRanges > (size - sizeof(memory_list->NumberOfMemoryRanges)) /
+        sizeof(memory_list->MemoryRanges[0])) return;
     for (i = 0; i < memory_list->NumberOfMemoryRanges; i++)
     {
         MINIDUMP_MEMORY_DESCRIPTOR *desc = &memory_list->MemoryRanges[i];
@@ -420,7 +524,43 @@ static void minidump_walk_memory(void *data, struct memory_walker *walker)
         switch ((int)md.kind)
         {
         case MD_NONE:
-            walker->num_unknown++;
+            ok(desc->Memory.Rva <= functions->file_size && desc->Memory.DataSize <= functions->file_size - desc->Memory.Rva,
+               "Memory contents outside file\n");
+            if (desc->Memory.Rva > functions->file_size || desc->Memory.DataSize > functions->file_size - desc->Memory.Rva)
+            {
+                ++walker->num_unknown;
+                break;
+            }
+            if (desc->StartOfMemoryRange == 0x7ffe0000)
+            {
+                const KUSER_SHARED_DATA *live = (const void *)(ULONG_PTR)desc->StartOfMemoryRange;
+                KUSER_SHARED_DATA shared;
+
+                ok(desc->Memory.DataSize == sizeof(shared), "Unexpected shared-data size %lu\n", desc->Memory.DataSize);
+                if (desc->Memory.DataSize != sizeof(shared))
+                {
+                    ++walker->num_unknown;
+                    break;
+                }
+                memcpy(&shared, RVA_TO_ADDR(data, desc->Memory.Rva), sizeof(shared));
+                ok(shared.NtMajorVersion == live->NtMajorVersion && shared.NtMinorVersion == live->NtMinorVersion &&
+                   shared.NtBuildNumber == live->NtBuildNumber, "Unexpected shared-data version\n");
+                ok(shared.NativeProcessorArchitecture == live->NativeProcessorArchitecture,
+                   "Unexpected shared-data processor architecture\n");
+                ok(!memcmp(shared.NtSystemRoot, live->NtSystemRoot, sizeof(shared.NtSystemRoot)),
+                   "Unexpected shared-data system root\n");
+                ++walker->num_shared_data;
+                break;
+            }
+            for (j = 0; desc->Memory.DataSize && j < functions->count; ++j)
+            {
+                const MINIDUMP_FUNCTION_TABLE_DESCRIPTOR *function = &functions->descriptors[j];
+
+                if (desc->StartOfMemoryRange >= function->MinimumAddress &&
+                    desc->StartOfMemoryRange < function->MaximumAddress &&
+                    desc->Memory.DataSize <= function->MaximumAddress - desc->StartOfMemoryRange) break;
+            }
+            if (!desc->Memory.DataSize || j == functions->count) ++walker->num_unknown;
             break;
         case MD_UNMAPPED:
             /* nothing we can do here */
@@ -470,6 +610,7 @@ static void test_current_process(void)
 */
       };
     struct memory_walker walker;
+    struct minidump_function_tables functions;
     struct memory_description md, md2;
     unsigned num_available_modules, num_threads;
     void *data;
@@ -482,6 +623,7 @@ static void test_current_process(void)
         minidump_write(GetCurrentProcess(), L"foo.mdmp", process_tests[i].dump_type, FALSE, NULL, NULL);
 
         data = minidump_open_for_read("foo.mdmp");
+        minidump_check_function_tables("foo.mdmp", data, &functions);
 
         num_threads = minidump_get_number_of_threads(data);
         ok(num_threads > 0, "Unexpected number of threads\n");
@@ -504,9 +646,11 @@ static void test_current_process(void)
 #undef CHECK_MODULE
 
         memset(&walker, 0, sizeof(walker));
-        minidump_walk_memory(data, &walker);
+        minidump_walk_memory(data, &walker, &functions);
+        free(functions.descriptors);
 
         ok(walker.num_unknown == 0, "unexpected unknown memory locations\n");
+        ok(walker.num_shared_data == 1, "Unexpected shared-data count %u\n", walker.num_shared_data);
         ok(walker.num_thread_stack == num_threads, "Unexpected number of stacks\n");
 
         if (sizeof(void*) > 4 && (process_tests[i].dump_type & MiniDumpWithModuleHeaders))
@@ -708,6 +852,629 @@ static void test_callback(void)
     }
 }
 
+enum vm_read_mode
+{
+    VM_READ_SUPPLY,
+    VM_READ_PREFIX,
+    VM_READ_OMIT_MIDDLE,
+    VM_READ_OMIT_LAST,
+    VM_READ_FAIL_PRE,
+    VM_READ_FAIL_POST
+};
+
+struct vm_read_info
+{
+    BYTE *memory;
+    ULONG size, page_size;
+    enum vm_read_mode mode;
+    BOOL added, protected;
+    unsigned starts, reads, failures;
+    MINIDUMP_READ_MEMORY_FAILURE_CALLBACK failure;
+    HRESULT failure_initial_status;
+};
+
+static BOOL CALLBACK vm_read_callback(void *arg, MINIDUMP_CALLBACK_INPUT *input, MINIDUMP_CALLBACK_OUTPUT *output)
+{
+    struct vm_read_info *info = arg;
+    ULONG64 offset;
+    ULONG size, completed;
+    DWORD old_protect;
+
+    switch (input->CallbackType)
+    {
+    case VmStartCallback:
+        ++info->starts;
+        output->Status = S_FALSE;
+        return TRUE;
+    case IncludeThreadCallback:
+    case IncludeModuleCallback:
+        return FALSE;
+    case MemoryCallback:
+        if (info->added) return FALSE;
+        info->added = TRUE;
+        output->MemoryBase = (ULONG_PTR)info->memory;
+        output->MemorySize = info->size;
+        return TRUE;
+    case VmPreReadCallback:
+        offset = input->VmPreRead.Offset - (ULONG_PTR)info->memory;
+        size = input->VmPreRead.Size;
+        if (offset >= info->size || size > info->size - offset) return FALSE;
+        if (size > 1) ++info->reads;
+        if (info->mode == VM_READ_SUPPLY || info->mode == VM_READ_PREFIX || info->mode == VM_READ_FAIL_PRE)
+        {
+            completed = info->mode == VM_READ_SUPPLY ? size : min(size, 16);
+            memset(input->VmPreRead.Buffer, 0xb6, completed);
+            output->VmReadBytesCompleted = completed;
+            output->VmReadStatus = info->mode == VM_READ_FAIL_PRE ? E_ACCESSDENIED : E_NOTIMPL;
+            return TRUE;
+        }
+        if ((info->mode == VM_READ_OMIT_MIDDLE || info->mode == VM_READ_OMIT_LAST) &&
+            !info->protected && size > 1)
+            info->protected = VirtualProtect(info->memory +
+                (info->mode == VM_READ_OMIT_MIDDLE ? 1 : 2) * info->page_size,
+                info->page_size, PAGE_NOACCESS, &old_protect);
+        return FALSE;
+    case VmPostReadCallback:
+        offset = input->VmPostRead.Offset - (ULONG_PTR)info->memory;
+        size = input->VmPostRead.Size;
+        if (info->mode != VM_READ_FAIL_POST || offset >= info->size || size > info->size - offset)
+            return FALSE;
+        output->VmReadStatus = E_ACCESSDENIED;
+        output->VmReadBytesCompleted = min(size, 16);
+        return TRUE;
+    case VmQueryCallback:
+        return FALSE;
+    case ReadMemoryFailureCallback:
+        offset = input->ReadMemoryFailure.Offset - (ULONG_PTR)info->memory;
+        if (offset >= info->size) return FALSE;
+        ++info->failures;
+        info->failure = input->ReadMemoryFailure;
+        info->failure_initial_status = output->Status;
+        if (info->mode == VM_READ_OMIT_MIDDLE || info->mode == VM_READ_OMIT_LAST)
+            output->Status = S_OK;
+        return TRUE;
+    default:
+        return TRUE;
+    }
+}
+
+static void check_vm_read_memory(MINIDUMP_HEADER *header, SIZE_T file_size, const struct vm_read_info *info)
+{
+    MINIDUMP_DIRECTORY *directory;
+    MINIDUMP_MEMORY_LIST *list;
+    const MINIDUMP_MEMORY_DESCRIPTOR *range;
+    BYTE *data = (BYTE *)header;
+    BOOL omitted = info->mode == VM_READ_OMIT_MIDDLE || info->mode == VM_READ_OMIT_LAST;
+    unsigned i, j, found = 0;
+    SIZE_T pos;
+    ULONG stream_size;
+
+    ok(header->StreamDirectoryRva <= file_size && header->NumberOfStreams <=
+       (file_size - header->StreamDirectoryRva) / sizeof(*directory), "Directory outside file\n");
+    if (header->StreamDirectoryRva > file_size || header->NumberOfStreams >
+        (file_size - header->StreamDirectoryRva) / sizeof(*directory)) return;
+    directory = RVA_TO_ADDR(header, header->StreamDirectoryRva);
+    for (i = 0; i < header->NumberOfStreams; ++i)
+        if (directory[i].StreamType == MemoryListStream) break;
+    ok(i < header->NumberOfStreams, "Missing memory-list stream\n");
+    if (i == header->NumberOfStreams) return;
+    stream_size = directory[i].Location.DataSize;
+    ok(directory[i].Location.Rva <= file_size && stream_size <= file_size - directory[i].Location.Rva,
+       "Memory-list stream outside file\n");
+    if (directory[i].Location.Rva > file_size || stream_size > file_size - directory[i].Location.Rva) return;
+    ok(stream_size >= sizeof(list->NumberOfMemoryRanges), "Truncated memory-list stream\n");
+    if (stream_size < sizeof(list->NumberOfMemoryRanges)) return;
+    list = RVA_TO_ADDR(header, directory[i].Location.Rva);
+    ok(list->NumberOfMemoryRanges <= (stream_size - sizeof(list->NumberOfMemoryRanges)) / sizeof(*range),
+       "Truncated memory descriptors\n");
+    if (list->NumberOfMemoryRanges > (stream_size - sizeof(list->NumberOfMemoryRanges)) / sizeof(*range)) return;
+    for (i = 0; i < list->NumberOfMemoryRanges; ++i)
+    {
+        ULONG64 offset;
+
+        range = &list->MemoryRanges[i];
+        if (range->StartOfMemoryRange >= (ULONG_PTR)info->memory)
+        {
+            offset = range->StartOfMemoryRange - (ULONG_PTR)info->memory;
+            if (offset >= info->size) continue;
+        }
+        else if ((ULONG_PTR)info->memory - range->StartOfMemoryRange >= range->Memory.DataSize)
+            continue;
+        ++found;
+        ok(!omitted, "Omitted allocation still has a descriptor\n");
+        if (omitted) continue;
+        ok(range->StartOfMemoryRange == (ULONG_PTR)info->memory && range->Memory.DataSize == info->size,
+           "Unexpected memory range %I64x/%lu\n", range->StartOfMemoryRange, range->Memory.DataSize);
+        if (range->StartOfMemoryRange != (ULONG_PTR)info->memory || range->Memory.DataSize != info->size) continue;
+        ok(range->Memory.Rva <= file_size && info->size <= file_size - range->Memory.Rva,
+           "Memory contents outside file\n");
+        if (range->Memory.Rva > file_size || info->size > file_size - range->Memory.Rva) continue;
+        for (j = 0; j < info->size; ++j)
+            if (data[(SIZE_T)range->Memory.Rva + j] !=
+                (info->mode == VM_READ_SUPPLY || j < 16 ? 0xb6 : info->memory[j])) break;
+        ok(j == info->size, "Unexpected memory contents at %u\n", j);
+    }
+    ok(found == !omitted, "Found %u allocation descriptors, expected %u\n", found, !omitted);
+    if (omitted)
+        for (i = 0; i < 3; ++i)
+        {
+            for (pos = 0; pos <= file_size && 32 <= file_size - pos; ++pos)
+                if (!memcmp(data + pos, info->memory + i * info->page_size, 32)) break;
+            ok(pos > file_size || 32 > file_size - pos, "Omitted page %u remains at file offset %Iu\n", i, pos);
+        }
+}
+
+static void test_vm_read(void)
+{
+    struct vm_read_info info;
+    MINIDUMP_CALLBACK_INFORMATION callback = {vm_read_callback, &info};
+    MINIDUMP_HEADER *header;
+    SYSTEM_INFO system_info;
+    LARGE_INTEGER file_size;
+    HANDLE file;
+    BYTE *memory;
+    ULONG mode, i, j, seed;
+    DWORD error, old_protect;
+    BOOL ret, omitted, failing, readable;
+
+    GetSystemInfo(&system_info);
+    memory = VirtualAlloc(NULL, 3 * system_info.dwPageSize, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE);
+    ok(memory != NULL, "Failed to allocate memory, error %lu\n", GetLastError());
+    if (!memory) return;
+    for (i = 0; i < 3; ++i)
+    {
+        seed = 0x6c6e7401 + i;
+        for (j = 0; j < system_info.dwPageSize; ++j)
+        {
+            seed = seed * 1664525 + 1013904223;
+            memory[i * system_info.dwPageSize + j] = seed >> 24;
+        }
+    }
+    for (mode = VM_READ_SUPPLY; mode <= VM_READ_FAIL_POST; ++mode)
+    {
+        winetest_push_context("vm_read[%lu]", mode);
+        memset(&info, 0, sizeof(info));
+        info.memory = memory;
+        info.page_size = system_info.dwPageSize;
+        info.mode = mode;
+        omitted = mode == VM_READ_OMIT_MIDDLE || mode == VM_READ_OMIT_LAST;
+        failing = mode == VM_READ_FAIL_PRE || mode == VM_READ_FAIL_POST;
+        info.size = (omitted ? 3 : 1) * info.page_size;
+        file = CreateFileW(L"foo.mdmp", GENERIC_READ | GENERIC_WRITE, 0, NULL,
+                           CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
+        ok(file != INVALID_HANDLE_VALUE, "Failed to create dump, error %lu\n", GetLastError());
+        if (file == INVALID_HANDLE_VALUE)
+        {
+            winetest_pop_context();
+            break;
+        }
+        SetLastError(0xdeadbeef);
+        ret = MiniDumpWriteDump(GetCurrentProcess(), GetCurrentProcessId(), file, MiniDumpNormal,
+                                NULL, NULL, &callback);
+        error = GetLastError();
+        ok(ret == !failing, "Unexpected return %u, error %#lx\n", ret, error);
+        if (failing)
+            ok(error == HRESULT_FROM_WIN32(mode == VM_READ_FAIL_PRE ? ERROR_PARTIAL_COPY : ERROR_READ_FAULT),
+               "Unexpected failure %#lx\n", error);
+        ok(info.starts && info.reads && info.added, "Missing callbacks: start %u, read %u, memory %u\n",
+           info.starts, info.reads, info.added);
+        ok(info.failures == (omitted || failing), "Unexpected failure count %u\n", info.failures);
+        if (info.failures)
+        {
+            ok(info.failure.Offset == (ULONG_PTR)memory && info.failure.Bytes == info.size,
+               "Unexpected failed range %I64x/%lu\n", info.failure.Offset, info.failure.Bytes);
+            ok(info.failure.FailureStatus == HRESULT_FROM_WIN32(mode == VM_READ_FAIL_PRE ? ERROR_PARTIAL_COPY : ERROR_READ_FAULT),
+               "Unexpected read failure %#lx\n", info.failure.FailureStatus);
+            ok(info.failure_initial_status == S_FALSE, "Unexpected initial failure status %#lx\n", info.failure_initial_status);
+        }
+        readable = TRUE;
+        if (omitted)
+        {
+            ok(info.protected, "Failed to protect allocation\n");
+            ret = VirtualProtect(memory, 3 * info.page_size, PAGE_READWRITE, &old_protect);
+            ok(ret, "Failed to restore protection, error %lu\n", GetLastError());
+            readable = ret;
+        }
+        file_size.QuadPart = 0;
+        ret = GetFileSizeEx(file, &file_size);
+        ok(ret, "Failed to get dump size\n");
+        CloseHandle(file);
+        if (!failing)
+            ok(file_size.QuadPart >= sizeof(*header) && (ULONGLONG)file_size.QuadPart <= (SIZE_T)-1,
+               "Invalid dump size %I64u\n", file_size.QuadPart);
+        if (!failing && readable && file_size.QuadPart >= sizeof(*header) &&
+            (ULONGLONG)file_size.QuadPart <= (SIZE_T)-1)
+        {
+            header = minidump_open_for_read("foo.mdmp");
+            if (header)
+            {
+                check_vm_read_memory(header, file_size.QuadPart, &info);
+                minidump_close_for_read(header);
+            }
+        }
+        ret = DeleteFileA("foo.mdmp");
+        ok(ret, "Couldn't delete file\n");
+        winetest_pop_context();
+        if (!readable) break;
+    }
+    ret = VirtualFree(memory, 0, MEM_RELEASE);
+    ok(ret, "Failed to release memory\n");
+}
+
+struct vm_full_info
+{
+    BYTE *memory;
+    ULONG size;
+    ULONG page_size;
+    unsigned mode;
+    unsigned changing_pairs;
+    unsigned scans;
+    unsigned queries;
+    unsigned captures;
+    ULONG max_read;
+    ULONG retry_base;
+    unsigned restore_at;
+    unsigned retry_attempts;
+    unsigned failed_posts;
+    unsigned recoveries;
+    unsigned cancellations;
+    ULONG retry_sizes[8];
+    ULONG64 failure_offset;
+    ULONG failure_size;
+    ULONG failure_completed;
+    HRESULT failure_status;
+    BOOL protected;
+    BOOL restored;
+};
+
+static BOOL CALLBACK vm_full_callback(void *param, PMINIDUMP_CALLBACK_INPUT input,
+                                     MINIDUMP_CALLBACK_OUTPUT *output)
+{
+    struct vm_full_info *info = param;
+    MEMORY_BASIC_INFORMATION mbi;
+    ULONG64 offset, relative;
+    ULONG prefix;
+    unsigned variant;
+    DWORD old_protect;
+
+    switch (input->CallbackType)
+    {
+    case CancelCallback:
+        output->CheckCancel = TRUE;
+        output->Cancel = info->mode == 11;
+        if (output->Cancel) ++info->cancellations;
+        return TRUE;
+    case IncludeThreadCallback:
+    case IncludeModuleCallback:
+        return FALSE;
+    case VmStartCallback:
+        output->Status = S_FALSE;
+        return TRUE;
+    case VmQueryCallback:
+        offset = input->VmQuery.Offset;
+        if (!offset) ++info->scans;
+        if (offset != (ULONG_PTR)offset || !VirtualQuery((void *)(ULONG_PTR)offset, &mbi, sizeof(mbi)))
+            return FALSE;
+        output->VmQueryStatus = S_OK;
+        memset(&output->VmQueryResult, 0, sizeof(output->VmQueryResult));
+        output->VmQueryResult.BaseAddress = (ULONG_PTR)mbi.BaseAddress;
+        output->VmQueryResult.AllocationBase = (ULONG_PTR)mbi.AllocationBase;
+        output->VmQueryResult.AllocationProtect = mbi.AllocationProtect;
+        output->VmQueryResult.RegionSize = mbi.RegionSize;
+        output->VmQueryResult.State = mbi.State;
+        output->VmQueryResult.Protect = mbi.Protect;
+        output->VmQueryResult.Type = mbi.Type;
+        relative = offset - (ULONG_PTR)info->memory;
+        if (relative >= info->size)
+        {
+            if (mbi.State == MEM_COMMIT)
+            {
+                output->VmQueryResult.State = MEM_RESERVE;
+                output->VmQueryResult.Protect = 0;
+            }
+            return TRUE;
+        }
+        ++info->queries;
+        if (info->mode == 9)
+        {
+            variant = min(info->scans - 1, 2 * info->changing_pairs) & 1;
+            prefix = info->size - variant * info->page_size;
+            output->VmQueryResult.BaseAddress = (ULONG_PTR)info->memory;
+            output->VmQueryResult.RegionSize = prefix;
+            if (relative >= prefix)
+            {
+                output->VmQueryResult.BaseAddress += prefix;
+                output->VmQueryResult.RegionSize = info->size - prefix;
+                output->VmQueryResult.State = MEM_RESERVE;
+                output->VmQueryResult.Protect = 0;
+            }
+            return TRUE;
+        }
+        if (info->queries == 1) return TRUE;
+        switch (info->mode)
+        {
+        case 1:
+            memset(&output->VmQueryResult, 0, sizeof(output->VmQueryResult));
+            output->VmQueryResult.BaseAddress = (ULONG_PTR)info->memory;
+            output->VmQueryResult.RegionSize = info->size;
+            output->VmQueryResult.State = MEM_FREE;
+            break;
+        case 2:
+            output->VmQueryResult.Protect = PAGE_NOACCESS;
+            break;
+        case 3:
+            prefix = info->page_size;
+            output->VmQueryResult.BaseAddress = (ULONG_PTR)info->memory;
+            output->VmQueryResult.RegionSize = prefix;
+            if (relative >= prefix)
+            {
+                output->VmQueryResult.BaseAddress += prefix;
+                output->VmQueryResult.RegionSize = info->size - prefix;
+                output->VmQueryResult.State = MEM_RESERVE;
+                output->VmQueryResult.Protect = 0;
+            }
+            break;
+        case 4:
+            output->VmQueryResult.BaseAddress = (ULONG_PTR)info->memory + relative / info->page_size * info->page_size;
+            output->VmQueryResult.RegionSize = info->page_size;
+            if (relative < info->page_size || relative >= 2 * info->page_size)
+            {
+                output->VmQueryResult.State = MEM_RESERVE;
+                output->VmQueryResult.Protect = 0;
+            }
+            break;
+        case 5:
+            output->VmQueryStatus = S_FALSE;
+            break;
+        case 6:
+            output->VmQueryStatus = E_ACCESSDENIED;
+            break;
+        case 7:
+            output->VmQueryResult.State = MEM_FREE;
+            return FALSE;
+        case 8:
+            output->VmQueryResult.State = MEM_FREE;
+            output->VmQueryStatus = E_NOTIMPL;
+            break;
+        }
+        return TRUE;
+    case VmPreReadCallback:
+        relative = input->VmPreRead.Offset - (ULONG_PTR)info->memory;
+        if (relative < info->size && input->VmPreRead.Size <= info->size - relative)
+        {
+            info->max_read = max(info->max_read, input->VmPreRead.Size);
+            if (!relative && input->VmPreRead.Size > 1)
+            {
+                ++info->captures;
+                if (info->mode == 9) memcpy(info->memory + 128, &info->captures, sizeof(info->captures));
+            }
+            if (info->mode == 10 && relative == info->retry_base && input->VmPreRead.Size > 1)
+            {
+                ++info->retry_attempts;
+                if (info->retry_attempts <= ARRAY_SIZE(info->retry_sizes))
+                    info->retry_sizes[info->retry_attempts - 1] = input->VmPreRead.Size;
+                memcpy(info->memory + info->retry_base + 128, &info->retry_attempts, sizeof(info->retry_attempts));
+                if (!info->protected)
+                    info->protected = VirtualProtect(info->memory + info->retry_base + info->page_size,
+                        info->page_size, PAGE_NOACCESS, &old_protect);
+                if (info->retry_attempts == info->restore_at)
+                    info->restored = VirtualProtect(info->memory + info->retry_base + info->page_size,
+                        info->page_size, PAGE_READWRITE, &old_protect);
+            }
+        }
+        return FALSE;
+    case VmPostReadCallback:
+        relative = input->VmPostRead.Offset - (ULONG_PTR)info->memory;
+        if (info->mode == 10 && relative == info->retry_base + info->page_size &&
+            FAILED(input->VmPostRead.Status))
+        {
+            ++info->failed_posts;
+            info->failure_offset = relative;
+            info->failure_size = input->VmPostRead.Size;
+            info->failure_completed = input->VmPostRead.Completed;
+            info->failure_status = input->VmPostRead.Status;
+        }
+        return FALSE;
+    case ReadMemoryFailureCallback:
+        ++info->recoveries;
+        return TRUE;
+    default:
+        return TRUE;
+    }
+}
+
+static void check_vm_full_memory(const BYTE *data, SIZE_T file_size, const struct vm_full_info *info)
+{
+    MINIDUMP_HEADER header;
+    MINIDUMP_DIRECTORY directory;
+    MINIDUMP_MEMORY_DESCRIPTOR64 range;
+    ULONG64 count, position, j;
+    ULONG size, expected_size = info->size, expected_offset = 0;
+    unsigned i, found = 0;
+    const BYTE *stream;
+
+    if (info->mode == 1 || info->mode == 2) expected_size = 0;
+    if (info->mode == 3 || info->mode == 4) expected_size = info->page_size;
+    if (info->mode == 4) expected_offset = info->page_size;
+    ok(file_size >= sizeof(header), "Truncated dump header\n");
+    if (file_size < sizeof(header)) return;
+    memcpy(&header, data, sizeof(header));
+    ok(header.Signature == MINIDUMP_SIGNATURE, "Invalid dump signature %#x\n", header.Signature);
+    ok(header.StreamDirectoryRva <= file_size && header.NumberOfStreams <=
+       (file_size - header.StreamDirectoryRva) / sizeof(directory), "Directory outside file\n");
+    if (header.StreamDirectoryRva > file_size || header.NumberOfStreams >
+        (file_size - header.StreamDirectoryRva) / sizeof(directory)) return;
+    for (i = 0; i < header.NumberOfStreams; ++i)
+    {
+        memcpy(&directory, data + header.StreamDirectoryRva + i * sizeof(directory), sizeof(directory));
+        if (directory.StreamType == Memory64ListStream) break;
+    }
+    ok(i < header.NumberOfStreams, "Missing full-memory stream\n");
+    if (i == header.NumberOfStreams) return;
+    size = directory.Location.DataSize;
+    ok(directory.Location.Rva <= file_size && size <= file_size - directory.Location.Rva,
+       "Full-memory stream outside file\n");
+    if (directory.Location.Rva > file_size || size > file_size - directory.Location.Rva) return;
+    ok(size >= 2 * sizeof(ULONG64), "Truncated full-memory list\n");
+    if (size < 2 * sizeof(ULONG64)) return;
+    stream = data + directory.Location.Rva;
+    memcpy(&count, stream, sizeof(count));
+    memcpy(&position, stream + sizeof(count), sizeof(position));
+    ok(count <= (size - 2 * sizeof(ULONG64)) / sizeof(range), "Truncated full-memory descriptors\n");
+    if (count > (size - 2 * sizeof(ULONG64)) / sizeof(range)) return;
+    for (j = 0; j < count; ++j)
+    {
+        memcpy(&range, stream + 2 * sizeof(ULONG64) + j * sizeof(range), sizeof(range));
+        ok(position <= file_size && range.DataSize <= file_size - position, "Memory contents outside file\n");
+        if (position > file_size || range.DataSize > file_size - position) return;
+        if ((range.StartOfMemoryRange >= (ULONG_PTR)info->memory &&
+             range.StartOfMemoryRange - (ULONG_PTR)info->memory < info->size) ||
+            (range.StartOfMemoryRange < (ULONG_PTR)info->memory &&
+             (ULONG_PTR)info->memory - range.StartOfMemoryRange < range.DataSize))
+        {
+            ++found;
+            ok(expected_size && range.StartOfMemoryRange == (ULONG_PTR)info->memory + expected_offset &&
+               range.DataSize == expected_size, "Unexpected owned range %I64x/%I64u\n",
+               range.StartOfMemoryRange, range.DataSize);
+            if (expected_size && range.StartOfMemoryRange == (ULONG_PTR)info->memory + expected_offset &&
+                range.DataSize == expected_size)
+                ok(!memcmp(data + (SIZE_T)position, info->memory + expected_offset, expected_size),
+                   "Captured memory differs from final source data\n");
+        }
+        position += range.DataSize;
+    }
+    ok(found == !!expected_size, "Found %u owned descriptors, expected %u\n", found, !!expected_size);
+}
+
+static void test_vm_full_memory(void)
+{
+    static const unsigned changing_pairs[] = {2, 4, 8};
+    static const unsigned restore_at[] = {2, 5, 6};
+    struct vm_full_info info;
+    MINIDUMP_CALLBACK_INFORMATION callback = {vm_full_callback, &info};
+    SYSTEM_INFO system_info;
+    LARGE_INTEGER file_size;
+    HANDLE file, mapping;
+    BYTE *data;
+    ULONG mode, i, seed, error, old_protect;
+    BOOL ret, failing;
+
+    GetSystemInfo(&system_info);
+    for (mode = 0; mode < 18; ++mode)
+    {
+        winetest_push_context("vm_full[%lu]", mode);
+        memset(&info, 0, sizeof(info));
+        info.mode = mode < 12 ? min(mode, 9) : mode == 15 ? 11 : 10;
+        info.page_size = system_info.dwPageSize;
+        info.size = info.mode == 9 ? 1024 * 1024 : 3 * info.page_size;
+        if (info.mode == 9) info.changing_pairs = changing_pairs[mode - 9];
+        if (mode >= 12 && mode < 15) info.restore_at = restore_at[mode - 12];
+        if (mode >= 16)
+        {
+            info.size = mode == 16 ? 96 * 1024 : 128 * 1024;
+            info.retry_base = 65536;
+            info.restore_at = 2;
+        }
+        info.memory = VirtualAlloc(NULL, info.size, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE);
+        ok(info.memory != NULL, "Failed to allocate source memory, error %lu\n", GetLastError());
+        if (!info.memory)
+        {
+            winetest_pop_context();
+            break;
+        }
+        seed = 0x6c6e7401;
+        for (i = 0; i < info.size; ++i)
+        {
+            seed = seed * 1664525 + 1013904223;
+            info.memory[i] = seed >> 24;
+        }
+        file = CreateFileW(L"foo.mdmp", GENERIC_READ | GENERIC_WRITE, 0, NULL,
+                           CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
+        ok(file != INVALID_HANDLE_VALUE, "Failed to create dump, error %lu\n", GetLastError());
+        if (file == INVALID_HANDLE_VALUE)
+        {
+            VirtualFree(info.memory, 0, MEM_RELEASE);
+            winetest_pop_context();
+            break;
+        }
+        SetLastError(0xdeadbeef);
+        ret = MiniDumpWriteDump(GetCurrentProcess(), GetCurrentProcessId(), file, MiniDumpWithFullMemory,
+                               NULL, NULL, &callback);
+        error = GetLastError();
+        failing = mode == 5 || mode == 6 || info.changing_pairs == 8 || info.restore_at == 6 || info.mode == 11;
+        ok(ret == !failing, "Unexpected return %u, error %#lx\n", ret, error);
+        if (failing)
+            ok(error == (mode == 5 ? S_FALSE : mode == 6 ? E_ACCESSDENIED :
+                         info.mode == 11 ? HRESULT_FROM_WIN32(ERROR_CANCELLED) :
+                         info.restore_at == 6 ? HRESULT_FROM_WIN32(ERROR_READ_FAULT) : HRESULT_FROM_WIN32(ERROR_INVALID_DATA)),
+               "Unexpected error %#lx\n", error);
+        if (info.mode != 11)
+            ok(info.scans >= 2 && info.queries >= 2, "Missing second scan, scans %u queries %u\n",
+               info.scans, info.queries);
+        else
+            ok(info.cancellations, "Cancellation callback request was not issued\n");
+        if (info.mode == 9)
+        {
+            unsigned pairs = min(info.changing_pairs + 1, 5);
+            ok(info.scans == 2 * pairs, "Unexpected scans %u, expected %u\n", info.scans, 2 * pairs);
+            ok(info.captures == pairs, "Unexpected captures %u, expected %u\n", info.captures, pairs);
+            ok(info.max_read == 65536, "Unexpected largest read %lu\n", info.max_read);
+        }
+        if (info.mode == 10)
+        {
+            unsigned attempts = min(info.restore_at, 5);
+            ULONG chunk_size = min(info.size - info.retry_base, 65536);
+            ok(info.protected, "Failed to protect source page\n");
+            ok(info.restored == (info.restore_at <= 5), "Unexpected restore result %u\n", info.restored);
+            ok(info.scans == 2, "Unexpected retry scan count %u\n", info.scans);
+            ok(info.retry_attempts == attempts, "Unexpected retry attempts %u, expected %u\n", info.retry_attempts, attempts);
+            ok(info.captures == (info.retry_base ? 1 : attempts), "Unexpected first-chunk captures %u\n", info.captures);
+            for (i = 0; i < min(info.retry_attempts, ARRAY_SIZE(info.retry_sizes)); ++i)
+                ok(info.retry_sizes[i] == chunk_size, "Retry %lu size %lu, expected %lu\n", i, info.retry_sizes[i], chunk_size);
+            ok(info.failed_posts == min(info.restore_at - 1, 5), "Unexpected failed post-read count %u\n", info.failed_posts);
+            ok(info.failure_offset == info.retry_base + info.page_size && info.failure_size == chunk_size - info.page_size &&
+               !info.failure_completed && info.failure_status == HRESULT_FROM_WIN32(ERROR_PARTIAL_COPY),
+               "Unexpected failed post-read %I64u/%lu/%lu/%#lx\n", info.failure_offset, info.failure_size,
+               info.failure_completed, info.failure_status);
+            ok(!info.recoveries, "Unexpected full-memory recovery callbacks %u\n", info.recoveries);
+            if (info.protected)
+            {
+                BOOL restored = VirtualProtect(info.memory, info.size, PAGE_READWRITE, &old_protect);
+                ok(restored, "Failed to restore source protection, error %lu\n", GetLastError());
+                if (!restored) ret = FALSE;
+            }
+        }
+        if (ret)
+        {
+            ret = GetFileSizeEx(file, &file_size);
+            ok(ret && file_size.QuadPart >= sizeof(MINIDUMP_HEADER) && (ULONGLONG)file_size.QuadPart <= (SIZE_T)-1,
+               "Invalid dump file size\n");
+            if (ret && file_size.QuadPart >= sizeof(MINIDUMP_HEADER) && (ULONGLONG)file_size.QuadPart <= (SIZE_T)-1)
+            {
+                mapping = CreateFileMappingW(file, NULL, PAGE_READONLY, 0, 0, NULL);
+                ok(mapping != NULL, "Failed to create file mapping, error %lu\n", GetLastError());
+                if (mapping)
+                {
+                    data = MapViewOfFile(mapping, FILE_MAP_READ, 0, 0, 0);
+                    ok(data != NULL, "Failed to map dump, error %lu\n", GetLastError());
+                    if (data)
+                    {
+                        check_vm_full_memory(data, file_size.QuadPart, &info);
+                        UnmapViewOfFile(data);
+                    }
+                    CloseHandle(mapping);
+                }
+            }
+        }
+        CloseHandle(file);
+        ret = DeleteFileW(L"foo.mdmp");
+        ok(ret, "Failed to delete dump, error %lu\n", GetLastError());
+        ret = VirtualFree(info.memory, 0, MEM_RELEASE);
+        ok(ret, "Failed to release source memory, error %lu\n", GetLastError());
+        winetest_pop_context();
+    }
+}
+
 static void test_exception(void)
 {
     static const struct
@@ -880,6 +1647,11 @@ START_TEST(minidump)
     int argc;
     char **argv;
     argc = winetest_get_mainargs(&argv);
+    if (argc == 3 && !strcmp(argv[2], "full-memory"))
+    {
+        test_vm_full_memory();
+        return;
+    }
     if (argc == 4 && !strcmp(argv[2], "exception"))
     {
         generate_child_exception(argv[3]);
@@ -892,5 +1664,7 @@ START_TEST(minidump)
     test_minidump_contents();
     test_current_process();
     test_callback();
+    test_vm_read();
+    test_vm_full_memory();
     test_exception();
 }

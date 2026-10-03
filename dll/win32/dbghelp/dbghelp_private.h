@@ -609,10 +609,13 @@ struct process
 
     BOOL                        is_64bit;
     BOOL                        is_host_64bit;
+    BOOL (*read_memory)(void *, ULONG64, void *, SIZE_T);
+    void                       *read_memory_user;
 };
 
 static inline BOOL read_process_memory(const struct process *process, UINT64 addr, void *buf, size_t size)
 {
+    if (process->read_memory) return process->read_memory(process->read_memory_user, addr, buf, size);
     return ReadProcessMemory(process->handle, (void*)(UINT_PTR)addr, buf, size, NULL);
 }
 
@@ -686,6 +689,7 @@ struct dump_memory64
 struct dump_module
 {
     unsigned                            is_elf;
+    DWORD                               write_flags;
     ULONG64                             base;
     ULONG                               size;
     DWORD                               timestamp;
@@ -698,17 +702,30 @@ struct dump_thread
     ULONG                               tid;
     ULONG                               prio_class;
     ULONG                               curr_prio;
+    DWORD                               write_flags;
 };
 
 struct dump_context
 {
     /* process & thread information */
     struct process                     *process;
+    HANDLE                              callback_handle;
+    HANDLE                              clone_handle;
+    BOOL                                snapshot;
+    ULONG64                             snapshot_create_time;
+    ULONG64                             snapshot_kernel_time;
+    ULONG64                             snapshot_user_time;
+    DWORD                               secondary_flags;
+    BOOL                              (*saved_read_memory)(void *, ULONG64, void *, SIZE_T);
+    void                               *saved_read_memory_user;
     DWORD                               pid;
+    DWORD                               writer_tid;
+    HANDLE                              impersonation_token;
     unsigned                            flags_out;
     /* thread information */
     struct dump_thread*                 threads;
     unsigned                            num_threads;
+    struct _MINIDUMP_THREAD_INFO        *thread_info;
     /* module information */
     struct dump_module*                 modules;
     unsigned                            num_modules;
@@ -723,11 +740,13 @@ struct dump_context
     struct dump_memory*                 mem;
     unsigned                            num_mem;
     unsigned                            alloc_mem;
-    struct dump_memory64*               mem64;
-    unsigned                            num_mem64;
-    unsigned                            alloc_mem64;
     /* callback information */
     MINIDUMP_CALLBACK_INFORMATION*      cb;
+    BOOL                                callback_io;
+    BOOL                                callback_vm;
+    BOOL                                sym_initialized;
+    BOOL                                check_cancel;
+    HRESULT                             status;
 };
 
 union ctx
@@ -873,7 +892,7 @@ extern BOOL         pdb_fpo_unwind_parse_cmd_string(struct cpu_stack_walk* csw, 
 
 /* pe_module.c */
 extern unsigned     pe_clone_sections_table(struct module *module, IMAGE_SECTION_HEADER **sections);
-extern BOOL         pe_load_nt_header(HANDLE hProc, DWORD64 base, IMAGE_NT_HEADERS* nth, BOOL* is_builtin);
+extern BOOL         pe_load_nt_header(const struct process *pcs, DWORD64 base, IMAGE_NT_HEADERS* nth, BOOL* is_builtin);
 extern struct module*
                     pe_load_native_module(struct process* pcs, const WCHAR* name,
                                           HANDLE hFile, DWORD64 base, DWORD size);
