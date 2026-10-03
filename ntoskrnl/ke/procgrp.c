@@ -1683,7 +1683,7 @@ NTAPI
 KeQueryUnbiasedInterruptTime(VOID)
 {
     /* Without connected-standby bias tracking, unbiased == interrupt time. */
-    return KeQueryInterruptTime();
+    return KeQueryInterruptTime() - SharedUserData->InterruptTimeBias;
 }
 
 /*
@@ -1694,8 +1694,7 @@ NTAPI
 KeQueryUnbiasedInterruptTimePrecise(
     _Out_ PULONG64 QpcTimeStamp)
 {
-    *QpcTimeStamp = (ULONG64)KeQueryPerformanceCounter(NULL).QuadPart;
-    return KeQueryInterruptTime();
+    return KiQueryInterruptTimePrecise(QpcTimeStamp, TRUE);
 }
 
 /*

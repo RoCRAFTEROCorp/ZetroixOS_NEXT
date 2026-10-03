@@ -5010,6 +5010,11 @@ RtlIpv6StringToAddressExW(
 // Time Functions
 //
 #ifdef NTOS_MODE_USER
+NTSYSAPI
+LONGLONG
+NTAPI
+RtlGetSystemTimePrecise(VOID);
+
 _Success_(return != FALSE)
 NTSYSAPI
 BOOL

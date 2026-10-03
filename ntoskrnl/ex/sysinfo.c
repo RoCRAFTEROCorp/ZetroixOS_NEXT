@@ -2022,8 +2022,7 @@ SSI_DEF(SystemTimeAdjustmentInformation)
     if (TimeInfo->Enable)
     {
         /* Disable time adjustment and set default value */
-        KiTimeAdjustmentEnabled = FALSE;
-        KeTimeAdjustment = KeMaximumIncrement;
+        KiSetTimeAdjustment(KeMaximumIncrement, FALSE);
     }
     else
     {
@@ -2031,8 +2030,7 @@ SSI_DEF(SystemTimeAdjustmentInformation)
         if (TimeInfo->TimeAdjustment == 0) return STATUS_INTEGER_DIVIDE_BY_ZERO;
 
         /* Enable time adjustment and set the adjustment value */
-        KiTimeAdjustmentEnabled = TRUE;
-        KeTimeAdjustment = TimeInfo->TimeAdjustment;
+        KiSetTimeAdjustment(TimeInfo->TimeAdjustment, TRUE);
     }
 
     return STATUS_SUCCESS;

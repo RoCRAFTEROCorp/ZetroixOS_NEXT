@@ -9,8 +9,17 @@
 /* INCLUDES ******************************************************************/
 
 #include <ntoskrnl.h>
+#include <reactos/precisetime.h>
 #define NDEBUG
 #include <debug.h>
+
+C_ASSERT(FIELD_OFFSET(KUSER_SHARED_DATA, TimeUpdateLock) == 0x340);
+C_ASSERT(FIELD_OFFSET(KUSER_SHARED_DATA, BaselineSystemTimeQpc) == 0x348);
+C_ASSERT(FIELD_OFFSET(KUSER_SHARED_DATA, BaselineInterruptTimeQpc) == 0x350);
+C_ASSERT(FIELD_OFFSET(KUSER_SHARED_DATA, QpcSystemTimeIncrement) == 0x358);
+C_ASSERT(FIELD_OFFSET(KUSER_SHARED_DATA, QpcInterruptTimeIncrement) == 0x360);
+C_ASSERT(FIELD_OFFSET(KUSER_SHARED_DATA, QpcSystemTimeIncrementShift) == 0x368);
+C_ASSERT(FIELD_OFFSET(KUSER_SHARED_DATA, QpcInterruptTimeIncrementShift) == 0x369);
 
 /* GLOBALS *******************************************************************/
 
@@ -20,11 +29,244 @@ volatile KSYSTEM_TIME KeTickCount = { 0, 0, 0 };
 ULONG KeMaximumIncrement;
 ULONG KeMinimumIncrement;
 ULONG KeTimeIncrement;
+static volatile ULONG KiTimeGeneration;
+static volatile ULONGLONG KiSystemTimeBase[2];
+static volatile ULONGLONG KiInterruptTimeBase[2];
+static volatile ULONGLONG KiSystemTimeQpc[2];
+static volatile ULONGLONG KiInterruptTimeQpc[2];
+static volatile ULONGLONG KiSystemTimeIncrement[2];
+static volatile ULONGLONG KiInterruptTimeIncrement[2];
+static volatile ULONGLONG KiSystemTimeFraction[2];
+static volatile ULONGLONG KiInterruptTimeFraction[2];
+static volatile ULONGLONG KiInterruptTimeBias[2];
+static volatile UCHAR KiSystemTimeShift[2];
+static volatile UCHAR KiInterruptTimeShift[2];
+static ULONGLONG KiTimeCounterFrequency;
+static BOOLEAN KiTimeInitialized;
 #ifdef KI_CYCLE_QUANTUM
 ULONG KiCyclesPerClockQuantum = 1;
 #endif
 
 /* PRIVATE FUNCTIONS *********************************************************/
+
+static
+ULONGLONG
+KiComputeTimeIncrement(ULONG Adjustment, UCHAR *Shift)
+{
+    ULONGLONG DivisorHigh, DivisorLow, RemainderHigh = 0;
+    ULONGLONG RemainderLow = 10000000ULL * Adjustment;
+    ULONGLONG Result = 0, PreviousLow;
+    ULONG Bit;
+
+    DivisorLow = RtlpMultiplyTimeValues(KiTimeCounterFrequency,
+                                      KeMaximumIncrement,
+                                      &DivisorHigh);
+    *Shift = 0;
+    while (!DivisorHigh && RemainderLow >= DivisorLow)
+    {
+        DivisorHigh = DivisorLow >> 63;
+        DivisorLow <<= 1;
+        ++*Shift;
+    }
+
+    for (Bit = 0; Bit < 64; ++Bit)
+    {
+        RemainderHigh = (RemainderHigh << 1) | (RemainderLow >> 63);
+        RemainderLow <<= 1;
+        Result <<= 1;
+        if (RemainderHigh > DivisorHigh ||
+            (RemainderHigh == DivisorHigh && RemainderLow >= DivisorLow))
+        {
+            PreviousLow = RemainderLow;
+            RemainderLow -= DivisorLow;
+            RemainderHigh -= DivisorHigh + (PreviousLow < DivisorLow);
+            Result |= 1;
+        }
+    }
+
+    if (RemainderLow || RemainderHigh)
+    {
+        if (Result == MAXULONGLONG)
+        {
+            ++*Shift;
+            return 1ULL << 63;
+        }
+        ++Result;
+    }
+    return Result;
+}
+
+static
+ULONGLONG
+KiAdvanceTime(ULONGLONG Base,
+              ULONGLONG Delta,
+              ULONGLONG Increment,
+              UCHAR Shift,
+              ULONGLONG Fraction,
+              PULONGLONG NewFraction)
+{
+    ULONGLONG Part, Result;
+
+    Result = Base + RtlpScaleTimeDelta(Delta, Increment, Shift, &Part);
+    *NewFraction = Part + Fraction;
+    return Result + (*NewFraction < Part);
+}
+
+static
+ULONGLONG
+KiPublishTime(ULONG Increment,
+              BOOLEAN UpdateSystem,
+              PLARGE_INTEGER NewSystemTime,
+              ULONG NewAdjustment)
+{
+    LARGE_INTEGER Counter, Frequency, Value;
+    ULONGLONG SystemTime, InterruptTime, SystemFraction, InterruptFraction;
+    ULONGLONG SystemQpc, InterruptQpc, SystemIncrement, InterruptIncrement;
+    UCHAR SystemShift, InterruptShift;
+    ULONG Generation, OldSlot, NewSlot;
+    BOOLEAN InterruptsEnabled;
+
+    InterruptsEnabled = KeDisableInterrupts();
+    Counter = KeQueryPerformanceCounter(&Frequency);
+    Generation = KiTimeGeneration;
+    OldSlot = Generation & 1;
+    NewSlot = (Generation + 1) & 1;
+
+    if (!KiTimeInitialized)
+    {
+        ASSERT(Frequency.QuadPart > 0 && KeMaximumIncrement != 0);
+        KiTimeCounterFrequency = Frequency.QuadPart;
+        SystemTime = KiReadSystemTime(&SharedUserData->SystemTime).QuadPart;
+        InterruptTime = KiReadSystemTime(&SharedUserData->InterruptTime).QuadPart + Increment;
+        SystemQpc = InterruptQpc = Counter.QuadPart;
+        SystemFraction = InterruptFraction = 0;
+        SystemIncrement = KiComputeTimeIncrement(KeTimeAdjustment, &SystemShift);
+        InterruptIncrement = KiComputeTimeIncrement(KeMaximumIncrement, &InterruptShift);
+    }
+    else
+    {
+        SystemIncrement = KiSystemTimeIncrement[OldSlot];
+        InterruptIncrement = KiInterruptTimeIncrement[OldSlot];
+        SystemShift = KiSystemTimeShift[OldSlot];
+        InterruptShift = KiInterruptTimeShift[OldSlot];
+        SystemQpc = KiSystemTimeQpc[OldSlot];
+        InterruptQpc = Counter.QuadPart;
+        SystemTime = KiSystemTimeBase[OldSlot];
+        SystemFraction = KiSystemTimeFraction[OldSlot];
+        InterruptTime = KiAdvanceTime(KiInterruptTimeBase[OldSlot],
+                                      Counter.QuadPart - KiInterruptTimeQpc[OldSlot],
+                                      InterruptIncrement,
+                                      InterruptShift,
+                                      KiInterruptTimeFraction[OldSlot],
+                                      &InterruptFraction);
+        if (UpdateSystem || NewAdjustment)
+        {
+            SystemTime = KiAdvanceTime(SystemTime,
+                                       Counter.QuadPart - SystemQpc,
+                                       SystemIncrement,
+                                       SystemShift,
+                                       SystemFraction,
+                                       &SystemFraction);
+            SystemQpc = Counter.QuadPart;
+        }
+    }
+
+    if (NewSystemTime)
+    {
+        SystemTime = NewSystemTime->QuadPart;
+        SystemQpc = Counter.QuadPart;
+        SystemFraction = 0;
+    }
+    if (NewAdjustment)
+    {
+        KeTimeAdjustment = NewAdjustment;
+        SystemIncrement = KiComputeTimeIncrement(NewAdjustment, &SystemShift);
+    }
+
+    KiSystemTimeBase[NewSlot] = SystemTime;
+    KiInterruptTimeBase[NewSlot] = InterruptTime;
+    KiSystemTimeQpc[NewSlot] = SystemQpc;
+    KiInterruptTimeQpc[NewSlot] = InterruptQpc;
+    KiSystemTimeIncrement[NewSlot] = SystemIncrement;
+    KiInterruptTimeIncrement[NewSlot] = InterruptIncrement;
+    KiSystemTimeShift[NewSlot] = SystemShift;
+    KiInterruptTimeShift[NewSlot] = InterruptShift;
+    KiSystemTimeFraction[NewSlot] = SystemFraction;
+    KiInterruptTimeFraction[NewSlot] = InterruptFraction;
+    KiInterruptTimeBias[NewSlot] = SharedUserData->InterruptTimeBias;
+    KeMemoryBarrier();
+    WriteULongRelease(&KiTimeGeneration, Generation + 1);
+
+    InterlockedIncrement64((PLONG64)&MmWriteableSharedUserData->TimeUpdateLock);
+    Value.QuadPart = SystemTime;
+    KiWriteSystemTime(&MmWriteableSharedUserData->SystemTime, Value);
+    Value.QuadPart = InterruptTime;
+    KiWriteSystemTime(&MmWriteableSharedUserData->InterruptTime, Value);
+    MmWriteableSharedUserData->BaselineSystemTimeQpc = SystemQpc;
+    MmWriteableSharedUserData->BaselineInterruptTimeQpc = InterruptQpc;
+    MmWriteableSharedUserData->QpcSystemTimeIncrement = SystemIncrement;
+    MmWriteableSharedUserData->QpcInterruptTimeIncrement = InterruptIncrement;
+    MmWriteableSharedUserData->QpcSystemTimeIncrementShift = SystemShift;
+    MmWriteableSharedUserData->QpcInterruptTimeIncrementShift = InterruptShift;
+    KeMemoryBarrier();
+    InterlockedIncrement64((PLONG64)&MmWriteableSharedUserData->TimeUpdateLock);
+    KiTimeInitialized = TRUE;
+    KeRestoreInterrupts(InterruptsEnabled);
+    return InterruptTime;
+}
+
+ULONGLONG
+NTAPI
+KiUpdateSharedTime(ULONG Increment, BOOLEAN UpdateSystem)
+{
+    return KiPublishTime(Increment, UpdateSystem, NULL, 0);
+}
+
+VOID
+NTAPI
+KiSetTimeAdjustment(ULONG Adjustment, BOOLEAN Enabled)
+{
+    KIRQL OldIrql;
+
+    KeSetSystemAffinityThread(1);
+    KeRaiseIrql(HIGH_LEVEL, &OldIrql);
+    KiPublishTime(0, TRUE, NULL, Adjustment);
+    KiTimeAdjustmentEnabled = Enabled;
+    KeLowerIrql(OldIrql);
+    KeRevertToUserAffinityThread();
+}
+
+static
+ULONGLONG
+KiQueryTimePrecise(BOOLEAN System, BOOLEAN Unbiased, PULONG64 QpcTimeStamp)
+{
+    ULONGLONG Base, Baseline, Increment, Bias, Counter;
+    UCHAR Shift;
+    ULONG Generation, Slot;
+
+    for (;;)
+    {
+        Generation = ReadULongAcquire(&KiTimeGeneration);
+        Slot = Generation & 1;
+        Base = System ? KiSystemTimeBase[Slot] : KiInterruptTimeBase[Slot];
+        Baseline = System ? KiSystemTimeQpc[Slot] : KiInterruptTimeQpc[Slot];
+        Increment = System ? KiSystemTimeIncrement[Slot] : KiInterruptTimeIncrement[Slot];
+        Shift = System ? KiSystemTimeShift[Slot] : KiInterruptTimeShift[Slot];
+        Bias = Unbiased ? KiInterruptTimeBias[Slot] : 0;
+        Counter = KeQueryPerformanceCounter(NULL).QuadPart;
+        KeMemoryBarrier();
+        if (Generation == ReadULongAcquire(&KiTimeGeneration)) break;
+    }
+    if (QpcTimeStamp) *QpcTimeStamp = Counter;
+    return Base + RtlpScaleTimeDelta(Counter - Baseline, Increment, Shift, NULL) - Bias;
+}
+
+ULONGLONG
+NTAPI
+KiQueryInterruptTimePrecise(PULONG64 QpcTimeStamp, BOOLEAN Unbiased)
+{
+    return KiQueryTimePrecise(FALSE, Unbiased, QpcTimeStamp);
+}
 
 VOID
 NTAPI
@@ -58,7 +300,7 @@ KeSetSystemTime(IN PLARGE_INTEGER NewTime,
     KeQuerySystemTime(OldTime);
 
     /* Set the new system time (ordering of these operations is critical) */
-    KiWriteSystemTime(&MmWriteableSharedUserData->SystemTime, *NewTime);
+    KiPublishTime(0, TRUE, NewTime, 0);
 
     /* Check if this was for the HAL and set the RTC time */
     if (HalTime) ExCmosClockIsSane = HalSetRealTimeClock(&TimeFields);
@@ -220,8 +462,7 @@ ULONGLONG
 NTAPI
 KeQueryInterruptTimePrecise(OUT PULONG64 QpcTimeStamp)
 {
-    *QpcTimeStamp = (ULONG64)KeQueryPerformanceCounter(NULL).QuadPart;
-    return KeQueryInterruptTime();
+    return KiQueryInterruptTimePrecise(QpcTimeStamp, FALSE);
 }
 
 /*
@@ -231,7 +472,7 @@ VOID
 NTAPI
 KeQuerySystemTimePrecise(OUT PLARGE_INTEGER CurrentTime)
 {
-    KeQuerySystemTime(CurrentTime);
+    CurrentTime->QuadPart = KiQueryTimePrecise(TRUE, FALSE, NULL);
 }
 
 /*

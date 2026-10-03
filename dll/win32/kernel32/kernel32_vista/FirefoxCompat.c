@@ -7,8 +7,6 @@
 
 #include "k32_vista.h"
 
-BOOL WINAPI QueryUnbiasedInterruptTime(_Out_ PULONGLONG UnbiasedTime);
-
 static BOOL
 BaseValidateTimerWakeContext(
     _In_opt_ PREASON_CONTEXT WakeContext)
@@ -100,14 +98,6 @@ GetCurrentApplicationUserModelId(
         return ERROR_INVALID_PARAMETER;
 
     return APPMODEL_ERROR_NO_APPLICATION;
-}
-
-VOID
-WINAPI
-QueryUnbiasedInterruptTimePrecise(
-    _Out_ PULONGLONG lpUnbiasedInterruptTimePrecise)
-{
-    (VOID)QueryUnbiasedInterruptTime(lpUnbiasedInterruptTimePrecise);
 }
 
 typedef struct _K32_COPYFILE2_EXTENDED_PARAMETERS

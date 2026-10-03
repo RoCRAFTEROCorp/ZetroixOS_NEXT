@@ -10551,6 +10551,12 @@ unsigned long NTAPI ChpeAutowcstoul(const wchar_t * a0, wchar_t ** a1, int a2)
 }
 _Static_assert(__builtin_types_compatible_p(__typeof__(&ChpeAutowcstoul), __typeof__(&wcstoul)), "wcstoul bridge signature mismatch");
 
+LONGLONG NTAPI ChpeAutoRtlGetSystemTimePrecise(VOID)
+{
+    return RtlGetSystemTimePrecise();
+}
+_Static_assert(__builtin_types_compatible_p(__typeof__(&ChpeAutoRtlGetSystemTimePrecise), __typeof__(&RtlGetSystemTimePrecise)), "RtlGetSystemTimePrecise bridge signature mismatch");
+
 #ifdef __clang__
 #pragma clang diagnostic pop
 #endif

@@ -107,6 +107,18 @@ KeQuerySystemTimePrecise(
     _Out_ PLARGE_INTEGER CurrentTime);
 #endif
 extern LARGE_INTEGER KeBootTime;
+ULONGLONG
+NTAPI
+KiUpdateSharedTime(ULONG Increment, BOOLEAN UpdateSystem);
+
+VOID
+NTAPI
+KiSetTimeAdjustment(ULONG Adjustment, BOOLEAN Enabled);
+
+ULONGLONG
+NTAPI
+KiQueryInterruptTimePrecise(PULONG64 QpcTimeStamp, BOOLEAN Unbiased);
+
 extern ULONGLONG KeBootTimeBias;
 extern BOOLEAN ExCmosClockIsSane;
 extern USHORT KeProcessorArchitecture;

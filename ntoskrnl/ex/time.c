@@ -320,7 +320,7 @@ BOOLEAN
 NTAPI
 ExRefreshTimeZoneInformation(IN PLARGE_INTEGER CurrentBootTime)
 {
-    LARGE_INTEGER CurrentTime, NewTimeZoneBias;
+    LARGE_INTEGER CurrentTime, OldTime, NewTimeZoneBias;
     BOOLEAN Success;
 
     DPRINT("ExRefreshTimeZoneInformation\n");
@@ -341,14 +341,13 @@ ExRefreshTimeZoneInformation(IN PLARGE_INTEGER CurrentBootTime)
     MmWriteableSharedUserData->TimeZoneId = ExpTimeZoneId;
 
     /* Convert boot time from local time to UTC */
-    KeBootTime.QuadPart += ExpTimeZoneBias.QuadPart;
 
     /* Convert system time from local time to UTC */
     KeQuerySystemTime(&CurrentTime);;
 
     /* Change it for user-mode applications */
     CurrentTime.QuadPart += ExpTimeZoneBias.QuadPart;
-    KiWriteSystemTime(&MmWriteableSharedUserData->SystemTime, CurrentTime);
+    KeSetSystemTime(&CurrentTime, &OldTime, FALSE, NULL);
 
     /* Return success */
     return TRUE;

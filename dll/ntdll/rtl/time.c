@@ -5,6 +5,7 @@
  */
 
 #include <ntdll.h>
+#include <reactos/precisetime.h>
 
 #define NDEBUG
 #include <debug.h>
@@ -147,6 +148,34 @@ RtlQuerySystemTime(PLARGE_INTEGER SystemTime)
 {
     if (SystemTime)
         NtQuerySystemTime(SystemTime);
+}
+
+LONGLONG
+WINAPI
+RtlGetSystemTimePrecise(VOID)
+{
+    LARGE_INTEGER Counter;
+    ULONGLONG Time, Baseline, Increment;
+    ULONG Sequence;
+    UCHAR Shift;
+
+    for (;;)
+    {
+        Sequence = ReadULongAcquire((volatile ULONG *)&SharedUserData->TimeUpdateLock);
+        if (Sequence & 1)
+        {
+            YieldProcessor();
+            continue;
+        }
+        Time = KiReadSystemTime(&SharedUserData->SystemTime).QuadPart;
+        Baseline = ReadULong64NoFence(&SharedUserData->BaselineSystemTimeQpc);
+        Increment = ReadULong64NoFence(&SharedUserData->QpcSystemTimeIncrement);
+        Shift = ReadUCharNoFence(&SharedUserData->QpcSystemTimeIncrementShift);
+        RtlQueryPerformanceCounter(&Counter);
+        MemoryBarrier();
+        if (Sequence == ReadULongAcquire((volatile ULONG *)&SharedUserData->TimeUpdateLock)) break;
+    }
+    return Time + RtlpScaleTimeDelta(Counter.QuadPart - Baseline, Increment, Shift, NULL);
 }
 
 VOID

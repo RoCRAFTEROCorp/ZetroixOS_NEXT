@@ -105,9 +105,7 @@ KeUpdateSystemTime(IN PKTRAP_FRAME TrapFrame,
     }
 
     /* Add the increment time to the shared data */
-    InterruptTime.QuadPart = *(ULONGLONG*)&SharedUserData->InterruptTime;
-    InterruptTime.QuadPart += Increment;
-    KiWriteSystemTime(&MmWriteableSharedUserData->InterruptTime, InterruptTime);
+    InterruptTime.QuadPart = KiUpdateSharedTime(Increment, FALSE);
 #if DBG && defined(KDBG)
     KdpLogWatchdogCheck(InterruptTime.QuadPart);
 #endif
@@ -139,9 +137,7 @@ KeUpdateSystemTime(IN PKTRAP_FRAME TrapFrame,
         }
 
         /* Update the system time */
-        CurrentTime.QuadPart = *(ULONGLONG*)&SharedUserData->SystemTime;
-        CurrentTime.QuadPart += (ULONGLONG)Ticks * KeTimeAdjustment;
-        KiWriteSystemTime(&MmWriteableSharedUserData->SystemTime, CurrentTime);
+        KiUpdateSharedTime(0, TRUE);
 
         /* Update the tick count */
         CurrentTime.QuadPart = (*(ULONGLONG*)&KeTickCount) + Ticks;

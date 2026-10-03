@@ -1978,4 +1978,5 @@
 1965 cdecl wcstol(wstr ptr long) ChpeAutowcstol
 1966 cdecl wcstombs(ptr ptr long) ChpeAutowcstombs
 1967 cdecl wcstoul(wstr ptr long) ChpeAutowcstoul
+1994 stdcall -version=0x602+ -ret64 RtlGetSystemTimePrecise() ChpeAutoRtlGetSystemTimePrecise
 # END typed bridge wrappers

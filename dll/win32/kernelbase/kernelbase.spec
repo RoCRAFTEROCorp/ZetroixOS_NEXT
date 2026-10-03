@@ -752,3 +752,7 @@
 @ stdcall GetConsoleHandleInformation(ptr ptr)
 @ stdcall SetConsoleHandleInformation(ptr long long)
 @ cdecl IntCheckForConsoleFileName(wstr long)
+@ stdcall QueryInterruptTime(ptr) kernel32.QueryInterruptTime
+@ stdcall QueryInterruptTimePrecise(ptr) kernel32.QueryInterruptTimePrecise
+@ stdcall QueryUnbiasedInterruptTime(ptr) kernel32.QueryUnbiasedInterruptTime
+@ stdcall QueryUnbiasedInterruptTimePrecise(ptr) kernel32.QueryUnbiasedInterruptTimePrecise
