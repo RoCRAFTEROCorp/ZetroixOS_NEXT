@@ -413,6 +413,48 @@ typedef struct _WGL_PRESENTBUFFERS2
     HANDLE CompletionEvent;
 } WGL_PRESENTBUFFERS2, *PWGL_PRESENTBUFFERS2;
 
+typedef struct _WGL_CHECKFULLSCREENSUPPORT_CB
+{
+    UINT Version;
+    LUID AdapterLuid;
+    UINT hDevice;
+    HMONITOR hMonitor;
+    UINT VidPnSourceId;
+} WGL_CHECKFULLSCREENSUPPORT_CB, *PWGL_CHECKFULLSCREENSUPPORT_CB;
+
+#define WGL_MAX_BROADCAST_CONTEXT 64
+
+typedef struct _WGL_PRESENTTOREDIRECTIONSURFACE_CB
+{
+    UINT Version;
+    UINT hContext;
+    UINT hSource;
+    UINT hDestination;
+    HANDLE hSharedHandle;
+    UINT64 UpdateId;
+    RECT UpdateRect;
+    UINT BroadcastContextCount;
+    UINT BroadcastContext[WGL_MAX_BROADCAST_CONTEXT];
+    UINT BroadcastSrcAllocation[WGL_MAX_BROADCAST_CONTEXT];
+    UINT BroadcastDstAllocation[WGL_MAX_BROADCAST_CONTEXT];
+    UINT PrivateDriverDataSize;
+    PVOID PrivateDriverData;
+} WGL_PRESENTTOREDIRECTIONSURFACE_CB, *PWGL_PRESENTTOREDIRECTIONSURFACE_CB;
+
+typedef struct _WGL_SUBMITPRESENTTOREDIRECTIONSURFACE_CB
+{
+    UINT Version;
+    HANDLE hSharedHandle;
+    UINT64 UpdateId;
+    RECT UpdateRect;
+    UINT BroadcastHwQueueCount;
+    UINT *BroadcastHwQueue;
+    UINT *BroadcastSrcAllocation;
+    UINT *BroadcastDstAllocation;
+    UINT PrivateDriverDataSize;
+    PVOID PrivateDriverData;
+} WGL_SUBMITPRESENTTOREDIRECTIONSURFACE_CB, *PWGL_SUBMITPRESENTTOREDIRECTIONSURFACE_CB;
+
 typedef BOOL (WINAPI *PFN_WGL_MAKE_CONTEXT_CURRENT_ARB)(HDC hDrawDC, HDC hReadDC, HGLRC hglrc);
 
 struct ICD_Data

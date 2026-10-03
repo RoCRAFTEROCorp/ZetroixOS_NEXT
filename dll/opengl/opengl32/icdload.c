@@ -951,6 +951,57 @@ Cancel:
     return FALSE;
 }
 
+static BOOL APIENTRY
+wglCheckFullscreenSupport(HDC hdc, PWGL_CHECKFULLSCREENSUPPORT_CB Arguments)
+{
+    UNREFERENCED_PARAMETER(hdc);
+    UNREFERENCED_PARAMETER(Arguments);
+    return FALSE;
+}
+
+static BOOL APIENTRY
+wglPresentToRedirectionSurface(HDC hdc, PWGL_PRESENTTOREDIRECTIONSURFACE_CB Arguments)
+{
+    D3DKMT_PRESENT Present;
+    NTSTATUS Status;
+    UINT Index;
+
+    if (hdc == NULL || Arguments == NULL || Arguments->hSource == 0 ||
+        Arguments->hDestination == 0 ||
+        Arguments->BroadcastContextCount > WGL_MAX_BROADCAST_CONTEXT ||
+        (Arguments->PrivateDriverDataSize != 0 && Arguments->PrivateDriverData == NULL))
+    {
+        return FALSE;
+    }
+
+    RtlZeroMemory(&Present, sizeof(Present));
+    Present.hContext = Arguments->hContext;
+    Present.hSource = Arguments->hSource;
+    Present.hDestination = Arguments->hDestination;
+    Present.SrcRect = Arguments->UpdateRect;
+    Present.DstRect = Arguments->UpdateRect;
+    Present.Flags.Blt = 1;
+    Present.Flags.SrcRectValid = 1;
+    Present.Flags.DstRectValid = 1;
+    Present.BroadcastContextCount = Arguments->BroadcastContextCount;
+    for (Index = 0; Index < Arguments->BroadcastContextCount; ++Index)
+        Present.BroadcastContext[Index] = Arguments->BroadcastContext[Index];
+    Present.BroadcastSrcAllocation = Arguments->BroadcastSrcAllocation;
+    Present.BroadcastDstAllocation = Arguments->BroadcastDstAllocation;
+    Present.PrivateDriverDataSize = Arguments->PrivateDriverDataSize;
+    Present.pPrivateDriverData = Arguments->PrivateDriverData;
+    Status = D3DKMTPresent(&Present);
+    return NT_SUCCESS(Status);
+}
+
+static BOOL APIENTRY
+wglSubmitPresentToRedirectionSurface(HDC hdc, PWGL_SUBMITPRESENTTOREDIRECTIONSURFACE_CB Arguments)
+{
+    UNREFERENCED_PARAMETER(hdc);
+    UNREFERENCED_PARAMETER(Arguments);
+    return FALSE;
+}
+
 /*
  * WDDM display miniports publish their OpenGL ICD through the adapter's
  * software key.  Querying it through D3DKMT keeps the choice tied to the HDC
@@ -1335,7 +1386,10 @@ custom_end:
             (PROC)wglGetDHGLRC,
             NULL,
             (PROC)wglPresentBuffers,
-            (PROC)wglGetAdapterLuid};
+            (PROC)wglGetAdapterLuid,
+            (PROC)wglCheckFullscreenSupport,
+            (PROC)wglPresentToRedirectionSurface,
+            (PROC)wglSubmitPresentToRedirectionSurface};
         DrvSetCallbackProcs(ARRAYSIZE(callbacks), callbacks);
     }
 
