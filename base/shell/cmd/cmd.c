@@ -469,12 +469,19 @@ Execute(LPTSTR Full, LPTSTR First, LPTSTR Rest, PARSED_COMMAND *Cmd)
         {
             CloseHandle(prci.hThread);
         }
-        else if (GetLastError() == ERROR_BAD_EXE_FORMAT)
+        else
         {
-            // See if we can run this with ShellExecute() ie myfile.xls
-            HANDLE hProcess = RunFile(SEE_MASK_NOCLOSEPROCESS | SEE_MASK_NO_CONSOLE,
-                                      szFullName, rest, NULL, SW_SHOWNORMAL);
-            execerror = hProcess ? ERROR_SUCCESS : GetLastError();
+            prci.hProcess = NULL;
+            prci.dwProcessId = 0;
+            if (GetLastError() == ERROR_BAD_EXE_FORMAT)
+            {
+                // See if we can run this with ShellExecute() ie myfile.xls
+                prci.hProcess = RunFile(SEE_MASK_NOCLOSEPROCESS | SEE_MASK_NO_CONSOLE,
+                                        szFullName, rest, NULL, SW_SHOWNORMAL);
+                execerror = prci.hProcess ? ERROR_SUCCESS : GetLastError();
+                if (prci.hProcess)
+                    prci.dwProcessId = GetProcessId(prci.hProcess);
+            }
         }
 
         *FirstEnd = _T('\0');
