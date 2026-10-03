@@ -16,6 +16,14 @@
 
 /* FUNCTIONS *****************************************************************/
 
+static UCHAR CmpRegistryReadCapabilitySid[] =
+{
+    0x01, 0x0A, 0x00, 0x00, 0x00, 0x00, 0x00, 0x0F, 0x03, 0x00, 0x00, 0x00,
+    0x00, 0x04, 0x00, 0x00, 0xB0, 0x31, 0x80, 0x3F, 0x6C, 0xBC, 0x63, 0x4C,
+    0x3C, 0xE0, 0x50, 0xD1, 0x97, 0x0C, 0xA1, 0x62, 0x0F, 0x01, 0xCB, 0x19,
+    0x7E, 0x7A, 0xA6, 0xC0, 0xFA, 0xE6, 0x97, 0xF1, 0x19, 0xA3, 0x0C, 0xCE
+};
+
 PSECURITY_DESCRIPTOR
 NTAPI
 CmpHiveRootSecurityDescriptor(VOID)
@@ -76,7 +84,7 @@ CmpHiveRootSecurityDescriptor(VOID)
         AclLength += AceLength;
     }
     AclLength += FIELD_OFFSET(ACCESS_ALLOWED_ACE, SidStart) + SeLengthSid(SeAllAppPackagesSid);
-    AclLength += FIELD_OFFSET(ACCESS_ALLOWED_ACE, SidStart) + SeLengthSid(SeAllRestrictedAppPackagesSid);
+    AclLength += FIELD_OFFSET(ACCESS_ALLOWED_ACE, SidStart) + SeLengthSid(CmpRegistryReadCapabilitySid);
 
     /* Phase 3: Allocate the ACL */
     Acl = ExAllocatePoolWithTag(PagedPool, AclLength, TAG_CMSD);
@@ -92,7 +100,7 @@ CmpHiveRootSecurityDescriptor(VOID)
     Status |= RtlAddAccessAllowedAce(Acl, ACL_REVISION, KEY_READ, Sid[0]);
     Status |= RtlAddAccessAllowedAce(Acl, ACL_REVISION, KEY_READ, Sid[1]);
     Status |= RtlAddAccessAllowedAce(Acl, ACL_REVISION, KEY_READ, SeAllAppPackagesSid);
-    Status |= RtlAddAccessAllowedAce(Acl, ACL_REVISION, KEY_READ, SeAllRestrictedAppPackagesSid);
+    Status |= RtlAddAccessAllowedAce(Acl, ACL_REVISION, KEY_READ, CmpRegistryReadCapabilitySid);
     if (!NT_SUCCESS(Status)) KeBugCheckEx(REGISTRY_ERROR, 11, 5, Status, 0);
 
     /* Phase 5: Make the ACEs inheritable */
@@ -136,6 +144,10 @@ CmpHiveRootSecurityDescriptor(VOID)
                                           TRUE,
                                           AclCopy,
                                           FALSE);
+    if (!NT_SUCCESS(Status)) KeBugCheckEx(REGISTRY_ERROR, 11, 8, Status, 0);
+
+    Status = RtlSetOwnerSecurityDescriptor(SecurityDescriptor, SeLocalSystemSid, FALSE);
+    Status |= RtlSetGroupSecurityDescriptor(SecurityDescriptor, SeLocalSystemSid, FALSE);
     if (!NT_SUCCESS(Status)) KeBugCheckEx(REGISTRY_ERROR, 11, 8, Status, 0);
 
     /* Free the SIDs and original ACL */
