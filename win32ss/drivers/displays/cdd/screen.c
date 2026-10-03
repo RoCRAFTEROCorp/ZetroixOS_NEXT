@@ -395,6 +395,42 @@ RcddGetModes(
    return OutputSize;
 }
 
+static BOOL
+RcddRefreshModeIndex(
+   PRCDD_PDEV ppdev)
+{
+   ULONG ModeCount;
+   ULONG ModeInfoSize;
+   PVIDEO_MODE_INFORMATION ModeInfo, ModeInfoPtr;
+   BOOL Found = FALSE;
+
+   ModeCount = RcddGetAvailableModes(ppdev->hDriver, &ModeInfo, &ModeInfoSize);
+   if (ModeCount == 0)
+   {
+      return FALSE;
+   }
+
+   ModeInfoPtr = ModeInfo;
+   while (ModeCount-- > 0)
+   {
+      if (ModeInfoPtr->Length > 0 &&
+          ModeInfoPtr->VisScreenWidth == ppdev->ScreenWidth &&
+          ModeInfoPtr->VisScreenHeight == ppdev->ScreenHeight &&
+          (ModeInfoPtr->BitsPerPlane * ModeInfoPtr->NumberOfPlanes) == ppdev->BitsPerPixel)
+      {
+         ppdev->ModeIndex = ModeInfoPtr->ModeIndex;
+         Found = TRUE;
+         break;
+      }
+
+      ModeInfoPtr = (PVIDEO_MODE_INFORMATION)
+         (((PUCHAR)ModeInfoPtr) + ModeInfoSize);
+   }
+
+   EngFreeMem(ModeInfo);
+   return Found;
+}
+
 /*
  * RcddAssertMode
  *
@@ -414,7 +450,11 @@ RcddAssertMode(
    {
       if (EngDeviceIoControl(ppdev->hDriver, IOCTL_VIDEO_SET_CURRENT_MODE,
                              &(ppdev->ModeIndex), sizeof(ULONG), NULL, 0,
-                             &ulTemp))
+                             &ulTemp) &&
+          (!RcddRefreshModeIndex(ppdev) ||
+           EngDeviceIoControl(ppdev->hDriver, IOCTL_VIDEO_SET_CURRENT_MODE,
+                              &(ppdev->ModeIndex), sizeof(ULONG), NULL, 0,
+                              &ulTemp)))
       {
          return FALSE;
       }
