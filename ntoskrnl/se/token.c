@@ -1360,6 +1360,77 @@ SepOpenThreadToken(
     return Status;
 }
 
+static
+NTSTATUS
+SepCreateSubProcessTokenSd(
+    _In_ PTOKEN Token,
+    _Out_ PSECURITY_DESCRIPTOR SecurityDescriptor,
+    _Out_ PVOID *Buffer)
+{
+    ULONG OwnerLength, GroupLength, AclLength;
+    PUCHAR Block;
+    PACL Dacl;
+    PSID Owner, Group;
+    NTSTATUS Status;
+
+    *Buffer = NULL;
+
+    SepAcquireTokenLockShared(Token);
+
+    if (Token->DefaultDacl == NULL)
+    {
+        SepReleaseTokenLock(Token);
+        return STATUS_NOT_FOUND;
+    }
+
+    OwnerLength = RtlLengthSid(Token->UserAndGroups[0].Sid);
+    GroupLength = RtlLengthSid(Token->PrimaryGroup);
+    AclLength = Token->DefaultDacl->AclSize + sizeof(ACCESS_ALLOWED_ACE) - sizeof(ULONG) +
+                RtlLengthSid(SeAliasAdminsSid);
+    if (AclLength > MAXUSHORT)
+    {
+        SepReleaseTokenLock(Token);
+        return STATUS_INVALID_ACL;
+    }
+
+    Block = ExAllocatePoolWithTag(PagedPool, AclLength + OwnerLength + GroupLength, TAG_SE);
+    if (Block == NULL)
+    {
+        SepReleaseTokenLock(Token);
+        return STATUS_INSUFFICIENT_RESOURCES;
+    }
+
+    Dacl = (PACL)Block;
+    Owner = (PSID)(Block + AclLength);
+    Group = (PSID)(Block + AclLength + OwnerLength);
+
+    RtlCopyMemory(Dacl, Token->DefaultDacl, Token->DefaultDacl->AclSize);
+    RtlCopySid(OwnerLength, Owner, Token->UserAndGroups[0].Sid);
+    RtlCopySid(GroupLength, Group, Token->PrimaryGroup);
+
+    SepReleaseTokenLock(Token);
+
+    Dacl->AclSize = (USHORT)AclLength;
+    Status = RtlAddAccessAllowedAce(Dacl, ACL_REVISION, TOKEN_QUERY, SeAliasAdminsSid);
+    if (NT_SUCCESS(Status))
+        Status = RtlCreateSecurityDescriptor(SecurityDescriptor, SECURITY_DESCRIPTOR_REVISION);
+    if (NT_SUCCESS(Status))
+        Status = RtlSetOwnerSecurityDescriptor(SecurityDescriptor, Owner, FALSE);
+    if (NT_SUCCESS(Status))
+        Status = RtlSetGroupSecurityDescriptor(SecurityDescriptor, Group, FALSE);
+    if (NT_SUCCESS(Status))
+        Status = RtlSetDaclSecurityDescriptor(SecurityDescriptor, TRUE, Dacl, FALSE);
+
+    if (!NT_SUCCESS(Status))
+    {
+        ExFreePoolWithTag(Block, TAG_SE);
+        return Status;
+    }
+
+    *Buffer = Block;
+    return STATUS_SUCCESS;
+}
+
 /**
  * @brief
  * Subtracts a token in exchange of duplicating a new one.
@@ -1391,10 +1462,15 @@ SeSubProcessToken(
 {
     PTOKEN NewToken;
     OBJECT_ATTRIBUTES ObjectAttributes;
+    SECURITY_DESCRIPTOR SecurityDescriptor;
+    PVOID SdBuffer;
     NTSTATUS Status;
 
+    Status = SepCreateSubProcessTokenSd(ParentToken, &SecurityDescriptor, &SdBuffer);
+
     /* Initialize the attributes and duplicate it */
-    InitializeObjectAttributes(&ObjectAttributes, NULL, 0, NULL, NULL);
+    InitializeObjectAttributes(&ObjectAttributes, NULL, 0, NULL,
+                               NT_SUCCESS(Status) ? &SecurityDescriptor : NULL);
     Status = SepDuplicateToken(ParentToken,
                                &ObjectAttributes,
                                FALSE,
@@ -1423,6 +1499,9 @@ SeSubProcessToken(
             *Token = NewToken;
         }
     }
+
+    if (SdBuffer)
+        ExFreePoolWithTag(SdBuffer, TAG_SE);
 
     /* Return status */
     return Status;
