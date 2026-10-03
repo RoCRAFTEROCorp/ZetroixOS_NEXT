@@ -2950,6 +2950,7 @@ DxgkPrepareTrackedDmaBuffer(
             return STATUS_INVALID_PARAMETER;
         }
         Entry->DeviceWork = Args->DeviceWork;
+        Entry->DeviceWorkSupplied = TRUE;
     }
     else if (Entry->Device != NULL)
     {
@@ -3321,6 +3322,8 @@ DxgkCancelTrackedDmaBuffer(
     if (Entry == NULL)
         return;
 
+    if (Entry->DeviceWorkSupplied)
+        (VOID)DxgkTrackedWorkCoreReleaseDeviceWork(&Entry->TrackedWork);
     Adapter = Entry->Adapter;
     if (Adapter != NULL)
     {

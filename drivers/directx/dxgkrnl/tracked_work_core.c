@@ -44,6 +44,21 @@ BOOLEAN DxgkTrackedWorkCoreClaimDeviceWork(_Inout_ PDXGK_TRACKED_WORK_CORE Core)
     return Claimed;
 }
 
+BOOLEAN DxgkTrackedWorkCoreReleaseDeviceWork(_Inout_ PDXGK_TRACKED_WORK_CORE Core)
+{
+    KIRQL OldIrql;
+    BOOLEAN Released;
+
+    if (Core == NULL)
+        return FALSE;
+    KeAcquireSpinLock(&Core->Lock, &OldIrql);
+    Released = Core->State == DxgkTrackedWorkPrepared && Core->DeviceWorkOwned;
+    if (Released)
+        Core->DeviceWorkOwned = FALSE;
+    KeReleaseSpinLock(&Core->Lock, OldIrql);
+    return Released;
+}
+
 BOOLEAN DxgkTrackedWorkCoreClaimExternalCleanup(_Inout_ PDXGK_TRACKED_WORK_CORE Core)
 {
     KIRQL OldIrql;

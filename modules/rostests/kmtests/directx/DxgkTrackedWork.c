@@ -176,6 +176,20 @@ static VOID DxgkTrackedWorkTestOwnership(VOID)
     ok_bool_true(DxgkTrackedWorkCoreOwnsExternalCleanup(&Context.Core), "committed work owns external cleanup without prior queue adoption");
     ok_bool_true(DxgkTrackedWorkCoreCancel(&Context.Core), "committed work can cancel at teardown");
     ok_bool_true(DxgkTrackedWorkCoreOwnsExternalCleanup(&Context.Core), "terminal cancellation preserves transferred cleanup ownership");
+
+    DxgkTrackedWorkTestInitialize(&Context, FALSE);
+    ok_bool_false(DxgkTrackedWorkCoreReleaseDeviceWork(&Context.Core), "unclaimed work has no device work to release");
+    ok_bool_true(DxgkTrackedWorkCoreClaimDeviceWork(&Context.Core), "supplied work is claimed at activation");
+    ok_bool_true(DxgkTrackedWorkCoreReleaseDeviceWork(&Context.Core), "prepared work returns the supplied device work");
+    ok_bool_false(DxgkTrackedWorkCoreOwnsDeviceWork(&Context.Core), "returned device work is no longer owned");
+    ok_bool_true(DxgkTrackedWorkCoreCancel(&Context.Core), "work cancels after returning its device work");
+    ok_eq_ulong(Context.EventCount, 0);
+
+    DxgkTrackedWorkTestInitialize(&Context, FALSE);
+    ok_bool_true(DxgkTrackedWorkCoreClaimDeviceWork(&Context.Core), "supplied work is claimed before commit");
+    ok_bool_true(DxgkTrackedWorkCoreCommit(&Context.Core, FALSE, &RetiredNow), "claimed work commits");
+    ok_bool_false(DxgkTrackedWorkCoreReleaseDeviceWork(&Context.Core), "committed work keeps the device work");
+    ok_bool_true(DxgkTrackedWorkCoreOwnsDeviceWork(&Context.Core), "committed work still owns the device work");
 }
 
 static VOID DxgkTrackedWorkTestDispatchSafety(VOID)

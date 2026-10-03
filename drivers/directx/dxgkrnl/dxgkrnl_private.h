@@ -485,6 +485,7 @@ typedef struct _DXGKRNL_SUBMIT_DMA_BUFFER
     BOOLEAN                     CleanupAsCompleted;
 #endif
     PDXGKRNL_DEVICE_WORK        DeviceWork;
+    BOOLEAN                     DeviceWorkSupplied;
     DXGK_SUBMISSION_ACCOUNTING  SubmissionAccounting;
 
     /* Optional monitored-fence signal fired when this submission's
