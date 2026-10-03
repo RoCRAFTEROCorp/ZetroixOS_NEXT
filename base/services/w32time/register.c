@@ -84,8 +84,8 @@ RegisterService(VOID)
                               SERVICE_WIN32_SHARE_PROCESS,
                               SERVICE_AUTO_START,
                               SERVICE_ERROR_NORMAL,
-                              L"%SystemRoot%\\system32\\svchost.exe -k netsvcs",
-                              L"Time", NULL, NULL, L"LocalSystem", NULL);
+                              L"%SystemRoot%\\system32\\svchost.exe -k LocalService",
+                              L"Time", NULL, NULL, L"NT AUTHORITY\\LocalService", NULL);
     if (hService == NULL)
     {
         DPRINT1("CreateService() failed!\n");

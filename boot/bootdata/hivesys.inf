@@ -1833,8 +1833,8 @@ HKLM,"SYSTEM\CurrentControlSet\Services\lanmanworkstation","DisplayName",0x00000
 HKLM,"SYSTEM\CurrentControlSet\Services\lanmanworkstation","Description",0x00000000,%WORKSTATION_SERVICE_DESCRIPTION%
 HKLM,"SYSTEM\CurrentControlSet\Services\lanmanworkstation","ErrorControl",0x00010001,0x00000001
 HKLM,"SYSTEM\CurrentControlSet\Services\lanmanworkstation","Group",0x00000000,"NetworkProvider"
-HKLM,"SYSTEM\CurrentControlSet\Services\lanmanworkstation","ImagePath",0x00020000,"%SystemRoot%\system32\svchost.exe -k netsvcs"
-HKLM,"SYSTEM\CurrentControlSet\Services\lanmanworkstation","ObjectName",0x00000000,"LocalSystem"
+HKLM,"SYSTEM\CurrentControlSet\Services\lanmanworkstation","ImagePath",0x00020000,"%SystemRoot%\system32\svchost.exe -k NetworkService"
+HKLM,"SYSTEM\CurrentControlSet\Services\lanmanworkstation","ObjectName",0x00000000,"NT AUTHORITY\NetworkService"
 HKLM,"SYSTEM\CurrentControlSet\Services\lanmanworkstation","Start",0x00010001,0x00000002
 HKLM,"SYSTEM\CurrentControlSet\Services\lanmanworkstation","Type",0x00010001,0x00000020
 HKLM,"SYSTEM\CurrentControlSet\Services\lanmanworkstation\Parameters","ServiceDll",0x00020000,"%SystemRoot%\system32\wkssvc.dll"
