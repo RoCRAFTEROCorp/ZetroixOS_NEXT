@@ -4645,7 +4645,8 @@ DxgkpDestroySharedPrimaryAllocationLocked(
             Adapter->ShadowFbPoolOwned = FALSE;
         }
 
-        DxgkVidMmDestroyAllocation(Adapter, Adapter->SharedPrimaryAllocationHandle);
+        if (Adapter->SharedPrimaryResourceHandle == 0)
+            DxgkVidMmDestroyAllocation(Adapter, Adapter->SharedPrimaryAllocationHandle);
         Adapter->SharedPrimaryAllocationHandle = NULL;
     }
 
@@ -4702,7 +4703,8 @@ DxgkpDestroySharedPrimaryLocked(
             Adapter->ShadowFbPoolOwned = FALSE;
         }
 
-        DxgkVidMmDestroyAllocation(Adapter, Adapter->SharedShadowAllocationHandle);
+        if (Adapter->SharedShadowResourceHandle == 0)
+            DxgkVidMmDestroyAllocation(Adapter, Adapter->SharedShadowAllocationHandle);
         Adapter->SharedShadowAllocationHandle = NULL;
     }
 
