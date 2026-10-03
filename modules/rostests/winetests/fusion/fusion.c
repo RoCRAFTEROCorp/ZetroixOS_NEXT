@@ -154,15 +154,18 @@ static void test_GetCachePath(void)
         CHAR cachepathA[MAX_PATH];
         CHAR nativeimgA[MAX_PATH];
         CHAR zapfmtA[MAX_PATH];
+        SYSTEM_INFO info;
 
         if (hr == S_OK)
         {
             lstrcpyA(nativeimgA, "NativeImages_");
-#ifdef _WIN64
-            lstrcpyA(zapfmtA, "%s\\%s\\%s%s_64");
-#else
-            lstrcpyA(zapfmtA, "%s\\%s\\%s%s_32");
-#endif
+            GetSystemInfo(&info);
+            if (info.wProcessorArchitecture == PROCESSOR_ARCHITECTURE_ARM64)
+                lstrcpyA(zapfmtA, "%s\\%s\\%s%s_ARM64");
+            else if (sizeof(void *) == sizeof(ULONGLONG))
+                lstrcpyA(zapfmtA, "%s\\%s\\%s%s_64");
+            else
+                lstrcpyA(zapfmtA, "%s\\%s\\%s%s_32");
         }
         else
         {

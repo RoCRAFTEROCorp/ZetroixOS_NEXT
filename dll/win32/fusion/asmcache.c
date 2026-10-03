@@ -289,6 +289,65 @@ done:
     return hr;
 }
 
+static HRESULT get_assembly_size(IAssemblyName *name, ULARGE_INTEGER *size)
+{
+    WIN32_FIND_DATAW data;
+    FILE_STANDARD_INFO info;
+    WCHAR *path, *filename;
+    HANDLE search, file;
+    ULONGLONG total = 0;
+    ULONG len = 0;
+    DWORD error;
+    HRESULT hr;
+
+    IAssemblyName_GetPath(name, NULL, &len);
+    if (!len) return HRESULT_FROM_WIN32(ERROR_FILE_NOT_FOUND);
+    if (!(path = malloc(((SIZE_T)len + MAX_PATH) * sizeof(WCHAR)))) return E_OUTOFMEMORY;
+    hr = IAssemblyName_GetPath(name, path, &len);
+    if (FAILED(hr)) goto done;
+    if (!(filename = wcsrchr(path, '\\')))
+    {
+        hr = HRESULT_FROM_WIN32(ERROR_INVALID_NAME);
+        goto done;
+    }
+    lstrcpyW(++filename, L"*");
+    search = FindFirstFileW(path, &data);
+    if (search == INVALID_HANDLE_VALUE)
+    {
+        hr = HRESULT_FROM_WIN32(GetLastError());
+        goto done;
+    }
+    do
+    {
+        if (data.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) continue;
+        lstrcpyW(filename, data.cFileName);
+        file = CreateFileW(path, FILE_READ_ATTRIBUTES,
+                           FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+                           NULL, OPEN_EXISTING, 0, NULL);
+        if (file == INVALID_HANDLE_VALUE)
+        {
+            hr = HRESULT_FROM_WIN32(GetLastError());
+            break;
+        }
+        if (!GetFileInformationByHandleEx(file, FileStandardInfo, &info, sizeof(info)))
+            hr = HRESULT_FROM_WIN32(GetLastError());
+        else
+            total += info.AllocationSize.QuadPart;
+        CloseHandle(file);
+        if (FAILED(hr)) break;
+    } while (FindNextFileW(search, &data));
+    error = GetLastError();
+    FindClose(search);
+    if (SUCCEEDED(hr) && error != ERROR_NO_MORE_FILES)
+        hr = HRESULT_FROM_WIN32(error);
+    if (SUCCEEDED(hr))
+        size->QuadPart = total / 1024 + (total % 1024 != 0);
+
+done:
+    free(path);
+    return hr;
+}
+
 static HRESULT WINAPI IAssemblyCacheImpl_QueryAssemblyInfo(IAssemblyCache *iface,
                                                            DWORD dwFlags,
                                                            LPCWSTR pszAssemblyName,
@@ -335,6 +394,12 @@ static HRESULT WINAPI IAssemblyCacheImpl_QueryAssemblyInfo(IAssemblyCache *iface
 
     if (!pAsmInfo)
         goto done;
+
+    if (dwFlags & QUERYASMINFO_FLAG_GETSIZE)
+    {
+        hr = get_assembly_size(next, &pAsmInfo->uliAssemblySizeInKB);
+        if (FAILED(hr)) goto done;
+    }
 
     hr = IAssemblyName_GetPath(next, pAsmInfo->pszCurrentAssemblyPathBuf, &pAsmInfo->cchBuf);
 

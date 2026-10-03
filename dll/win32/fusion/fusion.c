@@ -108,11 +108,8 @@ static HRESULT get_corversion(LPWSTR version, DWORD size)
 HRESULT WINAPI GetCachePath(ASM_CACHE_FLAGS dwCacheFlags, LPWSTR pwzCachePath,
                             PDWORD pcchPath)
 {
-#ifdef _WIN64
-    static const WCHAR zapfmt[] = L"%s\\assembly\\NativeImages_%s_64";
-#else
-    static const WCHAR zapfmt[] = L"%s\\assembly\\NativeImages_%s_32";
-#endif
+    static const WCHAR zapfmt[] = L"%s\\assembly\\NativeImages_%s_%s";
+    SYSTEM_INFO info;
     WCHAR path[MAX_PATH], windir[MAX_PATH], version[MAX_PATH];
     DWORD len;
     HRESULT hr = S_OK;
@@ -133,7 +130,10 @@ HRESULT WINAPI GetCachePath(ASM_CACHE_FLAGS dwCacheFlags, LPWSTR pwzCachePath,
             if (FAILED(hr))
                 return hr;
 
-            len = swprintf(path, ARRAY_SIZE(path), zapfmt, windir, version);
+            GetSystemInfo(&info);
+            len = swprintf(path, ARRAY_SIZE(path), zapfmt, windir, version,
+                           info.wProcessorArchitecture == PROCESSOR_ARCHITECTURE_ARM64 ? L"ARM64" :
+                           sizeof(void *) == sizeof(ULONGLONG) ? L"64" : L"32");
             break;
         }
         case ASM_CACHE_GAC:
