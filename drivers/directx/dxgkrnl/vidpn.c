@@ -1139,6 +1139,25 @@ DxgkpAreEquivalentTargetModes(
             Left->VideoSignalInfo.ScanLineOrdering == Right->VideoSignalInfo.ScanLineOrdering);
 }
 
+static BOOLEAN
+DxgkpAreSameTargetModeValues(
+    _In_ CONST D3DKMDT_VIDPN_TARGET_MODE *Left,
+    _In_ CONST D3DKMDT_VIDPN_TARGET_MODE *Right)
+{
+    return (Left->VideoSignalInfo.TotalSize.cx == Right->VideoSignalInfo.TotalSize.cx &&
+            Left->VideoSignalInfo.TotalSize.cy == Right->VideoSignalInfo.TotalSize.cy &&
+            Left->VideoSignalInfo.ActiveSize.cx == Right->VideoSignalInfo.ActiveSize.cx &&
+            Left->VideoSignalInfo.ActiveSize.cy == Right->VideoSignalInfo.ActiveSize.cy &&
+            Left->VideoSignalInfo.VSyncFreq.Numerator == Right->VideoSignalInfo.VSyncFreq.Numerator &&
+            Left->VideoSignalInfo.VSyncFreq.Denominator == Right->VideoSignalInfo.VSyncFreq.Denominator &&
+            Left->VideoSignalInfo.HSyncFreq.Numerator == Right->VideoSignalInfo.HSyncFreq.Numerator &&
+            Left->VideoSignalInfo.HSyncFreq.Denominator == Right->VideoSignalInfo.HSyncFreq.Denominator &&
+            Left->VideoSignalInfo.PixelRate == Right->VideoSignalInfo.PixelRate &&
+            Left->VideoSignalInfo.AdditionalSignalInfo.ScanLineOrdering == Right->VideoSignalInfo.AdditionalSignalInfo.ScanLineOrdering &&
+            Left->VideoSignalInfo.AdditionalSignalInfo.VSyncFreqDivider == Right->VideoSignalInfo.AdditionalSignalInfo.VSyncFreqDivider &&
+            Left->WireFormatAndPreference.Value == Right->WireFormatAndPreference.Value);
+}
+
 static VOID
 DxgkpNormalizeMonitorMode(
     _Inout_ D3DKMDT_MONITOR_SOURCE_MODE *Mode)
@@ -3935,10 +3954,10 @@ VidPnSourceModeSet_AcquirePinnedModeInfo(
 
     ModeSet = DxgkpSourceModeSetFromHandle(hVidPnSourceModeSet);
     if (ModeSet == NULL)
-        return STATUS_INVALID_PARAMETER;
+        return STATUS_GRAPHICS_INVALID_VIDPN_SOURCEMODESET;
 
     if (ModeSet->PinnedModeId == (UINT)-1)
-        return STATUS_SUCCESS;
+        return STATUS_GRAPHICS_MODE_NOT_PINNED;
 
     for (i = 0; i < ModeSet->NumModes; i++)
     {
@@ -3949,7 +3968,7 @@ VidPnSourceModeSet_AcquirePinnedModeInfo(
         }
     }
 
-    return STATUS_SUCCESS;
+    return STATUS_GRAPHICS_MODE_NOT_PINNED;
 }
 
 static NTSTATUS APIENTRY
@@ -3979,7 +3998,7 @@ VidPnSourceModeSet_CreateNewModeInfo(
         return STATUS_INVALID_PARAMETER;
 
     RtlZeroMemory(&ModeSet->Owner->NewSourceMode, sizeof(D3DKMDT_VIDPN_SOURCE_MODE));
-    ModeSet->Owner->NewSourceMode.Id = ModeSet->NextModeId;
+    ModeSet->Owner->NewSourceMode.Id = ModeSet->NextModeId++;
     ModeSet->Owner->NewSourceModeValid = TRUE;
 
     *ppNewVidPnSourceModeInfo = &ModeSet->Owner->NewSourceMode;
@@ -4007,6 +4026,18 @@ VidPnSourceModeSet_AddMode(
 
     for (i = 0; i < ModeSet->NumModes; i++)
     {
+        if (ModeSet->Modes[i].Id == NewMode.Id)
+        {
+            if (ModeSet->Owner)
+                ModeSet->Owner->NewSourceModeValid = FALSE;
+            return DxgkpAreEquivalentSourceModes(&ModeSet->Modes[i], &NewMode) ?
+                   STATUS_GRAPHICS_MODE_ALREADY_IN_MODESET :
+                   STATUS_GRAPHICS_MODE_ID_MUST_BE_UNIQUE;
+        }
+    }
+
+    for (i = 0; i < ModeSet->NumModes; i++)
+    {
         if (DxgkpAreEquivalentSourceModes(&ModeSet->Modes[i], &NewMode))
         {
             if (ModeSet->Owner)
@@ -4019,8 +4050,8 @@ VidPnSourceModeSet_AddMode(
         return STATUS_GRAPHICS_RESOURCES_NOT_RELATED;
 
     RtlCopyMemory(&ModeSet->Modes[ModeSet->NumModes], &NewMode, sizeof(NewMode));
-    ModeSet->Modes[ModeSet->NumModes].Id = ModeSet->NextModeId;
-    ModeSet->NextModeId++;
+    if (NewMode.Id >= ModeSet->NextModeId)
+        ModeSet->NextModeId = NewMode.Id + 1;
     ModeSet->NumModes++;
 
     if (ModeSet->Owner)
@@ -4164,10 +4195,10 @@ VidPnTargetModeSet_AcquirePinnedModeInfo(
 
     ModeSet = DxgkpTargetModeSetFromHandle(hVidPnTargetModeSet);
     if (ModeSet == NULL)
-        return STATUS_INVALID_PARAMETER;
+        return STATUS_GRAPHICS_INVALID_VIDPN_TARGETMODESET;
 
     if (ModeSet->PinnedModeId == (UINT)-1)
-        return STATUS_SUCCESS;
+        return STATUS_GRAPHICS_MODE_NOT_PINNED;
 
     for (i = 0; i < ModeSet->NumModes; i++)
     {
@@ -4178,7 +4209,7 @@ VidPnTargetModeSet_AcquirePinnedModeInfo(
         }
     }
 
-    return STATUS_SUCCESS;
+    return STATUS_GRAPHICS_MODE_NOT_PINNED;
 }
 
 static NTSTATUS APIENTRY
@@ -4208,7 +4239,7 @@ VidPnTargetModeSet_CreateNewModeInfo(
         return STATUS_INVALID_PARAMETER;
 
     RtlZeroMemory(&ModeSet->Owner->NewTargetMode, sizeof(D3DKMDT_VIDPN_TARGET_MODE));
-    ModeSet->Owner->NewTargetMode.Id = ModeSet->NextModeId;
+    ModeSet->Owner->NewTargetMode.Id = ModeSet->NextModeId++;
     ModeSet->Owner->NewTargetModeValid = TRUE;
 
     *ppNewVidPnTargetModeInfo = &ModeSet->Owner->NewTargetMode;
@@ -4236,7 +4267,19 @@ VidPnTargetModeSet_AddMode(
 
     for (i = 0; i < ModeSet->NumModes; i++)
     {
-        if (DxgkpAreEquivalentTargetModes(&ModeSet->Modes[i], &NewMode))
+        if (ModeSet->Modes[i].Id == NewMode.Id)
+        {
+            if (ModeSet->Owner)
+                ModeSet->Owner->NewTargetModeValid = FALSE;
+            return DxgkpAreSameTargetModeValues(&ModeSet->Modes[i], &NewMode) ?
+                   STATUS_GRAPHICS_MODE_ALREADY_IN_MODESET :
+                   STATUS_GRAPHICS_MODE_ID_MUST_BE_UNIQUE;
+        }
+    }
+
+    for (i = 0; i < ModeSet->NumModes; i++)
+    {
+        if (DxgkpAreSameTargetModeValues(&ModeSet->Modes[i], &NewMode))
         {
             if (ModeSet->Owner)
                 ModeSet->Owner->NewTargetModeValid = FALSE;
@@ -4248,8 +4291,8 @@ VidPnTargetModeSet_AddMode(
         return STATUS_GRAPHICS_RESOURCES_NOT_RELATED;
 
     RtlCopyMemory(&ModeSet->Modes[ModeSet->NumModes], &NewMode, sizeof(NewMode));
-    ModeSet->Modes[ModeSet->NumModes].Id = ModeSet->NextModeId;
-    ModeSet->NextModeId++;
+    if (NewMode.Id >= ModeSet->NextModeId)
+        ModeSet->NextModeId = NewMode.Id + 1;
     ModeSet->NumModes++;
 
     if (ModeSet->Owner)
