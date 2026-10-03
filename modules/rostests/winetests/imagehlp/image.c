@@ -526,7 +526,7 @@ static BOOL WINAPI bind_image_cb(IMAGEHLP_STATUS_REASON reason, const char *file
     }
     else
     {
-        ok(0, "got unexpected reason %#x\n", reason);
+        ok(reason == BindForwarderNOT, "got unexpected reason %#x\n", reason);
     }
     return TRUE;
 }
@@ -630,9 +630,454 @@ static void test_image_load(void)
     DeleteFileA(temp_file);
 }
 
+static void test_image_config(void)
+{
+    union
+    {
+        struct image narrow;
+        struct image64 wide;
+        BYTE bytes[FILE_TOTAL];
+        ULONGLONG align;
+    } input;
+    union
+    {
+        IMAGE_LOAD_CONFIG_DIRECTORY32 narrow;
+        IMAGE_LOAD_CONFIG_DIRECTORY64 wide;
+        BYTE bytes[FILE_IDATA - FILE_TEXT];
+    } config;
+    struct
+    {
+        ULONGLONG before[2];
+        union
+        {
+            IMAGE_LOAD_CONFIG_DIRECTORY directory;
+            BYTE bytes[FILE_IDATA - FILE_TEXT];
+        } data;
+        ULONGLONG after[2];
+    } output, expected;
+    BYTE readback[FILE_TOTAL];
+    char path[MAX_PATH] = {0};
+    LOADED_IMAGE loaded;
+    IMAGE_DATA_DIRECTORY *directory;
+    LARGE_INTEGER length;
+    HANDLE file;
+    DWORD prefix, full, other_prefix, written, error;
+    unsigned wide, i;
+    BOOL ret, success;
+
+    file = create_temp_file(path);
+    ok(file != INVALID_HANDLE_VALUE, "Cannot create configuration fixture, error %lu.\n", GetLastError());
+    if (file == INVALID_HANDLE_VALUE) goto done;
+    for (wide = 0; wide < 2; ++wide)
+    {
+        struct { DWORD directory, embedded; BOOL valid; } cases[14];
+
+        prefix = wide ? FIELD_OFFSET(IMAGE_LOAD_CONFIG_DIRECTORY64, SEHandlerTable) :
+                        FIELD_OFFSET(IMAGE_LOAD_CONFIG_DIRECTORY32, SEHandlerTable);
+        other_prefix = wide ? FIELD_OFFSET(IMAGE_LOAD_CONFIG_DIRECTORY32, SEHandlerTable) :
+                              FIELD_OFFSET(IMAGE_LOAD_CONFIG_DIRECTORY64, SEHandlerTable);
+        full = wide ? sizeof(config.wide) : sizeof(config.narrow);
+        cases[0].directory = 0; cases[0].embedded = 0; cases[0].valid = FALSE;
+        cases[1].directory = prefix; cases[1].embedded = 0; cases[1].valid = TRUE;
+        cases[2].directory = prefix; cases[2].embedded = 1; cases[2].valid = FALSE;
+        cases[3].directory = prefix; cases[3].embedded = 3; cases[3].valid = FALSE;
+        cases[4].directory = prefix; cases[4].embedded = 4; cases[4].valid = FALSE;
+        cases[5].directory = prefix; cases[5].embedded = prefix - 1; cases[5].valid = FALSE;
+        cases[6].directory = prefix; cases[6].embedded = prefix; cases[6].valid = TRUE;
+        cases[7].directory = prefix; cases[7].embedded = prefix + 1; cases[7].valid = TRUE;
+        cases[8].directory = prefix; cases[8].embedded = full; cases[8].valid = TRUE;
+        cases[9].directory = prefix - 1; cases[9].embedded = prefix; cases[9].valid = FALSE;
+        cases[10].directory = prefix + 1; cases[10].embedded = prefix; cases[10].valid = FALSE;
+        cases[11].directory = full; cases[11].embedded = full; cases[11].valid = FALSE;
+        cases[12].directory = full; cases[12].embedded = 0; cases[12].valid = FALSE;
+        cases[13].directory = other_prefix; cases[13].embedded = other_prefix; cases[13].valid = FALSE;
+        for (i = 0; i < ARRAY_SIZE(cases); ++i)
+        {
+            winetest_push_context("PE%u directory %lu embedded %lu", wide ? 64 : 32,
+                                  cases[i].directory, cases[i].embedded);
+            if (wide)
+            {
+                input.wide = bin64;
+                input.wide.nt_headers.OptionalHeader.SizeOfImage = RVA_TOTAL;
+                input.wide.nt_headers.OptionalHeader.SizeOfInitializedData = FILE_TOTAL - FILE_TEXT;
+                input.wide.sections[0].Misc.VirtualSize = sizeof(config.bytes);
+                directory = &input.wide.nt_headers.OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_LOAD_CONFIG];
+            }
+            else
+            {
+                input.narrow = bin;
+                input.narrow.nt_headers.OptionalHeader.SizeOfImage = RVA_TOTAL;
+                input.narrow.nt_headers.OptionalHeader.SizeOfInitializedData = FILE_TOTAL - FILE_TEXT;
+                input.narrow.sections[0].Misc.VirtualSize = sizeof(config.bytes);
+                directory = &input.narrow.nt_headers.OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_LOAD_CONFIG];
+            }
+            directory->VirtualAddress = cases[i].directory ? RVA_TEXT : 0;
+            directory->Size = cases[i].directory;
+            memset(&config, 0, sizeof(config));
+#define CONFIG_FIELD(field, value) do { if (wide) config.wide.field = (value); else config.narrow.field = (value); } while (0)
+            CONFIG_FIELD(Size, cases[i].embedded);
+            CONFIG_FIELD(TimeDateStamp, 0x61234567);
+            CONFIG_FIELD(MajorVersion, 0x1234);
+            CONFIG_FIELD(MinorVersion, 0x5678);
+            CONFIG_FIELD(GlobalFlagsClear, 0x10);
+            CONFIG_FIELD(GlobalFlagsSet, 0x20);
+            CONFIG_FIELD(CriticalSectionDefaultTimeout, 0x10203040);
+            CONFIG_FIELD(DeCommitFreeBlockThreshold, 0x12345678);
+            CONFIG_FIELD(DeCommitTotalFreeThreshold, 0x23456789);
+            CONFIG_FIELD(MaximumAllocationSize, 0x3456789a);
+            CONFIG_FIELD(VirtualMemoryThreshold, 0x456789ab);
+            CONFIG_FIELD(ProcessAffinityMask, 2);
+            CONFIG_FIELD(ProcessHeapFlags, 0x81);
+            CONFIG_FIELD(CSDVersion, 0x123);
+            CONFIG_FIELD(DependentLoadFlags, 0x456);
+            CONFIG_FIELD(SecurityCookie, VA_START + RVA_TEXT + 0x1c0);
+#undef CONFIG_FIELD
+            if (wide) config.wide.MaximumAllocationSize |= (ULONGLONG)0x76543210 << 32;
+            memcpy(input.bytes + FILE_TEXT, config.bytes, sizeof(config.bytes));
+            if (file == INVALID_HANDLE_VALUE)
+                file = CreateFileA(path, GENERIC_READ | GENERIC_WRITE, 0, NULL, CREATE_ALWAYS, 0, NULL);
+            ok(file != INVALID_HANDLE_VALUE, "Cannot reopen fixture, error %lu.\n", GetLastError());
+            if (file == INVALID_HANDLE_VALUE) goto case_done;
+            written = 0;
+            ret = WriteFile(file, input.bytes, sizeof(input.bytes), &written, NULL);
+            ok(ret && written == sizeof(input.bytes), "WriteFile returned %d, bytes %lu, error %lu.\n",
+               ret, written, GetLastError());
+            if (!ret || written != sizeof(input.bytes)) goto case_done;
+            ret = FlushFileBuffers(file);
+            ok(ret, "FlushFileBuffers failed, error %lu.\n", GetLastError());
+            if (!ret) goto case_done;
+            ret = CloseHandle(file);
+            file = INVALID_HANDLE_VALUE;
+            ok(ret, "CloseHandle failed, error %lu.\n", GetLastError());
+            if (!ret) goto case_done;
+            memset(&loaded, 0, sizeof(loaded));
+            ret = MapAndLoad(path, NULL, &loaded, FALSE, TRUE);
+            ok(ret, "MapAndLoad failed, error %lu.\n", GetLastError());
+            if (!ret) goto case_done;
+            ok(loaded.MappedAddress != NULL && loaded.SizeOfImage == sizeof(input.bytes),
+               "Unexpected mapped fixture %p, size %lu.\n", loaded.MappedAddress, loaded.SizeOfImage);
+            if (loaded.MappedAddress && loaded.SizeOfImage == sizeof(input.bytes))
+            {
+                ok(!memcmp(loaded.MappedAddress, input.bytes, sizeof(input.bytes)), "MapAndLoad changed fixture bytes.\n");
+                memset(&output, 0xa5, sizeof(output));
+                output.data.directory.Size = sizeof(IMAGE_LOAD_CONFIG_DIRECTORY);
+                expected = output;
+                success = wide == (sizeof(void *) == sizeof(ULONGLONG)) && cases[i].valid;
+                if (success) memcpy(expected.data.bytes, config.bytes, prefix);
+                SetLastError(0xdeadbeef);
+                ret = GetImageConfigInformation(&loaded, &output.data.directory);
+                error = GetLastError();
+                ok(ret == success, "GetImageConfigInformation returned %d, expected %d.\n", ret, success);
+                ok(error == (success ? 0xdeadbeef : wide == (sizeof(void *) == sizeof(ULONGLONG)) ?
+                             ERROR_INVALID_DATA : ERROR_INVALID_PARAMETER), "Unexpected error %lu.\n", error);
+                ok(!memcmp(&output, &expected, sizeof(output)), "Unexpected configuration bytes, tail or guards.\n");
+                ok(!memcmp(loaded.MappedAddress, input.bytes, sizeof(input.bytes)), "GetImageConfigInformation changed fixture bytes.\n");
+            }
+            ret = UnMapAndLoad(&loaded);
+            ok(ret, "UnMapAndLoad failed, error %lu.\n", GetLastError());
+            if (!ret) goto case_done;
+            file = CreateFileA(path, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, 0, NULL);
+            ok(file != INVALID_HANDLE_VALUE, "Cannot read back fixture, error %lu.\n", GetLastError());
+            if (file == INVALID_HANDLE_VALUE) goto case_done;
+            ret = GetFileSizeEx(file, &length);
+            ok(ret && length.QuadPart == sizeof(input.bytes), "Unexpected fixture file length.\n");
+            if (!ret || length.QuadPart != sizeof(input.bytes)) goto case_done;
+            written = 0;
+            ret = ReadFile(file, readback, sizeof(readback), &written, NULL);
+            ok(ret && written == sizeof(readback), "Cannot read fixture bytes, error %lu.\n", GetLastError());
+            if (ret && written == sizeof(readback))
+                ok(!memcmp(readback, input.bytes, sizeof(input.bytes)), "Read-only mapping changed on-disk fixture.\n");
+case_done:
+            if (file != INVALID_HANDLE_VALUE)
+            {
+                ret = CloseHandle(file);
+                ok(ret, "CloseHandle failed, error %lu.\n", GetLastError());
+                file = INVALID_HANDLE_VALUE;
+            }
+            winetest_pop_context();
+        }
+    }
+done:
+    if (path[0])
+    {
+        ret = DeleteFileA(path);
+        ok(ret, "DeleteFile failed, error %lu.\n", GetLastError());
+    }
+}
+
+static void test_set_image_config(void)
+{
+    union { ULONGLONG align; BYTE bytes[0x1000]; } original, expected;
+    union
+    {
+        IMAGE_LOAD_CONFIG_DIRECTORY32 narrow;
+        IMAGE_LOAD_CONFIG_DIRECTORY64 wide;
+        BYTE bytes[512];
+    } stored;
+    struct
+    {
+        ULONGLONG prefix[2];
+        union { IMAGE_LOAD_CONFIG_DIRECTORY config; BYTE bytes[512]; } value;
+        ULONGLONG suffix[2];
+    } input, saved;
+    BYTE readback[sizeof(original.bytes)];
+    char path[MAX_PATH] = {0};
+    IMAGE_DOS_HEADER *dos;
+    IMAGE_NT_HEADERS32 *nt32;
+    IMAGE_NT_HEADERS64 *nt64;
+    IMAGE_SECTION_HEADER *section;
+    IMAGE_DATA_DIRECTORY *directory;
+    LOADED_IMAGE loaded;
+    LARGE_INTEGER length;
+    HANDLE file = INVALID_HANDLE_VALUE;
+    DWORD prefix, full, caller_prefix, header_end, output_offset, available, directory_offset, checksum_offset;
+    DWORD old_size, directory_size, supplied_size, written, error, old_checksum, checksum;
+    unsigned wide, i, mode, count;
+    BOOL ret, success, relocate, mapped = FALSE;
+
+    caller_prefix = FIELD_OFFSET(IMAGE_LOAD_CONFIG_DIRECTORY, SEHandlerTable);
+    file = create_temp_file(path);
+    ok(file != INVALID_HANDLE_VALUE, "Cannot create setter fixture, error %lu.\n", GetLastError());
+    if (file == INVALID_HANDLE_VALUE) goto done;
+    for (wide = 0; wide < 2; ++wide)
+    {
+        prefix = wide ? FIELD_OFFSET(IMAGE_LOAD_CONFIG_DIRECTORY64, SEHandlerTable) :
+                        FIELD_OFFSET(IMAGE_LOAD_CONFIG_DIRECTORY32, SEHandlerTable);
+        full = wide ? sizeof(stored.wide) : sizeof(stored.narrow);
+        count = wide == (sizeof(void *) == sizeof(ULONGLONG)) ? 22 : 8;
+        for (i = 0; i < count; ++i)
+        {
+            mode = i < 11 ? i : i == 11 ? 0 : i == 12 ? 1 : i == 13 ? 4 : i < 18 ? i - 3 : 0;
+            directory_size = !mode || mode == 11 || mode == 12 ? 0 :
+                             mode == 5 ? full : mode == 6 ? prefix - 1 : prefix;
+            old_size = !mode || mode == 2 || mode == 11 || mode == 12 || mode == 13 ? 0 :
+                       mode == 5 ? full : mode == 14 ? 1 : mode == 8 || mode == 9 ? prefix + 1 : prefix;
+            supplied_size = mode == 3 || mode == 11 || mode == 13 ? 0 : mode == 4 ? sizeof(input.value.config) :
+                            mode == 14 ? 1 : mode == 7 || mode == 12 ? caller_prefix - 1 :
+                            mode == 9 || mode == 10 ? caller_prefix + 1 : caller_prefix;
+            winetest_push_context("Set PE%u case %u directory %lu old %lu supplied %lu", wide ? 64 : 32,
+                                  i, directory_size, old_size, supplied_size);
+            memset(&original, 0, sizeof(original));
+            dos = (void *)original.bytes;
+            dos->e_magic = IMAGE_DOS_SIGNATURE;
+            dos->e_lfanew = sizeof(*dos);
+            nt32 = (void *)(original.bytes + dos->e_lfanew);
+            nt64 = (void *)nt32;
+            nt64->Signature = IMAGE_NT_SIGNATURE;
+            nt64->FileHeader.Machine = wide ? IMAGE_FILE_MACHINE_AMD64 : IMAGE_FILE_MACHINE_I386;
+            nt64->FileHeader.NumberOfSections = 1;
+            nt64->FileHeader.TimeDateStamp = 0x61000002;
+            nt64->FileHeader.SizeOfOptionalHeader = wide ? sizeof(nt64->OptionalHeader) : sizeof(nt32->OptionalHeader);
+            nt64->FileHeader.Characteristics = IMAGE_FILE_EXECUTABLE_IMAGE | IMAGE_FILE_DLL | IMAGE_FILE_RELOCS_STRIPPED |
+                                               (wide ? IMAGE_FILE_LARGE_ADDRESS_AWARE : IMAGE_FILE_32BIT_MACHINE);
+#define SET_OPTIONAL(field, value) do { if (wide) nt64->OptionalHeader.field = (value); else nt32->OptionalHeader.field = (value); } while (0)
+            SET_OPTIONAL(Magic, wide ? IMAGE_NT_OPTIONAL_HDR64_MAGIC : IMAGE_NT_OPTIONAL_HDR32_MAGIC);
+            SET_OPTIONAL(MajorLinkerVersion, 4);
+            SET_OPTIONAL(ImageBase, VA_START);
+            SET_OPTIONAL(SizeOfInitializedData, 0xc00);
+            SET_OPTIONAL(SectionAlignment, 0x1000);
+            SET_OPTIONAL(FileAlignment, 0x200);
+            SET_OPTIONAL(SizeOfImage, 0x2000);
+            SET_OPTIONAL(SizeOfHeaders, 0x400);
+            SET_OPTIONAL(MajorOperatingSystemVersion, 6);
+            SET_OPTIONAL(MajorSubsystemVersion, 6);
+            SET_OPTIONAL(Subsystem, IMAGE_SUBSYSTEM_WINDOWS_CUI);
+            SET_OPTIONAL(SizeOfStackReserve, 0x100000);
+            SET_OPTIONAL(SizeOfStackCommit, 0x1000);
+            SET_OPTIONAL(SizeOfHeapReserve, 0x100000);
+            SET_OPTIONAL(SizeOfHeapCommit, 0x1000);
+            SET_OPTIONAL(NumberOfRvaAndSizes, IMAGE_NUMBEROF_DIRECTORY_ENTRIES);
+#undef SET_OPTIONAL
+            section = (void *)(original.bytes + dos->e_lfanew + (wide ? sizeof(*nt64) : sizeof(*nt32)));
+            memcpy(section->Name, ".data", 5);
+            section->Misc.VirtualSize = 0x1000;
+            section->VirtualAddress = 0x1000;
+            section->SizeOfRawData = 0xc00;
+            section->PointerToRawData = 0x400;
+            section->Characteristics = IMAGE_SCN_CNT_INITIALIZED_DATA | IMAGE_SCN_MEM_READ | IMAGE_SCN_MEM_WRITE;
+            header_end = (BYTE *)(section + 1) - original.bytes;
+            available = 0x400 - header_end;
+            output_offset = header_end;
+            memset(original.bytes + header_end, 0x5a, available);
+            if (i >= 18)
+            {
+                IMAGE_DEBUG_DIRECTORY debug;
+                DWORD debug_offset;
+
+                available = i == 18 ? prefix - 1 : i == 19 ? prefix : i == 20 ? prefix + 1 : 0;
+                debug_offset = 0x400 - available - sizeof(debug);
+                memset(&debug, 0, sizeof(debug));
+                debug.TimeDateStamp = 0x61234567;
+                debug.Type = IMAGE_DEBUG_TYPE_UNKNOWN;
+                memcpy(original.bytes + debug_offset, &debug, sizeof(debug));
+                directory = wide ? &nt64->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_DEBUG] :
+                                   &nt32->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_DEBUG];
+                directory->VirtualAddress = debug_offset;
+                directory->Size = sizeof(debug);
+                output_offset = debug_offset + sizeof(debug);
+            }
+            directory = wide ? &nt64->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_LOAD_CONFIG] :
+                               &nt32->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_LOAD_CONFIG];
+            directory->VirtualAddress = directory_size ? 0x1800 : 0;
+            directory->Size = directory_size;
+            directory_offset = (BYTE *)directory - original.bytes;
+            checksum_offset = (BYTE *)(wide ? &nt64->OptionalHeader.CheckSum : &nt32->OptionalHeader.CheckSum) - original.bytes;
+            memset(&stored, 0, sizeof(stored));
+#define SET_STORED(field, value) do { if (wide) stored.wide.field = (value); else stored.narrow.field = (value); } while (0)
+            SET_STORED(Size, old_size);
+            SET_STORED(TimeDateStamp, 0x61234567);
+            SET_STORED(MajorVersion, 0x1234);
+            SET_STORED(MinorVersion, 0x5678);
+            SET_STORED(GlobalFlagsClear, 0x10);
+            SET_STORED(GlobalFlagsSet, 0x20);
+            SET_STORED(CriticalSectionDefaultTimeout, 0x10203040);
+            SET_STORED(DeCommitFreeBlockThreshold, 0x12345678);
+            SET_STORED(DeCommitTotalFreeThreshold, 0x23456789);
+            SET_STORED(MaximumAllocationSize, 0x3456789a);
+            SET_STORED(VirtualMemoryThreshold, 0x456789ab);
+            SET_STORED(ProcessHeapFlags, HEAP_GROWABLE);
+            SET_STORED(ProcessAffinityMask, 0x81);
+            SET_STORED(CSDVersion, 0x123);
+            SET_STORED(DependentLoadFlags, 0x456);
+            SET_STORED(SecurityCookie, VA_START + 0x1780);
+#undef SET_STORED
+            memcpy(original.bytes + 0xc00, stored.bytes, sizeof(stored.bytes));
+            if (directory_size) memset(original.bytes + 0xc00 + directory_size, 0x5a, sizeof(stored.bytes) - directory_size);
+            memset(&input, 0xa5, sizeof(input));
+            memset(&input.value.config, 0, sizeof(input.value.config));
+            input.value.config.Size = supplied_size;
+            input.value.config.TimeDateStamp = 0x72345678;
+            input.value.config.MajorVersion = 0x2345;
+            input.value.config.MinorVersion = 0x6789;
+            input.value.config.GlobalFlagsClear = 0x40;
+            input.value.config.GlobalFlagsSet = 0x80;
+            input.value.config.CriticalSectionDefaultTimeout = 0x21314151;
+            input.value.config.DeCommitFreeBlockThreshold = 0x24681357;
+            input.value.config.DeCommitTotalFreeThreshold = 0x35792468;
+            input.value.config.MaximumAllocationSize = 0x468a3579;
+            input.value.config.VirtualMemoryThreshold = 0x579b468a;
+            input.value.config.ProcessHeapFlags = HEAP_GROWABLE;
+            input.value.config.ProcessAffinityMask = 0x42;
+            input.value.config.CSDVersion = 0x234;
+            input.value.config.DependentLoadFlags = 0x567;
+            if ((i >= 11 && i <= 13) || i >= 18)
+            {
+                input.value.config.SEHandlerTable = VA_START + 0x1740;
+                input.value.config.CodeIntegrity.Catalog = 0x2345;
+                input.value.config.GuardMemcpyFunctionPointer = VA_START + 0x1780;
+            }
+            saved = input;
+            expected = original;
+            success = wide == (sizeof(void *) == sizeof(ULONGLONG)) && mode != 3 && mode != 7 && mode != 8 &&
+                      i != 18 && i != 21;
+            relocate = mode != 1 && mode != 9 && mode != 13 && mode != 14;
+            if (success)
+            {
+                memcpy(expected.bytes + (relocate ? output_offset : 0xc00), input.value.bytes,
+                       relocate ? sizeof(input.value.config) : supplied_size ? supplied_size : prefix);
+                if (relocate)
+                {
+                    directory = (void *)(expected.bytes + directory_offset);
+                    directory->VirtualAddress = output_offset;
+                    directory->Size = prefix;
+                }
+            }
+            if (file == INVALID_HANDLE_VALUE)
+                file = CreateFileA(path, GENERIC_READ | GENERIC_WRITE, 0, NULL, CREATE_ALWAYS, 0, NULL);
+            ok(file != INVALID_HANDLE_VALUE, "Cannot reopen setter fixture, error %lu.\n", GetLastError());
+            if (file == INVALID_HANDLE_VALUE) goto case_done;
+            written = 0;
+            ret = WriteFile(file, original.bytes, sizeof(original.bytes), &written, NULL);
+            ok(ret && written == sizeof(original.bytes), "WriteFile returned %d, bytes %lu, error %lu.\n", ret, written, GetLastError());
+            if (!ret || written != sizeof(original.bytes)) goto case_done;
+            ret = FlushFileBuffers(file);
+            ok(ret, "FlushFileBuffers failed, error %lu.\n", GetLastError());
+            if (!ret) goto case_done;
+            ret = CloseHandle(file);
+            file = INVALID_HANDLE_VALUE;
+            ok(ret, "CloseHandle failed, error %lu.\n", GetLastError());
+            if (!ret) goto case_done;
+            memset(&loaded, 0, sizeof(loaded));
+            ret = MapAndLoad(path, NULL, &loaded, TRUE, FALSE);
+            ok(ret, "MapAndLoad failed, error %lu.\n", GetLastError());
+            if (!ret) goto case_done;
+            mapped = TRUE;
+            ok(loaded.MappedAddress != NULL && loaded.SizeOfImage == sizeof(original.bytes),
+               "Unexpected mapped image %p, size %lu.\n", loaded.MappedAddress, loaded.SizeOfImage);
+            if (!loaded.MappedAddress || loaded.SizeOfImage != sizeof(original.bytes)) goto case_done;
+            ok(!memcmp(loaded.MappedAddress, original.bytes, sizeof(original.bytes)), "MapAndLoad changed fixture bytes.\n");
+            if (i >= 18)
+            {
+                DWORD unused = 0xcccccccc, offset;
+
+                SetLastError(0xdeadbeef);
+                offset = GetImageUnusedHeaderBytes(&loaded, &unused);
+                error = GetLastError();
+                ok(offset == output_offset && unused == available, "Unused header offset %lu size %lu, expected %lu/%lu.\n",
+                   offset, unused, output_offset, available);
+                ok(error == 0xdeadbeef, "GetImageUnusedHeaderBytes changed error to %lu.\n", error);
+            }
+            SetLastError(0xdeadbeef);
+            ret = SetImageConfigInformation(&loaded, &input.value.config);
+            error = GetLastError();
+            ok(ret == success, "SetImageConfigInformation returned %d, expected %d.\n", ret, success);
+            ok(error == 0xdeadbeef, "Unexpected error %lu.\n", error);
+            ok(!memcmp(&input, &saved, sizeof(input)), "Setter changed input or guards.\n");
+            ok(loaded.MappedAddress != NULL && loaded.SizeOfImage == sizeof(expected.bytes),
+               "Setter changed mapping unexpectedly, %p size %lu.\n", loaded.MappedAddress, loaded.SizeOfImage);
+            if (loaded.MappedAddress && loaded.SizeOfImage == sizeof(expected.bytes))
+                ok(!memcmp(loaded.MappedAddress, expected.bytes, sizeof(expected.bytes)), "Unexpected mapped configuration, header, or tail bytes.\n");
+            SetLastError(0xdeadbeef);
+            ret = UnMapAndLoad(&loaded);
+            error = GetLastError();
+            mapped = FALSE;
+            ok(ret, "UnMapAndLoad failed, error %lu.\n", error);
+            ok(error == 0xdeadbeef, "UnMapAndLoad changed error to %lu.\n", error);
+            if (!ret) goto case_done;
+            ret = CheckSumMappedFile(expected.bytes, sizeof(expected.bytes), &old_checksum, &checksum) != NULL;
+            ok(ret, "Cannot calculate expected checksum.\n");
+            if (!ret) goto case_done;
+            memcpy(expected.bytes + checksum_offset, &checksum, sizeof(checksum));
+            file = CreateFileA(path, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, 0, NULL);
+            ok(file != INVALID_HANDLE_VALUE, "Cannot read setter fixture, error %lu.\n", GetLastError());
+            if (file == INVALID_HANDLE_VALUE) goto case_done;
+            ret = GetFileSizeEx(file, &length);
+            ok(ret && length.QuadPart == sizeof(expected.bytes), "Unexpected persisted file size.\n");
+            if (!ret || length.QuadPart != sizeof(expected.bytes)) goto case_done;
+            written = 0;
+            ret = ReadFile(file, readback, sizeof(readback), &written, NULL);
+            ok(ret && written == sizeof(readback), "ReadFile returned %d, bytes %lu, error %lu.\n", ret, written, GetLastError());
+            if (ret && written == sizeof(readback))
+                ok(!memcmp(readback, expected.bytes, sizeof(readback)), "Unexpected persisted configuration or unrelated bytes.\n");
+case_done:
+            if (mapped)
+            {
+                ret = UnMapAndLoad(&loaded);
+                ok(ret, "Cleanup UnMapAndLoad failed, error %lu.\n", GetLastError());
+                mapped = FALSE;
+            }
+            if (file != INVALID_HANDLE_VALUE)
+            {
+                ret = CloseHandle(file);
+                ok(ret, "CloseHandle failed, error %lu.\n", GetLastError());
+                file = INVALID_HANDLE_VALUE;
+            }
+            winetest_pop_context();
+        }
+    }
+done:
+    if (path[0])
+    {
+        ret = DeleteFileA(path);
+        ok(ret, "DeleteFile failed, error %lu.\n", GetLastError());
+    }
+}
+
 START_TEST(image)
 {
     test_get_digest_stream();
     test_bind_image_ex();
     test_image_load();
+    test_image_config();
+    test_set_image_config();
 }
