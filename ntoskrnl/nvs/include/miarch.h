@@ -80,3 +80,5 @@ const MI_ARCH_DESCRIPTOR *MiArchDescribe(VOID);
 VOID MiArchInvalidateTlbSingle(_In_ PVOID VirtualAddress, _In_ MI_TLB_SCOPE Scope);
 VOID MiArchInvalidateTlbRange(_In_ PVOID BaseAddress, _In_ SIZE_T Size, _In_ MI_TLB_SCOPE Scope);
 VOID MiArchInvalidateTlbAll(_In_ MI_TLB_SCOPE Scope);
+
+VOID MiArchSyncInstructionCache(_In_ PVOID BaseAddress, _In_ SIZE_T Length);

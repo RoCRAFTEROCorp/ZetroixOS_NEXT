@@ -497,6 +497,11 @@ NTSTATUS MiSegmentPrefetch(_Inout_ PMI_SEGMENT Segment, _In_ ULONG64 Offset, _In
 VOID MiSegmentDrainReads(_Inout_ PMI_SEGMENT Segment, _Inout_ PMI_ASYNC_DRAIN Drain);
 NTSTATUS MiSegmentMarkDirty(_Inout_ PMI_SEGMENT Segment, _In_ ULONG64 Offset, _In_ ULONG64 Length);
 
+NTSTATUS MiReadImageSegment(_Inout_ PMI_SEGMENT Segment, _In_ ULONG64 Offset,
+                            _Out_ PVOID Buffer, _In_ ULONG Length);
+NTSTATUS MiReplaceImagePages(_Inout_ PMI_SEGMENT Segment, _In_reads_(PageCount) PUCHAR *Pages,
+                             _In_ ULONG PageCount);
+
 NTSTATUS MiMapView(_Inout_ PMI_ADDRESS_SPACE Space, _Inout_ PMI_SEGMENT Segment, _Inout_ PULONG64 BaseAddress,
                    _In_ ULONG64 SectionOffset, _Inout_ PULONG64 ViewSize, _In_ ULONG Protection,
                    _In_ ULONG AllocationType);

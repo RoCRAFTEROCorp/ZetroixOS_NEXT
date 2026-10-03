@@ -501,6 +501,248 @@ MiReadImageClrFlags(
 
 static
 NTSTATUS
+MiImageRelocationBytes(
+    _Inout_ PMI_CONTROL_AREA Control,
+    _Inout_ PUCHAR *Pages,
+    _In_ ULONG64 Address,
+    _Inout_updates_bytes_(Length) PVOID Buffer,
+    _In_ ULONG Length,
+    _In_ BOOLEAN Write)
+{
+    ULONG Done = 0;
+
+    if (Address > Control->ImageSize || Length > Control->ImageSize - Address)
+        return STATUS_INVALID_IMAGE_FORMAT;
+
+    while (Done < Length)
+    {
+        ULONG Page = (ULONG)((Address + Done) >> PAGE_SHIFT);
+        ULONG Offset = (ULONG)((Address + Done) & (PAGE_SIZE - 1));
+        ULONG Bytes = min(Length - Done, PAGE_SIZE - Offset);
+        NTSTATUS Status;
+
+        if (Pages[Page] == NULL)
+        {
+            Pages[Page] = ExAllocatePoolWithTag(PagedPool, PAGE_SIZE, 'rImM');
+            if (Pages[Page] == NULL)
+                return STATUS_INSUFFICIENT_RESOURCES;
+            Status = MiReadImageSegment(Control->Segment, (ULONG64)Page << PAGE_SHIFT, Pages[Page], PAGE_SIZE);
+            if (!NT_SUCCESS(Status))
+                return Status;
+        }
+        if (Write)
+            RtlCopyMemory(Pages[Page] + Offset, (PUCHAR)Buffer + Done, Bytes);
+        else
+            RtlCopyMemory((PUCHAR)Buffer + Done, Pages[Page] + Offset, Bytes);
+        Done += Bytes;
+    }
+    return STATUS_SUCCESS;
+}
+
+static
+NTSTATUS
+MiRelocateImageControlArea(
+    _Inout_ PMI_CONTROL_AREA Control,
+    _In_ ULONG HeaderOffset,
+    _In_opt_ PIMAGE_DATA_DIRECTORY Directory)
+{
+    PSECTION_IMAGE_INFORMATION Information = &Control->ImageInformation;
+    ULONG PageCount = (ULONG)(Control->ImageSize >> PAGE_SHIFT);
+    ULONG64 OldBase = (ULONG64)(ULONG_PTR)Control->BasedAddress;
+    ULONG64 Highest = (ULONG64)(ULONG_PTR)MM_HIGHEST_VAD_ADDRESS;
+    ULONG64 Slots, Base, Delta;
+    ULONG Seed, Page, Position = 0;
+    PUCHAR Relocations = NULL;
+    PUCHAR *Pages = NULL;
+    ULONG Length = Directory ? Directory->Size : 0;
+    BOOLEAN Invalid = FALSE;
+    BOOLEAN Unsupported = FALSE;
+    NTSTATUS Status = STATUS_SUCCESS;
+
+    if (!Information->ImageDynamicallyRelocated)
+        return STATUS_SUCCESS;
+    if (!Control->Image64)
+        Highest = min(Highest, (Information->ImageCharacteristics & IMAGE_FILE_LARGE_ADDRESS_AWARE) ? MAXULONG : MAXLONG);
+    if (Control->ImageSize >= Highest - MI_ALLOCATION_GRANULARITY)
+        return STATUS_NO_MEMORY;
+
+    Slots = (Highest - Control->ImageSize) / MI_ALLOCATION_GRANULARITY;
+    Seed = KeQueryPerformanceCounter(NULL).LowPart ^ (ULONG)KeQueryInterruptTime() ^ (ULONG)(ULONG_PTR)Control;
+    Base = ((((ULONG64)RtlRandomEx(&Seed) << 32) | RtlRandomEx(&Seed)) % Slots + 1) * MI_ALLOCATION_GRANULARITY;
+    if (Base == OldBase)
+        Base = (Base / MI_ALLOCATION_GRANULARITY % Slots + 1) * MI_ALLOCATION_GRANULARITY;
+    Delta = Base - OldBase;
+
+    if (Length != 0)
+    {
+        if (Directory->VirtualAddress > Control->ImageSize || Length > Control->ImageSize - Directory->VirtualAddress)
+        {
+            Invalid = TRUE;
+            goto Done;
+        }
+        Relocations = ExAllocatePoolWithTag(PagedPool, Length, 'rImM');
+        if (Relocations == NULL)
+            return STATUS_INSUFFICIENT_RESOURCES;
+        Status = MiReadImageSegment(Control->Segment, Directory->VirtualAddress, Relocations, Length);
+        if (!NT_SUCCESS(Status))
+        {
+            Invalid = (BOOLEAN)(Status == STATUS_INVALID_PARAMETER || Status == STATUS_ACCESS_VIOLATION);
+            goto Done;
+        }
+    }
+
+    Pages = ExAllocatePoolWithTag(PagedPool, (SIZE_T)PageCount * sizeof(*Pages), 'rImM');
+    if (Pages == NULL)
+    {
+        Status = STATUS_INSUFFICIENT_RESOURCES;
+        goto Done;
+    }
+    RtlZeroMemory(Pages, (SIZE_T)PageCount * sizeof(*Pages));
+
+    while (Position < Length)
+    {
+        IMAGE_BASE_RELOCATION Block;
+        ULONG EntryPosition;
+
+        if (Length - Position < sizeof(Block))
+        {
+            Invalid = TRUE;
+            goto Done;
+        }
+        RtlCopyMemory(&Block, Relocations + Position, sizeof(Block));
+        if (Block.SizeOfBlock < sizeof(Block) || Block.SizeOfBlock > Length - Position ||
+            (Block.SizeOfBlock & (sizeof(USHORT) - 1)) || Block.VirtualAddress >= Control->ImageSize)
+        {
+            Invalid = TRUE;
+            goto Done;
+        }
+        EntryPosition = sizeof(Block);
+        while (EntryPosition < Block.SizeOfBlock)
+        {
+            USHORT Entry;
+            USHORT Type;
+            SHORT Adjustment = 0;
+            ULONG Bytes;
+            ULONG64 Address;
+            ULONGLONG Value = 0;
+
+            RtlCopyMemory(&Entry, Relocations + Position + EntryPosition, sizeof(Entry));
+            EntryPosition += sizeof(Entry);
+            Type = Entry >> 12;
+            Address = (ULONG64)Block.VirtualAddress + (Entry & 0xFFF);
+            switch (Type)
+            {
+                case IMAGE_REL_BASED_ABSOLUTE:
+                    continue;
+                case IMAGE_REL_BASED_HIGH:
+                case IMAGE_REL_BASED_LOW:
+                    Bytes = sizeof(USHORT);
+                    break;
+                case IMAGE_REL_BASED_HIGHADJ:
+                    if (Block.SizeOfBlock - EntryPosition < sizeof(Adjustment))
+                    {
+                        Invalid = TRUE;
+                        goto Done;
+                    }
+                    RtlCopyMemory(&Adjustment, Relocations + Position + EntryPosition, sizeof(Adjustment));
+                    EntryPosition += sizeof(Adjustment);
+                    Bytes = sizeof(USHORT);
+                    break;
+                case IMAGE_REL_BASED_HIGHLOW:
+                    Bytes = sizeof(ULONG);
+                    break;
+                case IMAGE_REL_BASED_DIR64:
+                    Bytes = sizeof(ULONGLONG);
+                    break;
+                default:
+                    Unsupported = TRUE;
+                    goto Done;
+            }
+            Status = MiImageRelocationBytes(Control, Pages, Address, &Value, Bytes, FALSE);
+            if (!NT_SUCCESS(Status))
+            {
+                Invalid = (BOOLEAN)(Status == STATUS_INVALID_IMAGE_FORMAT || Status == STATUS_ACCESS_VIOLATION);
+                goto Done;
+            }
+            if (Type == IMAGE_REL_BASED_HIGH)
+                Value = ((Value << 16) + Delta) >> 16;
+            else if (Type == IMAGE_REL_BASED_LOW)
+                Value += (USHORT)Delta;
+            else if (Type == IMAGE_REL_BASED_HIGHADJ)
+                Value = ((Value << 16) + (LONGLONG)Adjustment + Delta + 0x8000) >> 16;
+            else
+                Value += Delta;
+            Status = MiImageRelocationBytes(Control, Pages, Address, &Value, Bytes, TRUE);
+            if (!NT_SUCCESS(Status))
+                goto Done;
+        }
+        Position += Block.SizeOfBlock;
+    }
+
+    Status = MiImageRelocationBytes(Control, Pages,
+                                     HeaderOffset + (Control->Image64
+                                         ? FIELD_OFFSET(IMAGE_NT_HEADERS64, OptionalHeader.ImageBase)
+                                         : FIELD_OFFSET(IMAGE_NT_HEADERS32, OptionalHeader.ImageBase)),
+                                     &Base, Control->Image64 ? sizeof(ULONGLONG) : sizeof(ULONG), TRUE);
+    if (!NT_SUCCESS(Status))
+        goto Done;
+    Status = MiReplaceImagePages(Control->Segment, Pages, PageCount);
+    if (NT_SUCCESS(Status))
+    {
+        Control->BasedAddress = (PVOID)(ULONG_PTR)Base;
+        Information->TransferAddress = (PVOID)((ULONG_PTR)Information->TransferAddress + (ULONG_PTR)Delta);
+    }
+
+Done:
+    if (Pages != NULL)
+    {
+        for (Page = 0; Page < PageCount; Page++)
+            if (Pages[Page] != NULL)
+                ExFreePoolWithTag(Pages[Page], 'rImM');
+        ExFreePoolWithTag(Pages, 'rImM');
+    }
+    if (Relocations != NULL)
+        ExFreePoolWithTag(Relocations, 'rImM');
+    if (Invalid || Unsupported)
+    {
+        Information->ImageDynamicallyRelocated = FALSE;
+        Status = (Invalid && Information->Machine == IMAGE_FILE_MACHINE_ARM64)
+            ? STATUS_INVALID_IMAGE_FORMAT : STATUS_SUCCESS;
+    }
+    return Status;
+}
+
+static
+NTSTATUS
+MiImageNeedsLowAddress(
+    _Inout_ PMI_CONTROL_AREA Control,
+    _Out_ PBOOLEAN LowAddress)
+{
+    IMAGE_DOS_HEADER Dos;
+    IMAGE_NT_HEADERS32 Headers;
+    NTSTATUS Status;
+
+    *LowAddress = Control->ImageInformation.ImageContainsCode;
+    if (*LowAddress)
+        return STATUS_SUCCESS;
+    Status = MiReadImageSegment(Control->Segment, 0, &Dos, sizeof(Dos));
+    if (!NT_SUCCESS(Status))
+        return Status;
+    Status = MiReadImageSegment(Control->Segment, (ULONG)Dos.e_lfanew, &Headers, sizeof(Headers));
+    if (!NT_SUCCESS(Status))
+        return Status;
+    if (Headers.FileHeader.SizeOfOptionalHeader >=
+        FIELD_OFFSET(IMAGE_OPTIONAL_HEADER32, DataDirectory[IMAGE_DIRECTORY_ENTRY_BASERELOC + 1]) &&
+        Headers.OptionalHeader.NumberOfRvaAndSizes > IMAGE_DIRECTORY_ENTRY_BASERELOC)
+    {
+        *LowAddress = (BOOLEAN)(Headers.OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_BASERELOC].VirtualAddress != 0 &&
+                                Headers.OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_BASERELOC].Size != 0);
+    }
+    return STATUS_SUCCESS;
+}
+
+static
+NTSTATUS
 MiBuildImageControlArea(
     _Inout_ PMI_CONTROL_AREA Control,
     _In_ ULONG64 FileSize)
@@ -509,6 +751,7 @@ MiBuildImageControlArea(
     PIMAGE_DATA_DIRECTORY ClrDirectory = NULL;
     ULONG DataDirectoryCount = 0;
     BOOLEAN HasRelocations = FALSE;
+    MI_FILE_OPS ImageOps = MiControlImageOps;
     PSECTION_IMAGE_INFORMATION Information = &Control->ImageInformation;
     PIMAGE_SECTION_HEADER SectionHeader;
     PIMAGE_NT_HEADERS NtHeaders;
@@ -634,8 +877,9 @@ MiBuildImageControlArea(
     }
 
     if (NtHeaders->FileHeader.Machine == IMAGE_FILE_MACHINE_ARM64 &&
-        (Information->DllCharacteristics & (IMAGE_DLLCHARACTERISTICS_DYNAMIC_BASE | IMAGE_DLLCHARACTERISTICS_NX_COMPAT)) !=
-        (IMAGE_DLLCHARACTERISTICS_DYNAMIC_BASE | IMAGE_DLLCHARACTERISTICS_NX_COMPAT))
+        ((Information->DllCharacteristics & (IMAGE_DLLCHARACTERISTICS_DYNAMIC_BASE | IMAGE_DLLCHARACTERISTICS_NX_COMPAT)) !=
+         (IMAGE_DLLCHARACTERISTICS_DYNAMIC_BASE | IMAGE_DLLCHARACTERISTICS_NX_COMPAT) ||
+         (NtHeaders->FileHeader.Characteristics & IMAGE_FILE_RELOCS_STRIPPED)))
     {
         goto Done;
     }
@@ -770,14 +1014,28 @@ MiBuildImageControlArea(
 
     if (!Information->ImageMappedFlat &&
         (Information->DllCharacteristics & IMAGE_DLLCHARACTERISTICS_DYNAMIC_BASE) &&
+        !(Information->ImageCharacteristics & IMAGE_FILE_RELOCS_STRIPPED) &&
         (HasRelocations || Information->ImageContainsCode) &&
         ClrDirectory == NULL)
     {
         Information->ImageDynamicallyRelocated = 1;
     }
 
-    Status = MiSegmentCreate(&MiSystem, MiSegmentImage, Control->ImageSize, MI_PROT_EXECUTE_READ, &MiControlImageOps,
+    ImageOps.Release = NULL;
+    Status = MiSegmentCreate(&MiSystem, MiSegmentImage, Control->ImageSize, MI_PROT_EXECUTE_READ, &ImageOps,
                              Control, Layout, LayoutCount, &Control->Segment);
+    if (NT_SUCCESS(Status))
+    {
+        Status = MiRelocateImageControlArea(Control, DosHeader->e_lfanew,
+                                            HasRelocations ? &DataDirectory[IMAGE_DIRECTORY_ENTRY_BASERELOC] : NULL);
+        if (NT_SUCCESS(Status))
+            Control->Segment->FileOps.Release = MiControlRelease;
+        else
+        {
+            MiSegmentDereferenceAndClose(Control->Segment);
+            Control->Segment = NULL;
+        }
+    }
 
 Done:
     if (Layout != NULL)
@@ -1343,7 +1601,19 @@ MiMapSectionView(
         Size = 0;
 
         if (Base == 0 && !Space->IsSystem)
+        {
+            if (!Control->Image64)
+            {
+                BOOLEAN LowAddress;
+
+                Status = MiImageNeedsLowAddress(Control, &LowAddress);
+                if (!NT_SUCCESS(Status))
+                    return Status;
+                if (LowAddress)
+                    Highest = min(Highest, MAXULONG);
+            }
             Base = (ULONG64)(ULONG_PTR)Control->BasedAddress & ~(MI_ALLOCATION_GRANULARITY - 1);
+        }
     }
     else
     {
@@ -2133,8 +2403,12 @@ NtMapViewOfSection(
                                     InheritDisposition, AllocationType, Protect);
         if (Process != PsGetCurrentProcess())
             ExReleaseRundownProtection(&Process->RundownProtect);
-        if (NT_SUCCESS(Status) && Section->Control->Image && !Section->Control->Image64 &&
-            sizeof(ULONG_PTR) == sizeof(ULONG64) && PsGetProcessWow64Process(Process) == NULL)
+        if (NT_SUCCESS(Status) && Section->Control->Image &&
+            Section->Control->ImageInformation.ImageContainsCode &&
+            Section->Control->ImageInformation.Machine != PsGetProcessMachine(Process) &&
+            Section->Control->ImageInformation.Machine != IMAGE_FILE_MACHINE_NATIVE &&
+            !(Section->Control->ImageInformation.Machine == IMAGE_FILE_MACHINE_ARM64EC &&
+              PsGetProcessMachine(Process) == IMAGE_FILE_MACHINE_ARM64))
         {
             Status = STATUS_IMAGE_MACHINE_TYPE_MISMATCH;
         }

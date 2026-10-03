@@ -24,6 +24,21 @@ MiInitializeKernelVaLayout(
     UNREFERENCED_PARAMETER(LoaderBlock);
 }
 
+VOID
+MiArchSyncInstructionCache(
+    _In_ PVOID BaseAddress,
+    _In_ SIZE_T Length)
+{
+    ULONG DLine, ILine;
+    ULONG_PTR Address, End = (ULONG_PTR)BaseAddress + Length;
+
+    KiArm64GetCacheLineSizes(&DLine, &ILine);
+    for (Address = (ULONG_PTR)BaseAddress & ~(ULONG_PTR)(DLine - 1); Address < End; Address += DLine)
+        __asm__ __volatile__("dc cvau, %0" :: "r"(Address) : "memory");
+    __asm__ __volatile__("dsb ish" ::: "memory");
+    KeSweepICache(NULL, 0);
+}
+
 NTSTATUS
 MiArchSetFrameCache(ULONG Frame, ULONG Flags)
 {

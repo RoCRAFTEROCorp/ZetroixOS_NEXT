@@ -979,6 +979,98 @@ MiSegmentReleasePage(
                           MiSoftMake(MiSoftTransition, MiSoftProtection(Pte), Frame));
 }
 
+NTSTATUS
+MiReadImageSegment(
+    _Inout_ PMI_SEGMENT Segment,
+    _In_ ULONG64 Offset,
+    _Out_ PVOID Buffer,
+    _In_ ULONG Length)
+{
+    NTSTATUS Status = STATUS_SUCCESS;
+    ULONG Done = 0;
+
+    if (Segment->Kind != MiSegmentImage || Offset > MiSegmentSize(Segment) ||
+        Length > MiSegmentSize(Segment) - Offset)
+        return STATUS_INVALID_PARAMETER;
+
+    MI_MUTEX_ACQUIRE(&Segment->Lock);
+    while (Done < Length)
+    {
+        ULONG64 Address = Offset + Done;
+        ULONG PageOffset = (ULONG)(Address & (PAGE_SIZE - 1));
+        ULONG Bytes = (Length - Done < PAGE_SIZE - PageOffset) ? Length - Done : PAGE_SIZE - PageOffset;
+        PMI_PTE Proto = MiSegmentProto(Segment, Address >> PAGE_SHIFT);
+        ULONG Frame;
+        PVOID Mapping;
+
+        Status = MiSegmentAcquirePage(Segment, Proto, TRUE, &Frame);
+        if (!NT_SUCCESS(Status))
+            break;
+        Mapping = MiPfnMapFrame(&Segment->System->Pfn, Frame);
+        RtlCopyMemory((PUCHAR)Buffer + Done, (PUCHAR)Mapping + PageOffset, Bytes);
+        MiPfnUnmapFrame(&Segment->System->Pfn, Mapping);
+        MiSegmentReleasePage(Segment, Proto, Frame);
+        Done += Bytes;
+    }
+    MI_MUTEX_RELEASE(&Segment->Lock);
+    return Status;
+}
+
+NTSTATUS
+MiReplaceImagePages(
+    _Inout_ PMI_SEGMENT Segment,
+    _In_reads_(PageCount) PUCHAR *Pages,
+    _In_ ULONG PageCount)
+{
+    PMI_SYSTEM System = Segment->System;
+    ULONG Page;
+    LONG64 Charge = 0;
+    NTSTATUS Status = STATUS_SUCCESS;
+
+    if (Segment->Kind != MiSegmentImage || PageCount != MiSegmentPages(Segment))
+        return STATUS_INVALID_PARAMETER;
+
+    MI_MUTEX_ACQUIRE(&Segment->Lock);
+    if (MI_ATOMIC_READ32(&Segment->MappedViews) != 0)
+    {
+        MI_MUTEX_RELEASE(&Segment->Lock);
+        return STATUS_CONFLICTING_ADDRESSES;
+    }
+    for (Page = 0; Page < PageCount; Page++)
+        Charge += (Pages[Page] != NULL);
+    if (!MiSegmentChargeCommit(Segment, Charge))
+    {
+        MI_MUTEX_RELEASE(&Segment->Lock);
+        return STATUS_COMMITMENT_LIMIT;
+    }
+    for (Page = 0; Page < PageCount; Page++)
+    {
+        PMI_PTE Proto;
+        PMI_PFN Entry;
+        ULONG Frame;
+        PVOID Mapping;
+        KIRQL OldIrql;
+
+        if (Pages[Page] == NULL)
+            continue;
+        Proto = MiSegmentProto(Segment, Page);
+        Status = MiSegmentAcquirePage(Segment, Proto, TRUE, &Frame);
+        if (!NT_SUCCESS(Status))
+            break;
+        Entry = &System->Pfn.Pfn[Frame];
+        OldIrql = MiPfnLock(&System->Pfn, Frame);
+        Entry->OriginalPte = MiSoftMake(MiSoftDemandZero, MiSoftProtection(Entry->OriginalPte), 0);
+        MiPfnUnlock(&System->Pfn, Frame, OldIrql);
+        Mapping = MiPfnMapFrame(&System->Pfn, Frame);
+        RtlCopyMemory(Mapping, Pages[Page], PAGE_SIZE);
+        MiPfnUnmapFrame(&System->Pfn, Mapping);
+        MiPfnSetModified(&System->Pfn, Frame);
+        MiSegmentReleasePage(Segment, Proto, Frame);
+    }
+    MI_MUTEX_RELEASE(&Segment->Lock);
+    return Status;
+}
+
 static
 ULONG
 MiPteProtection(

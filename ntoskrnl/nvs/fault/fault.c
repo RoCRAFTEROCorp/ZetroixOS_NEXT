@@ -248,6 +248,13 @@ MiMakePageValid(
 
     if (Dirty)
         MiPfnSetModified(&Space->System->Pfn, Frame);
+    if (MI_PROT_IS_EXECUTE(Protection) && Space->System->Arch->RequiresExplicitIcacheSync)
+    {
+        PVOID Mapping = MiPfnMapFrame(&Space->System->Pfn, Frame);
+
+        MiArchSyncInstructionCache(Mapping, PAGE_SIZE);
+        MiPfnUnmapFrame(&Space->System->Pfn, Mapping);
+    }
 
     MiPtWrite(Space, VirtualAddress, Slot, TableFrame,
               MiArchPteMakeLeaf(Frame, Protection & ~MI_PROT_GUARD, Flags));

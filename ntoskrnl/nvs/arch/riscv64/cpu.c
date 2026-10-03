@@ -31,6 +31,14 @@ MiInitializeKernelVaLayout(
     MmSystemRangeStart = (PVOID)(ULONG_PTR)MiArchDescribe()->SystemAddressStart;
 }
 
+VOID
+MiArchSyncInstructionCache(
+    _In_ PVOID BaseAddress,
+    _In_ SIZE_T Length)
+{
+    KeSweepICache(BaseAddress, Length);
+}
+
 NTSTATUS
 MiArchSetFrameCache(ULONG Frame, ULONG Flags)
 {

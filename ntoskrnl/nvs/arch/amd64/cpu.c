@@ -11,6 +11,15 @@
 #include "hardware.h"
 #include "tlb.h"
 
+VOID
+MiArchSyncInstructionCache(
+    _In_ PVOID BaseAddress,
+    _In_ SIZE_T Length)
+{
+    UNREFERENCED_PARAMETER(BaseAddress);
+    UNREFERENCED_PARAMETER(Length);
+}
+
 NTSTATUS
 MiArchSetFrameCache(ULONG Frame, ULONG Flags)
 {
