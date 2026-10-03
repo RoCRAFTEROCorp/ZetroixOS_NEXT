@@ -4921,8 +4921,7 @@ DxgkpCreateGdiSurface(
     /* CDD paints its kernel-owned redirection bitmap through CpuAddress.  A
      * user DWM/ICD resource is instead a GPU texture opened by global share;
      * production KMDs legitimately describe that texture as non-CPU-visible. */
-    if (SurfaceType == D3DKMDT_GDISURFACE_TEXTURE_CPUVISIBLE ||
-        SurfaceType == D3DKMDT_GDISURFACE_STAGING_CPUVISIBLE)
+    if (SurfaceType == D3DKMDT_GDISURFACE_STAGING_CPUVISIBLE)
     {
         Status = DxgkVidMmMapAllocationCpu(Allocation, &CpuAddress);
         if (!NT_SUCCESS(Status) || CpuAddress == NULL)
@@ -4976,7 +4975,7 @@ DxgkCreateRedirectionSurface(
      * User-owned redirection textures are rendered through the UMD. */
     return DxgkpCreateGdiSurface(Adapter, Device, Create,
                                 Device == NULL ?
-                                    D3DKMDT_GDISURFACE_TEXTURE_CPUVISIBLE :
+                                    D3DKMDT_GDISURFACE_STAGING_CPUVISIBLE :
                                     D3DKMDT_GDISURFACE_TEXTURE);
 }
 
