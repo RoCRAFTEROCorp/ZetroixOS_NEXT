@@ -1150,6 +1150,8 @@ InstallLiveCD(VOID)
     if (!CommonInstall())
         goto error;
 
+    InstallLiveCDPrivileges();
+
     /* Install the TCP/IP protocol driver */
     bRes = InstallNetworkComponent(L"MS_TCPIP");
     if (!bRes && GetLastError() != ERROR_FILE_NOT_FOUND)

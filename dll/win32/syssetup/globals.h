@@ -106,6 +106,9 @@ InstallSecurity(
     _In_ PITEMSDATA pItemsData,
     _In_ PREGISTRATIONNOTIFY pNotify);
 
+VOID
+InstallLiveCDPrivileges(VOID);
+
 NTSTATUS
 SetAdministratorPassword(LPCWSTR Password);
 

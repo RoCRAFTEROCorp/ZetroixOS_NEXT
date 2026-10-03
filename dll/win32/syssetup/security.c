@@ -1644,6 +1644,27 @@ CountSecuritySteps(VOID)
     return Steps;
 }
 
+VOID
+InstallLiveCDPrivileges(VOID)
+{
+    ITEMSDATA ItemsData = { NULL };
+    REGISTRATIONNOTIFY Notify;
+    HINF hSecurityInf;
+
+    ZeroMemory(&Notify, sizeof(Notify));
+
+    hSecurityInf = SetupOpenInfFileW(L"defltwk.inf",
+                                     NULL,
+                                     INF_STYLE_WIN4,
+                                     NULL);
+    if (hSecurityInf == INVALID_HANDLE_VALUE)
+        return;
+
+    InstallPrivileges(hSecurityInf, &ItemsData, &Notify);
+
+    SetupCloseInfFile(hSecurityInf);
+}
+
 DWORD
 InstallSecurity(
     _In_ PITEMSDATA pItemsData,
