@@ -164,6 +164,16 @@ static const WCHAR fr_dech[] = {'A','l','l','e','m','a','n','d',' ',
                                 '(','S','u','i','s','s','e',')',0};
 
 static const info_table_entry  info_table[] = {
+    {0x0414, 0x0409, 0, "no", L"Norwegian (Bokmal)"},
+    {0x0416, 0x0409, 0, "pt-br", L"Portuguese (Brazil)"},
+    {0x0440, 0x0409, 0, "kz", L"Kyrgyz"},
+    {0x0465, 0x0409, 0, "div", L"Divehi"},
+    {0x0816, 0x0409, 0, "pt", L"Portuguese (Portugal)"},
+    {0x082c, 0x0409, 0, "az", L"Azerbaijani (Cyrillic)"},
+    {0x083e, 0x0409, 0, "ms", L"Malay (Brunei)"},
+    {0x0843, 0x0409, 0, "uz", L"Uzbek (Cyrillic)"},
+    {0x0c0a, 0x0409, 0, "es", L"Spanish (International Sort)"},
+
     {MAKELANGID(LANG_ENGLISH, SUBLANG_NEUTRAL),        MAKELANGID(LANG_ENGLISH, SUBLANG_NEUTRAL),
          0, "en", en_en},
     {MAKELANGID(LANG_ENGLISH, SUBLANG_DEFAULT),        MAKELANGID(LANG_ENGLISH, SUBLANG_NEUTRAL),
@@ -1590,6 +1600,460 @@ static void test_LcidToRfc1766(void)
     ok(hr == E_INVALIDARG, "got 0x%08lx and '%s' (expected E_INVALIDARG)\n", hr, buffer);
 }
 
+static void test_rfc1766_database(IMultiLanguage2 *ml)
+{
+    static const struct
+    {
+        unsigned int index;
+        LCID lcid;
+        const WCHAR *tag, *name;
+    } entries[] =
+    {
+        {0, 0x00000436, L"af", L"Afrikaans"},
+        {77, 0x0000043e, L"ms", L"Malay (Malaysia)"},
+        {80, 0x00000416, L"pt-br", L"Portuguese (Brazil)"},
+        {81, 0x00000816, L"pt", L"Portuguese (Portugal)"},
+        {92, 0x0000040a, L"es", L"Spanish (Traditional Sort)"},
+        {94, 0x00000c0a, L"es", L"Spanish (International Sort)"},
+        {121, 0x00000443, L"uz", L"Uzbek (Latin)"},
+        {122, 0x00000843, L"uz", L"Uzbek (Cyrillic)"},
+        {142, 0x0000083e, L"ms", L"Malay (Brunei)"},
+        {146, 0x00000414, L"no", L"Norwegian (Bokmal)"},
+        {147, 0x00000414, L"nb-no", L"Norwegian (Bokmal)"},
+        {149, 0x0000082c, L"az", L"Azerbaijani (Cyrillic)"},
+        {150, 0x0000042c, L"az", L"Azerbaijani (Latin)"},
+        {151, 0x00000440, L"kz", L"Kyrgyz"},
+        {155, 0x00000465, L"div", L"Divehi"},
+    };
+    static const struct
+    {
+        LANGID language;
+        const WCHAR *name;
+    } languages[] = {{0x0407, L"Albanisch"}, {0x040c, L"Albanais"}};
+    IEnumRfc1766 *enumerator = NULL;
+    struct { DWORD before; RFC1766INFO info; DWORD after; } output;
+    HRESULT hr;
+    ULONG fetched;
+    unsigned int i, count, checked = 0;
+    BOOL guards = TRUE;
+
+    hr = IMultiLanguage2_EnumRfc1766(ml, LANG_ENGLISH, &enumerator);
+    ok(hr == S_OK && enumerator != NULL, "EnumRfc1766 returned %#lx, %p\n", hr, enumerator);
+    if (hr != S_OK || !enumerator) return;
+    for (count = 0; count < 256; ++count)
+    {
+        memset(&output, 0xa5, sizeof(output));
+        fetched = 0xdeadbeef;
+        hr = IEnumRfc1766_Next(enumerator, 1, &output.info, &fetched);
+        if (output.before != 0xa5a5a5a5 || output.after != 0xa5a5a5a5) guards = FALSE;
+        if (hr != S_OK) break;
+        if (fetched != 1) guards = FALSE;
+        for (i = 0; i < ARRAY_SIZE(entries); ++i)
+            if (entries[i].index == count)
+            {
+                ok(output.info.lcid == entries[i].lcid, "%u: expected LCID %#lx, got %#lx\n",
+                   count, entries[i].lcid, output.info.lcid);
+                ok(!wcsncmp(output.info.wszRfc1766, entries[i].tag, MAX_RFC1766_NAME),
+                   "%u: expected tag %s\n", count, wine_dbgstr_w(entries[i].tag));
+                ok(!wcsncmp(output.info.wszLocaleName, entries[i].name, MAX_LOCALE_NAME),
+                   "%u: expected name %s\n", count, wine_dbgstr_w(entries[i].name));
+                ++checked;
+            }
+        if (!count)
+        {
+            ok(output.info.wszRfc1766[3] == 0xa5a5 && output.info.wszRfc1766[5] == 0,
+               "Unexpected tag tail %#x, %#x\n", output.info.wszRfc1766[3], output.info.wszRfc1766[5]);
+            ok(output.info.wszLocaleName[10] == 0xa5a5 && output.info.wszLocaleName[31] == 0,
+               "Unexpected name tail %#x, %#x\n", output.info.wszLocaleName[10], output.info.wszLocaleName[31]);
+        }
+    }
+    ok(count == 157, "Expected 157 entries, got %u\n", count);
+    ok(checked == ARRAY_SIZE(entries), "Expected %u selected entries, got %u\n", (unsigned int)ARRAY_SIZE(entries), checked);
+    ok(hr == S_FALSE && !fetched, "Expected terminal S_FALSE/0, got %#lx/%lu\n", hr, fetched);
+    ok(guards, "Enumeration changed a guard or returned an unexpected count\n");
+    IEnumRfc1766_Release(enumerator);
+    for (i = 0; i < ARRAY_SIZE(languages); ++i)
+    {
+        enumerator = NULL;
+        hr = IMultiLanguage2_EnumRfc1766(ml, languages[i].language, &enumerator);
+        ok(hr == S_OK && enumerator != NULL, "%u: EnumRfc1766 returned %#lx, %p\n", i, hr, enumerator);
+        if (hr != S_OK || !enumerator) continue;
+        hr = IEnumRfc1766_Next(enumerator, 1, &output.info, &fetched);
+        ok(hr == S_OK && fetched == 1, "%u: first Next returned %#lx/%lu\n", i, hr, fetched);
+        memset(&output, 0xa5, sizeof(output));
+        hr = IEnumRfc1766_Next(enumerator, 1, &output.info, &fetched);
+        ok(hr == S_OK && fetched == 1 && output.info.lcid == 0x041c,
+           "%u: second Next returned %#lx/%lu, LCID %#lx\n", i, hr, fetched, output.info.lcid);
+        ok(!wcsncmp(output.info.wszLocaleName, languages[i].name, MAX_LOCALE_NAME),
+           "%u: expected localized name %s\n", i, wine_dbgstr_w(languages[i].name));
+        IEnumRfc1766_Release(enumerator);
+    }
+}
+
+static void check_rfc1766_iterator_next(IEnumRfc1766 *enumerator, const RFC1766INFO *baseline,
+                                      ULONG total, ULONG position, ULONG request,
+                                      BOOL null_output, BOOL null_fetched)
+{
+    struct { DWORD before; RFC1766INFO info[256]; DWORD after; } output, untouched;
+    ULONG fetched = 0xdeadbeef, expected = position >= total ? 0 : min(request, total - position), i;
+    HRESULT hr;
+
+    memset(&output, 0xa5, sizeof(output));
+    untouched = output;
+    hr = IEnumRfc1766_Next(enumerator, request, null_output ? NULL : output.info,
+                          null_fetched ? NULL : &fetched);
+    ok(hr == (null_output ? E_FAIL : expected ? S_OK : S_FALSE),
+       "position %lu, request %lu, NULL output %u, NULL fetched %u: returned %#lx\n",
+       position, request, null_output, null_fetched, hr);
+    ok(fetched == (null_output || null_fetched ? 0xdeadbeef : expected),
+       "position %lu, request %lu: fetched %lu\n", position, request, fetched);
+    ok(output.before == 0xa5a5a5a5 && output.after == 0xa5a5a5a5,
+       "position %lu, request %lu: changed guard\n", position, request);
+    if (null_output || !expected)
+    {
+        ok(!memcmp(&output, &untouched, sizeof(output)), "Empty or failed Next changed output\n");
+        return;
+    }
+    if (hr != S_OK) return;
+    for (i = 0; i < expected; ++i)
+    {
+        ok(output.info[i].lcid == baseline[position + i].lcid &&
+           !wcsncmp(output.info[i].wszRfc1766, baseline[position + i].wszRfc1766, MAX_RFC1766_NAME) &&
+           !wcsncmp(output.info[i].wszLocaleName, baseline[position + i].wszLocaleName, MAX_LOCALE_NAME),
+           "position %lu, request %lu: unexpected record %lu\n", position, request, i);
+    }
+    ok(!memcmp(output.info + expected, untouched.info + expected,
+               (ARRAY_SIZE(output.info) - expected) * sizeof(output.info[0])),
+       "position %lu, request %lu: changed records beyond fetched count\n", position, request);
+}
+
+static void test_rfc1766_iterator_skip_wrap(IMultiLanguage2 *ml, const RFC1766INFO *baseline, ULONG total)
+{
+    IEnumRfc1766 *enumerator;
+    ULONG position, request, expected;
+    unsigned int i, step, steps;
+    HRESULT hr;
+
+    for (i = 0; i < 6; ++i)
+    {
+        enumerator = NULL;
+        hr = IMultiLanguage2_EnumRfc1766(ml, 0x0409, &enumerator);
+        ok(hr == S_OK && enumerator != NULL, "Skip %u: EnumRfc1766 returned %#lx, %p\n", i, hr, enumerator);
+        if (hr != S_OK || !enumerator) continue;
+        position = i == 0 ? 1 : i == 1 ? total - 2 : i == 2 ? total : 0;
+        steps = i < 3 ? 1 : 2;
+        if (position) check_rfc1766_iterator_next(enumerator, baseline, total, 0, position, FALSE, FALSE);
+        for (step = 0; step < steps; ++step)
+        {
+            request = i < 3 ? MAXDWORD : step == 0 ? total + (i == 3 ? 0 : 1) : i == 5 ? MAXDWORD - 1 : MAXDWORD;
+            hr = IEnumRfc1766_Skip(enumerator, request);
+            ok(hr == S_OK, "Skip %u step %u: request %lu returned %#lx\n", i, step, request, hr);
+        }
+        expected = i == 0 ? 0 : i == 1 ? total - 3 : i == 4 ? total : total - 1;
+        check_rfc1766_iterator_next(enumerator, baseline, total, expected, 3, FALSE, FALSE);
+        IEnumRfc1766_Release(enumerator);
+    }
+}
+
+static void test_rfc1766_iterator(IMultiLanguage2 *ml)
+{
+    static const struct { unsigned int position, count; BOOL null_output, null_fetched; } next_cases[] =
+    {
+        {0,0,FALSE,FALSE},{0,1,FALSE,FALSE},{0,2,FALSE,FALSE},
+        {0,3,FALSE,FALSE},{0,4,FALSE,FALSE},{0,5,FALSE,FALSE},
+        {1,5,FALSE,FALSE},{2,2,FALSE,FALSE},{2,6,FALSE,FALSE},
+        {3,0,FALSE,FALSE},{3,1,FALSE,FALSE},{3,5,FALSE,FALSE},
+        {0,0,FALSE,TRUE},{0,1,FALSE,TRUE},{0,2,FALSE,TRUE},
+        {0,0,TRUE,FALSE},{0,1,TRUE,FALSE},{0,1,TRUE,TRUE}
+    };
+    static const struct { unsigned int position, count; } skip_cases[] =
+    {
+        {0,0},{0,1},{0,3},{0,4},{0,5},{2,1},{2,2},{2,6},{3,0},{3,1}
+    };
+    RFC1766INFO baseline[256], info;
+    IEnumRfc1766 *enumerator = NULL, *clone;
+    ULONG total, fetched, positions[4], counts[7], position, requested;
+    unsigned int i;
+    HRESULT hr;
+
+    hr = IMultiLanguage2_EnumRfc1766(ml, 0x0409, &enumerator);
+    ok(hr == S_OK && enumerator != NULL, "EnumRfc1766 returned %#lx, %p\n", hr, enumerator);
+    if (hr != S_OK || !enumerator) return;
+    for (total = 0; total <= ARRAY_SIZE(baseline); ++total)
+    {
+        fetched = 0xdeadbeef;
+        hr = IEnumRfc1766_Next(enumerator, 1, &info, &fetched);
+        if (hr != S_OK || fetched != 1 || total == ARRAY_SIZE(baseline)) break;
+        baseline[total] = info;
+    }
+    ok(hr == S_FALSE && !fetched && total > 2 && total <= ARRAY_SIZE(baseline),
+       "Unexpected inventory result %#lx/%lu, total %lu\n", hr, fetched, total);
+    IEnumRfc1766_Release(enumerator);
+    if (hr != S_FALSE || fetched || total <= 2 || total > ARRAY_SIZE(baseline)) return;
+
+    test_rfc1766_iterator_skip_wrap(ml, baseline, total);
+
+    positions[0] = 0;
+    positions[1] = 1;
+    positions[2] = total - 2;
+    positions[3] = total;
+    counts[0] = 0;
+    counts[1] = 1;
+    counts[2] = 2;
+    counts[3] = total;
+    counts[4] = total + 1;
+    counts[5] = MAXDWORD;
+    counts[6] = 3;
+    for (i = 0; i < ARRAY_SIZE(next_cases) + ARRAY_SIZE(skip_cases) + 3; ++i)
+    {
+        enumerator = NULL;
+        hr = IMultiLanguage2_EnumRfc1766(ml, 0x0409, &enumerator);
+        ok(hr == S_OK && enumerator != NULL, "%u: EnumRfc1766 returned %#lx, %p\n", i, hr, enumerator);
+        if (hr != S_OK || !enumerator) continue;
+        if (i < ARRAY_SIZE(next_cases))
+            position = positions[next_cases[i].position];
+        else if (i < ARRAY_SIZE(next_cases) + ARRAY_SIZE(skip_cases))
+            position = positions[skip_cases[i - ARRAY_SIZE(next_cases)].position];
+        else
+            position = i == ARRAY_SIZE(next_cases) + ARRAY_SIZE(skip_cases) ? 0 :
+                       i == ARRAY_SIZE(next_cases) + ARRAY_SIZE(skip_cases) + 1 ? 2 : total;
+        if (position)
+            check_rfc1766_iterator_next(enumerator, baseline, total, 0, position, FALSE, FALSE);
+        if (i < ARRAY_SIZE(next_cases))
+        {
+            requested = counts[next_cases[i].count];
+            check_rfc1766_iterator_next(enumerator, baseline, total, position, requested,
+                                       next_cases[i].null_output, next_cases[i].null_fetched);
+            if (!next_cases[i].null_output) position += min(requested, total - position);
+        }
+        else if (i < ARRAY_SIZE(next_cases) + ARRAY_SIZE(skip_cases))
+        {
+            requested = counts[skip_cases[i - ARRAY_SIZE(next_cases)].count];
+            hr = IEnumRfc1766_Skip(enumerator, requested);
+            ok(hr == S_OK, "%u: Skip(%lu) returned %#lx\n", i, requested, hr);
+            position = (ULONG)((ULONGLONG)position + requested);
+        }
+        else
+        {
+            clone = NULL;
+            hr = IEnumRfc1766_Clone(enumerator, &clone);
+            ok(hr == E_NOTIMPL && clone == NULL, "%u: Clone returned %#lx, %p\n", i, hr, clone);
+            if (SUCCEEDED(hr) && clone) IEnumRfc1766_Release(clone);
+        }
+        check_rfc1766_iterator_next(enumerator, baseline, total, position, 1, FALSE, FALSE);
+        hr = IEnumRfc1766_Reset(enumerator);
+        ok(hr == S_OK, "%u: Reset returned %#lx\n", i, hr);
+        check_rfc1766_iterator_next(enumerator, baseline, total, 0, 1, FALSE, FALSE);
+        IEnumRfc1766_Release(enumerator);
+    }
+}
+
+static void test_rfc1766_conversion_boundaries(IMultiLanguage2 *ml)
+{
+    static const struct
+    {
+        const char *tag;
+        HRESULT ansi_hr;
+        LCID ansi_lcid;
+        HRESULT wide_hr;
+        LCID wide_lcid;
+    } reverse[] =
+    {
+        {"no", S_OK, 0x00000414, S_OK, 0x00000414},
+        {"nb", E_FAIL, 0xdeadbeef, E_FAIL, 0xdeadbeef},
+        {"nb-no", S_OK, 0x00000414, S_OK, 0x00000414},
+        {"pt", S_OK, 0x00000816, S_OK, 0x00000816},
+        {"pt-br", S_OK, 0x00000416, S_OK, 0x00000416},
+        {"pt-pt", S_FALSE, 0x00000816, S_FALSE, 0x00000816},
+        {"kz", S_OK, 0x00000440, S_OK, 0x00000440},
+        {"ky", E_FAIL, 0xdeadbeef, E_FAIL, 0xdeadbeef},
+        {"div", S_OK, 0x00000465, S_OK, 0x00000465},
+        {"dv", E_FAIL, 0xdeadbeef, E_FAIL, 0xdeadbeef},
+        {"az", S_OK, 0x0000082c, S_OK, 0x0000082c},
+        {"az-az", S_FALSE, 0x0000082c, S_FALSE, 0x0000082c},
+        {"ms", S_OK, 0x0000043e, S_OK, 0x0000043e},
+        {"ms-bn", S_FALSE, 0x0000043e, S_FALSE, 0x0000043e},
+        {"uz", S_OK, 0x00000443, S_OK, 0x00000443},
+        {"uz-uz", S_FALSE, 0x00000443, S_FALSE, 0x00000443},
+        {"es", S_OK, 0x0000040a, S_OK, 0x0000040a},
+        {"es-es", S_FALSE, 0x0000040a, S_FALSE, 0x0000040a},
+        {"en-us", S_OK, 0x00000409, S_OK, 0x00000409},
+        {"de", S_OK, 0x00000407, S_OK, 0x00000407},
+        {"zh-cn", S_OK, 0x00000804, S_OK, 0x00000804},
+        {"cy", E_FAIL, 0xdeadbeef, E_FAIL, 0xdeadbeef},
+        {"iv", E_FAIL, 0xdeadbeef, E_FAIL, 0xdeadbeef},
+        {"", E_FAIL, 0xdeadbeef, E_FAIL, 0xdeadbeef},
+        {"PT-BR", S_OK, 0x00000416, S_OK, 0x00000416},
+        {"not-a-tag", E_FAIL, 0xdeadbeef, E_FAIL, 0xdeadbeef},
+        {"de-de", S_FALSE, 0x00000407, S_FALSE, 0x00000407},
+        {"de-zz", S_FALSE, 0x00000407, S_FALSE, 0x00000407},
+        {"DE-de", S_FALSE, 0x00000407, S_FALSE, 0x00000407},
+        {"pt-zz", S_FALSE, 0x00000816, S_FALSE, 0x00000816},
+        {"pt-", S_FALSE, 0x00000816, S_FALSE, 0x00000816},
+        {"pt-br-x", S_OK, 0x00000416, E_FAIL, 0xdeadbeef},
+        {"pt_br", E_FAIL, 0xdeadbeef, E_FAIL, 0xdeadbeef},
+        {"ptbr", E_FAIL, 0xdeadbeef, E_FAIL, 0xdeadbeef},
+        {"nb-no-x", S_OK, 0x00000414, E_FAIL, 0xdeadbeef},
+        {"nb-zz", E_FAIL, 0xdeadbeef, E_FAIL, 0xdeadbeef},
+        {"ky-kg", E_FAIL, 0xdeadbeef, E_FAIL, 0xdeadbeef},
+        {"en-them", S_FALSE, 0x00000009, E_FAIL, 0xdeadbeef},
+        {"english", E_FAIL, 0xdeadbeef, E_FAIL, 0xdeadbeef},
+        {"en-", S_FALSE, 0x00000009, S_FALSE, 0x00000009},
+        {"sr", S_OK, 0x00000c1a, S_OK, 0x00000c1a},
+    };
+    static const struct
+    {
+        LCID lcid;
+        BOOL wide;
+        int length;
+        HRESULT hr;
+        DWORD error;
+        BYTE bytes[16];
+    } buffers[] =
+    {
+        {0x00000414, FALSE, -1, E_INVALIDARG, 0xdeadbeef, {0xa5,0xa5,0xa5,0xa5,0xa5,0xa5,0xa5,0xa5}},
+        {0x00000414, TRUE, -1, E_INVALIDARG, 0xdeadbeef, {0xa5,0xa5,0xa5,0xa5,0xa5,0xa5,0xa5,0xa5,0xa5,0xa5,0xa5,0xa5,0xa5,0xa5,0xa5,0xa5}},
+        {0x00000414, FALSE, 0, E_INVALIDARG, 0xdeadbeef, {0xa5,0xa5,0xa5,0xa5,0xa5,0xa5,0xa5,0xa5}},
+        {0x00000414, TRUE, 0, E_INVALIDARG, 0xdeadbeef, {0xa5,0xa5,0xa5,0xa5,0xa5,0xa5,0xa5,0xa5,0xa5,0xa5,0xa5,0xa5,0xa5,0xa5,0xa5,0xa5}},
+        {0x00000414, FALSE, 1, E_INVALIDARG, 0x7a, {0x6e,0xa5,0xa5,0xa5,0xa5,0xa5,0xa5,0xa5}},
+        {0x00000414, TRUE, 1, S_OK, 0xdeadbeef, {0x00,0x00,0xa5,0xa5,0xa5,0xa5,0xa5,0xa5,0xa5,0xa5,0xa5,0xa5,0xa5,0xa5,0xa5,0xa5}},
+        {0x00000414, FALSE, 2, E_INVALIDARG, 0x7a, {0x6e,0x6f,0xa5,0xa5,0xa5,0xa5,0xa5,0xa5}},
+        {0x00000414, TRUE, 2, S_OK, 0xdeadbeef, {0x6e,0x00,0x00,0x00,0xa5,0xa5,0xa5,0xa5,0xa5,0xa5,0xa5,0xa5,0xa5,0xa5,0xa5,0xa5}},
+        {0x00000414, FALSE, 3, S_OK, 0xdeadbeef, {0x6e,0x6f,0x00,0xa5,0xa5,0xa5,0xa5,0xa5}},
+        {0x00000414, TRUE, 3, S_OK, 0xdeadbeef, {0x6e,0x00,0x6f,0x00,0x00,0x00,0xa5,0xa5,0xa5,0xa5,0xa5,0xa5,0xa5,0xa5,0xa5,0xa5}},
+        {0x00000465, FALSE, 1, E_INVALIDARG, 0x7a, {0x64,0xa5,0xa5,0xa5,0xa5,0xa5,0xa5,0xa5}},
+        {0x00000465, TRUE, 1, S_OK, 0xdeadbeef, {0x00,0x00,0xa5,0xa5,0xa5,0xa5,0xa5,0xa5,0xa5,0xa5,0xa5,0xa5,0xa5,0xa5,0xa5,0xa5}},
+        {0x00000465, FALSE, 3, E_INVALIDARG, 0x7a, {0x64,0x69,0x76,0xa5,0xa5,0xa5,0xa5,0xa5}},
+        {0x00000465, TRUE, 3, S_OK, 0xdeadbeef, {0x64,0x00,0x69,0x00,0x00,0x00,0xa5,0xa5,0xa5,0xa5,0xa5,0xa5,0xa5,0xa5,0xa5,0xa5}},
+        {0x00000465, FALSE, 4, S_OK, 0xdeadbeef, {0x64,0x69,0x76,0x00,0xa5,0xa5,0xa5,0xa5}},
+        {0x00000465, TRUE, 4, S_OK, 0xdeadbeef, {0x64,0x00,0x69,0x00,0x76,0x00,0x00,0x00,0xa5,0xa5,0xa5,0xa5,0xa5,0xa5,0xa5,0xa5}},
+        {0x00000416, FALSE, 1, E_INVALIDARG, 0x7a, {0x70,0xa5,0xa5,0xa5,0xa5,0xa5,0xa5,0xa5}},
+        {0x00000416, TRUE, 1, S_OK, 0xdeadbeef, {0x00,0x00,0xa5,0xa5,0xa5,0xa5,0xa5,0xa5,0xa5,0xa5,0xa5,0xa5,0xa5,0xa5,0xa5,0xa5}},
+        {0x00000416, FALSE, 5, E_INVALIDARG, 0x7a, {0x70,0x74,0x2d,0x62,0x72,0xa5,0xa5,0xa5}},
+        {0x00000416, TRUE, 5, S_OK, 0xdeadbeef, {0x70,0x00,0x74,0x00,0x2d,0x00,0x62,0x00,0x00,0x00,0xa5,0xa5,0xa5,0xa5,0xa5,0xa5}},
+        {0x00000416, FALSE, 6, S_OK, 0xdeadbeef, {0x70,0x74,0x2d,0x62,0x72,0x00,0xa5,0xa5}},
+        {0x00000416, TRUE, 6, S_OK, 0xdeadbeef, {0x70,0x00,0x74,0x00,0x2d,0x00,0x62,0x00,0x72,0x00,0x00,0x00,0xa5,0xa5,0xa5,0xa5}},
+    };
+    static const BYTE guard[8] = {0xa5,0xa5,0xa5,0xa5,0xa5,0xa5,0xa5,0xa5};
+    HRESULT (WINAPI *to_w)(LCID, WCHAR *, INT);
+    HRESULT (WINAPI *from_w)(LCID *, const WCHAR *);
+    struct { BYTE before[8]; CHAR value[8]; BYTE after[8]; } ansi;
+    struct { BYTE before[8]; WCHAR value[8]; BYTE after[8]; } wide;
+    struct { DWORD before; LCID value; DWORD after; } output;
+    WCHAR input[32];
+    HMODULE module = GetModuleHandleA("mlang.dll");
+    BSTR text;
+    HRESULT ret, expected;
+    LCID expected_lcid;
+    DWORD error;
+    unsigned int i, j, api;
+    BOOL guards;
+
+    to_w = (void *)GetProcAddress(module, "LcidToRfc1766W");
+    from_w = (void *)GetProcAddress(module, "Rfc1766ToLcidW");
+    ok(to_w != NULL && from_w != NULL, "Missing Unicode conversion exports\n");
+    if (!to_w || !from_w) return;
+    for (i = 0; i < ARRAY_SIZE(reverse); ++i)
+    {
+        for (j = 0; reverse[i].tag[j]; ++j) input[j] = (BYTE)reverse[i].tag[j];
+        input[j] = 0;
+        text = SysAllocString(input);
+        ok(text != NULL, "%u: SysAllocString failed\n", i);
+        if (!text) continue;
+        for (api = 0; api < 3; ++api)
+        {
+            output.before = output.after = 0xa5a5a5a5;
+            output.value = 0xdeadbeef;
+            if (!api) ret = pRfc1766ToLcidA(&output.value, reverse[i].tag);
+            else if (api == 1) ret = from_w(&output.value, input);
+            else ret = IMultiLanguage2_GetLcidFromRfc1766(ml, &output.value, text);
+            expected = api ? reverse[i].wide_hr : reverse[i].ansi_hr;
+            expected_lcid = api ? reverse[i].wide_lcid : reverse[i].ansi_lcid;
+            ok(ret == expected, "%u/%u: expected %#lx, got %#lx\n", i, api, expected, ret);
+            ok(output.value == expected_lcid, "%u/%u: expected LCID %#lx, got %#lx\n", i, api, expected_lcid, output.value);
+            ok(output.before == 0xa5a5a5a5 && output.after == 0xa5a5a5a5, "%u/%u: changed guard\n", i, api);
+        }
+        SysFreeString(text);
+    }
+    for (i = 0; i < ARRAY_SIZE(buffers); ++i)
+    {
+        memset(&ansi, 0xa5, sizeof(ansi));
+        memset(&wide, 0xa5, sizeof(wide));
+        SetLastError(0xdeadbeef);
+        ret = buffers[i].wide ? to_w(buffers[i].lcid, wide.value, buffers[i].length) :
+            pLcidToRfc1766A(buffers[i].lcid, ansi.value, buffers[i].length);
+        error = GetLastError();
+        guards = buffers[i].wide ? !memcmp(wide.before, guard, sizeof(guard)) && !memcmp(wide.after, guard, sizeof(guard)) :
+            !memcmp(ansi.before, guard, sizeof(guard)) && !memcmp(ansi.after, guard, sizeof(guard));
+        ok(ret == buffers[i].hr, "%u: expected %#lx, got %#lx\n", i, buffers[i].hr, ret);
+        ok(error == buffers[i].error, "%u: expected error %lu, got %lu\n", i, buffers[i].error, error);
+        ok(guards && !memcmp(buffers[i].wide ? (void *)wide.value : (void *)ansi.value,
+                            buffers[i].bytes, buffers[i].wide ? sizeof(wide.value) : sizeof(ansi.value)),
+           "%u: output bytes or guards differ\n", i);
+    }
+}
+
+static void test_rfc1766_missing_info(IMultiLanguage2 *ml)
+{
+    static const LCID locales[] = {0x0452, 0x007f, 0};
+    struct { DWORD before; RFC1766INFO info; DWORD after; } output, unchanged;
+    IMultiLanguage *legacy = NULL;
+    unsigned int i;
+    HRESULT hr;
+
+    hr = IMultiLanguage2_QueryInterface(ml, &IID_IMultiLanguage, (void **)&legacy);
+    ok(hr == S_OK && legacy != NULL, "Legacy interface returned %#lx, %p\n", hr, legacy);
+    if (hr != S_OK || !legacy) return;
+    memset(&unchanged, 0xa5, sizeof(unchanged));
+    for (i = 0; i < ARRAY_SIZE(locales); ++i)
+    {
+        output = unchanged;
+        hr = IMultiLanguage_GetRfc1766Info(legacy, locales[i], &output.info);
+        ok(hr == E_FAIL, "%u: legacy expected E_FAIL, got %#lx\n", i, hr);
+        ok(!memcmp(&output, &unchanged, sizeof(output)), "%u: legacy changed output\n", i);
+        output = unchanged;
+        hr = IMultiLanguage2_GetRfc1766Info(ml, locales[i], 0x0409, &output.info);
+        ok(hr == E_FAIL, "%u: modern expected E_FAIL, got %#lx\n", i, hr);
+        ok(!memcmp(&output, &unchanged, sizeof(output)), "%u: modern changed output\n", i);
+    }
+    IMultiLanguage_Release(legacy);
+}
+
+static void test_GetRfc1766Info_legacy(IMultiLanguage *ml)
+{
+    static const struct
+    {
+        LCID lcid;
+        const WCHAR *tag;
+    } cases[] =
+    {
+        {0x0414, L"no"},
+        {0x0416, L"pt-br"},
+        {0x0440, L"kz"},
+        {0x0465, L"div"},
+        {0x0816, L"pt"},
+        {0x082c, L"az"},
+        {0x083e, L"ms"},
+        {0x0843, L"uz"},
+        {0x0c0a, L"es"}
+    };
+    struct { RFC1766INFO info; DWORD guard; } output;
+    HRESULT hr;
+    unsigned int i;
+
+    for (i = 0; i < ARRAY_SIZE(cases); ++i)
+    {
+        memset(&output, 0xcc, sizeof(output));
+        hr = IMultiLanguage_GetRfc1766Info(ml, cases[i].lcid, &output.info);
+        ok(hr == S_OK, "%u: expected S_OK, got %#lx\n", i, hr);
+        ok(output.info.lcid == cases[i].lcid, "%u: expected LCID %#lx, got %#lx\n",
+           i, cases[i].lcid, output.info.lcid);
+        ok(!wcsncmp(output.info.wszRfc1766, cases[i].tag, MAX_RFC1766_NAME),
+           "%u: expected tag %s\n", i, wine_dbgstr_w(cases[i].tag));
+        ok(output.guard == 0xcccccccc, "%u: output guard changed to %#lx\n", i, output.guard);
+    }
+}
+
 static void test_GetRfc1766Info(IMultiLanguage2 *iML2)
 {
     WCHAR short_broken_name[MAX_LOCALE_NAME];
@@ -2873,6 +3337,7 @@ START_TEST(mlang)
     test_GetNumberOfCodePageInfo((IMultiLanguage2 *)iML);
     test_IMLangConvertCharset(iML);
     test_GetCharsetInfo_other(iML);
+    test_GetRfc1766Info_legacy(iML);
     IMultiLanguage_Release(iML);
 
 
@@ -2886,6 +3351,10 @@ START_TEST(mlang)
     test_GetLcidFromRfc1766(iML2);
     test_GetRfc1766FromLcid(iML2);
     test_GetRfc1766Info(iML2);
+    test_rfc1766_database(iML2);
+    test_rfc1766_iterator(iML2);
+    test_rfc1766_conversion_boundaries(iML2);
+    test_rfc1766_missing_info(iML2);
     test_GetNumberOfCodePageInfo(iML2);
     test_GetCodePageInfo(iML2);
 

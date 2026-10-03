@@ -24,6 +24,7 @@
 
 #include <stdarg.h>
 #include <stdio.h>
+#include <limits.h>
 
 #define COBJMACROS
 
@@ -50,6 +51,7 @@ static IUnknown *font_link_global = NULL;
 static HRESULT MultiLanguage_create(IUnknown *pUnkOuter, LPVOID *ppObj);
 static HRESULT MLangConvertCharset_create(IUnknown *outer, void **obj);
 static HRESULT EnumRfc1766_create(LANGID LangId, IEnumRfc1766 **ppEnum);
+static BOOL localized_rfc1766_name(LCID locale, LANGID language, WCHAR *name);
 
 /* FIXME:
  * Under what circumstances HKEY_CLASSES_ROOT\MIME\Database\Codepage and
@@ -1223,58 +1225,221 @@ HRESULT WINAPI IsConvertINetStringAvailable(
     return S_FALSE;
 }
 
-static inline HRESULT lcid_to_rfc1766A( LCID lcid, LPSTR rfc1766, INT len )
+static const struct
 {
-    CHAR buffer[MAX_RFC1766_NAME];
-    INT n = GetLocaleInfoA(lcid, LOCALE_SISO639LANGNAME, buffer, MAX_RFC1766_NAME);
-    INT i;
+    LCID lcid;
+    WCHAR tag[MAX_RFC1766_NAME];
+} rfc1766_database[] =
+{
+    {0x0436, L"af"},
+    {0x041c, L"sq"},
+    {0x0001, L"ar"},
+    {0x0401, L"ar-sa"},
+    {0x0801, L"ar-iq"},
+    {0x0c01, L"ar-eg"},
+    {0x1001, L"ar-ly"},
+    {0x1401, L"ar-dz"},
+    {0x1801, L"ar-ma"},
+    {0x1c01, L"ar-tn"},
+    {0x2001, L"ar-om"},
+    {0x2401, L"ar-ye"},
+    {0x2801, L"ar-sy"},
+    {0x2c01, L"ar-jo"},
+    {0x3001, L"ar-lb"},
+    {0x3401, L"ar-kw"},
+    {0x3801, L"ar-ae"},
+    {0x3c01, L"ar-bh"},
+    {0x4001, L"ar-qa"},
+    {0x042d, L"eu"},
+    {0x0402, L"bg"},
+    {0x0423, L"be"},
+    {0x0403, L"ca"},
+    {0x0004, L"zh"},
+    {0x1404, L"zh-mo"},
+    {0x0404, L"zh-tw"},
+    {0x0804, L"zh-cn"},
+    {0x0c04, L"zh-hk"},
+    {0x1004, L"zh-sg"},
+    {0x041a, L"hr"},
+    {0x0405, L"cs"},
+    {0x0406, L"da"},
+    {0x0413, L"nl"},
+    {0x0813, L"nl-be"},
+    {0x0009, L"en"},
+    {0x2409, L"en"},
+    {0x0409, L"en-us"},
+    {0x0809, L"en-gb"},
+    {0x0c09, L"en-au"},
+    {0x1009, L"en-ca"},
+    {0x1409, L"en-nz"},
+    {0x1809, L"en-ie"},
+    {0x1c09, L"en-za"},
+    {0x3009, L"en-zw"},
+    {0x2009, L"en-jm"},
+    {0x2809, L"en-bz"},
+    {0x2c09, L"en-tt"},
+    {0x3409, L"en-ph"},
+    {0x0425, L"et"},
+    {0x0438, L"fo"},
+    {0x0429, L"fa"},
+    {0x040b, L"fi"},
+    {0x040c, L"fr"},
+    {0x080c, L"fr-be"},
+    {0x0c0c, L"fr-ca"},
+    {0x100c, L"fr-ch"},
+    {0x140c, L"fr-lu"},
+    {0x180c, L"fr-mc"},
+    {0x043c, L"gd"},
+    {0x0407, L"de"},
+    {0x0807, L"de-ch"},
+    {0x0c07, L"de-at"},
+    {0x1007, L"de-lu"},
+    {0x1407, L"de-li"},
+    {0x0408, L"el"},
+    {0x040d, L"he"},
+    {0x0439, L"hi"},
+    {0x040e, L"hu"},
+    {0x040f, L"is"},
+    {0x0421, L"id"},
+    {0x0410, L"it"},
+    {0x0810, L"it-ch"},
+    {0x0411, L"ja"},
+    {0x0412, L"ko"},
+    {0x0426, L"lv"},
+    {0x0427, L"lt"},
+    {0x042f, L"mk"},
+    {0x043e, L"ms"},
+    {0x043a, L"mt"},
+    {0x0415, L"pl"},
+    {0x0416, L"pt-br"},
+    {0x0816, L"pt"},
+    {0x0417, L"rm"},
+    {0x0418, L"ro"},
+    {0x0818, L"ro-md"},
+    {0x0419, L"ru"},
+    {0x0819, L"ru-md"},
+    {0x0c1a, L"sr"},
+    {0x081a, L"sr"},
+    {0x041b, L"sk"},
+    {0x0424, L"sl"},
+    {0x042e, L"sb"},
+    {0x040a, L"es"},
+    {0x080a, L"es-mx"},
+    {0x0c0a, L"es"},
+    {0x100a, L"es-gt"},
+    {0x140a, L"es-cr"},
+    {0x180a, L"es-pa"},
+    {0x1c0a, L"es-do"},
+    {0x200a, L"es-ve"},
+    {0x240a, L"es-co"},
+    {0x280a, L"es-pe"},
+    {0x2c0a, L"es-ar"},
+    {0x300a, L"es-ec"},
+    {0x340a, L"es-cl"},
+    {0x380a, L"es-uy"},
+    {0x3c0a, L"es-py"},
+    {0x400a, L"es-bo"},
+    {0x440a, L"es-sv"},
+    {0x480a, L"es-hn"},
+    {0x4c0a, L"es-ni"},
+    {0x500a, L"es-pr"},
+    {0x0430, L"sx"},
+    {0x041d, L"sv"},
+    {0x081d, L"sv-fi"},
+    {0x041e, L"th"},
+    {0x0431, L"ts"},
+    {0x0432, L"tn"},
+    {0x041f, L"tr"},
+    {0x0422, L"uk"},
+    {0x0420, L"ur"},
+    {0x0443, L"uz"},
+    {0x0843, L"uz"},
+    {0x042a, L"vi"},
+    {0x0434, L"xh"},
+    {0x043d, L"yi"},
+    {0x0435, L"zu"},
+    {0x042b, L"hy"},
+    {0x0437, L"ka"},
+    {0x043f, L"kk"},
+    {0x0441, L"sw"},
+    {0x0444, L"tt"},
+    {0x0445, L"bn"},
+    {0x0446, L"pa"},
+    {0x0447, L"gu"},
+    {0x0448, L"or"},
+    {0x0449, L"ta"},
+    {0x044a, L"te"},
+    {0x044b, L"kn"},
+    {0x044c, L"ml"},
+    {0x044d, L"as"},
+    {0x044e, L"mr"},
+    {0x083e, L"ms"},
+    {0x0861, L"ne"},
+    {0x044f, L"sa"},
+    {0x0457, L"kok"},
+    {0x0414, L"no"},
+    {0x0414, L"nb-no"},
+    {0x0814, L"nn-no"},
+    {0x082c, L"az"},
+    {0x042c, L"az"},
+    {0x0440, L"kz"},
+    {0x0450, L"mn"},
+    {0x0456, L"gl"},
+    {0x045a, L"syr"},
+    {0x0465, L"div"},
+    {0x540a, L"es-us"},
+};
 
-    if (n)
-    {
-        i = PRIMARYLANGID(lcid);
-        if ((((i == LANG_ENGLISH) || (i == LANG_CHINESE) || (i == LANG_ARABIC)) &&
-            (SUBLANGID(lcid) == SUBLANG_DEFAULT)) ||
-            (SUBLANGID(lcid) > SUBLANG_DEFAULT)) {
+static const WCHAR *rfc1766_database_tag(LCID lcid)
+{
+    unsigned int i;
 
-            buffer[n - 1] = '-';
-            i = GetLocaleInfoA(lcid, LOCALE_SISO3166CTRYNAME, buffer + n, MAX_RFC1766_NAME - n);
-            if (!i)
-                buffer[n - 1] = '\0';
-        }
-        else
-            i = 0;
-
-        LCMapStringA( LOCALE_USER_DEFAULT, LCMAP_LOWERCASE, buffer, n + i, rfc1766, len );
-        return ((n + i) > len) ? E_INVALIDARG : S_OK;
-    }
-    return E_FAIL;
+    for (i = 0; i < ARRAY_SIZE(rfc1766_database); ++i)
+        if (rfc1766_database[i].lcid == lcid) return rfc1766_database[i].tag;
+    return NULL;
 }
 
-static inline HRESULT lcid_to_rfc1766W( LCID lcid, LPWSTR rfc1766, INT len )
+static HRESULT lcid_to_rfc1766W(LCID lcid, WCHAR *rfc1766, INT len)
 {
     WCHAR buffer[MAX_RFC1766_NAME];
-    INT n = GetLocaleInfoW(lcid, LOCALE_SISO639LANGNAME, buffer, MAX_RFC1766_NAME);
+    const WCHAR *tag = rfc1766_database_tag(lcid);
+    INT n, i;
+
+    if (len <= 0) return E_INVALIDARG;
+    if (!tag)
+    {
+        n = GetLocaleInfoW(lcid, LOCALE_SISO639LANGNAME, buffer, ARRAY_SIZE(buffer));
+        if (!n) return E_FAIL;
+        if (n < MAX_RFC1766_NAME)
+        {
+            buffer[n - 1] = '-';
+            if (!GetLocaleInfoW(lcid, LOCALE_SISO3166CTRYNAME, buffer + n, ARRAY_SIZE(buffer) - n))
+                buffer[n - 1] = 0;
+        }
+        for (i = 0; buffer[i]; ++i)
+            if (buffer[i] >= 'A' && buffer[i] <= 'Z') buffer[i] += 'a' - 'A';
+        tag = buffer;
+    }
+    lstrcpynW(rfc1766, tag, len);
+    return S_OK;
+}
+
+static HRESULT lcid_to_rfc1766A(LCID lcid, CHAR *rfc1766, INT len)
+{
+    WCHAR buffer[MAX_RFC1766_NAME];
+    HRESULT hr;
     INT i;
 
-    if (n)
+    if (len <= 0) return E_INVALIDARG;
+    hr = lcid_to_rfc1766W(lcid, buffer, ARRAY_SIZE(buffer));
+    if (FAILED(hr)) return hr;
+    for (i = 0; i < len; ++i)
     {
-        i = PRIMARYLANGID(lcid);
-        if ((((i == LANG_ENGLISH) || (i == LANG_CHINESE) || (i == LANG_ARABIC)) &&
-            (SUBLANGID(lcid) == SUBLANG_DEFAULT)) ||
-            (SUBLANGID(lcid) > SUBLANG_DEFAULT)) {
-
-            buffer[n - 1] = '-';
-            i = GetLocaleInfoW(lcid, LOCALE_SISO3166CTRYNAME, buffer + n, MAX_RFC1766_NAME - n);
-            if (!i)
-                buffer[n - 1] = '\0';
-        }
-        else
-            i = 0;
-
-        LCMapStringW(LOCALE_USER_DEFAULT, LCMAP_LOWERCASE, buffer, n + i, rfc1766, len);
-        return ((n + i) > len) ? E_INVALIDARG : S_OK;
+        rfc1766[i] = buffer[i];
+        if (!buffer[i]) return S_OK;
     }
-    return E_FAIL;
+    SetLastError(ERROR_INSUFFICIENT_BUFFER);
+    return E_INVALIDARG;
 }
 
 HRESULT WINAPI LcidToRfc1766A(
@@ -1304,7 +1469,12 @@ HRESULT WINAPI LcidToRfc1766W(
 static HRESULT lcid_from_rfc1766(IEnumRfc1766 *iface, LCID *lcid, LPCWSTR rfc1766)
 {
     RFC1766INFO info;
+    const WCHAR *separator = wcschr(rfc1766, '-');
+    LCID fallback = 0;
+    BOOL matched = FALSE;
     ULONG num;
+
+    if (lstrlenW(rfc1766) >= MAX_RFC1766_NAME) return E_FAIL;
 
     while (IEnumRfc1766_Next(iface, 1, &info, &num) == S_OK)
     {
@@ -1313,13 +1483,18 @@ static HRESULT lcid_from_rfc1766(IEnumRfc1766 *iface, LCID *lcid, LPCWSTR rfc176
             *lcid = info.lcid;
             return S_OK;
         }
-        if (lstrlenW(rfc1766) == 2 && !memcmp(info.wszRfc1766, rfc1766, 2 * sizeof(WCHAR)))
+        if (!matched && separator && lstrlenW(info.wszRfc1766) == separator - rfc1766 &&
+            !wcsnicmp(info.wszRfc1766, rfc1766, separator - rfc1766))
         {
-            *lcid = PRIMARYLANGID(info.lcid);
-            return S_OK;
+            fallback = info.lcid;
+            matched = TRUE;
         }
     }
-
+    if (matched)
+    {
+        *lcid = fallback;
+        return S_FALSE;
+    }
     return E_FAIL;
 }
 
@@ -1345,14 +1520,15 @@ HRESULT WINAPI Rfc1766ToLcidW(LCID *pLocale, LPCWSTR pszRfc1766)
 
 HRESULT WINAPI Rfc1766ToLcidA(LCID *lcid, LPCSTR rfc1766A)
 {
-    WCHAR rfc1766W[MAX_RFC1766_NAME + 1];
+    CHAR truncated[MAX_RFC1766_NAME];
+    WCHAR rfc1766W[MAX_RFC1766_NAME];
 
-    if (!rfc1766A)
+    if (!lcid || !rfc1766A)
         return E_INVALIDARG;
 
-    MultiByteToWideChar(CP_ACP, 0, rfc1766A, -1, rfc1766W, MAX_RFC1766_NAME);
-    rfc1766W[MAX_RFC1766_NAME] = 0;
-
+    lstrcpynA(truncated, rfc1766A, ARRAY_SIZE(truncated));
+    if (!MultiByteToWideChar(CP_ACP, 0, truncated, -1, rfc1766W, ARRAY_SIZE(rfc1766W)))
+        return E_FAIL;
     return Rfc1766ToLcidW(lcid, rfc1766W);
 }
 
@@ -2406,18 +2582,25 @@ static  HRESULT WINAPI fnIEnumRfc1766_Next(
 
     TRACE("%p %lu %p %p\n", This, celt, rgelt, pceltFetched);
 
-    if (!pceltFetched) return S_FALSE;
-    *pceltFetched = 0;
+    if (!rgelt) return E_FAIL;
+    if (pceltFetched) *pceltFetched = 0;
 
-    if (!rgelt) return S_FALSE;
+    if (This->pos >= This->total) return S_FALSE;
 
-    if (This->pos + celt > This->total)
+    if (celt > This->total - This->pos)
         celt = This->total - This->pos;
 
     if (!celt) return S_FALSE;
 
-    memcpy(rgelt, This->info + This->pos, celt * sizeof(RFC1766INFO));
-    *pceltFetched = celt;
+    for (i = 0; i < celt; ++i)
+    {
+        rgelt[i].lcid = This->info[This->pos + i].lcid;
+        lstrcpynW(rgelt[i].wszRfc1766, This->info[This->pos + i].wszRfc1766, MAX_RFC1766_NAME);
+        lstrcpynW(rgelt[i].wszLocaleName, This->info[This->pos + i].wszLocaleName, MAX_LOCALE_NAME);
+        rgelt[i].wszRfc1766[MAX_RFC1766_NAME - 1] = 0;
+        rgelt[i].wszLocaleName[MAX_LOCALE_NAME - 1] = 0;
+    }
+    if (pceltFetched) *pceltFetched = celt;
     This->pos += celt;
 
     for (i = 0; i < celt; i++)
@@ -2449,9 +2632,7 @@ static  HRESULT WINAPI fnIEnumRfc1766_Skip(
 
     TRACE("%p %lu\n", This, celt);
 
-    if (celt >= This->total) return S_FALSE;
-
-    This->pos += celt;
+    This->pos = (DWORD)((ULONGLONG)This->pos + celt);
     return S_OK;
 }
 
@@ -2466,79 +2647,38 @@ static const IEnumRfc1766Vtbl IEnumRfc1766_vtbl =
     fnIEnumRfc1766_Skip
 };
 
-struct enum_locales_data
-{
-    RFC1766INFO *info;
-    DWORD total, allocated;
-};
-
-static BOOL CALLBACK enum_locales_proc(LPWSTR locale, DWORD flags, LPARAM lparam)
-{
-    struct enum_locales_data *data = (struct enum_locales_data *)lparam;
-    RFC1766INFO *info;
-
-    TRACE("%s\n", debugstr_w(locale));
-
-    if (data->total >= data->allocated)
-    {
-        data->allocated *= 2;
-        data->info = realloc(data->info, data->allocated * sizeof(RFC1766INFO));
-        if (!data->info) return FALSE;
-    }
-
-    info = &data->info[data->total];
-
-    info->lcid = LocaleNameToLCID( locale, 0 );
-    if (info->lcid == LOCALE_CUSTOM_UNSPECIFIED) return TRUE;
-
-    info->wszRfc1766[0] = 0;
-    if (FAILED( lcid_to_rfc1766W( info->lcid, info->wszRfc1766, MAX_RFC1766_NAME ))) return TRUE;
-
-    info->wszLocaleName[0] = 0;
-    GetLocaleInfoW(info->lcid, LOCALE_SLANGUAGE, info->wszLocaleName, MAX_LOCALE_NAME);
-    TRACE("ISO639: %s SLANGUAGE: %s\n", wine_dbgstr_w(info->wszRfc1766), wine_dbgstr_w(info->wszLocaleName));
-
-    data->total++;
-
-    return TRUE;
-}
-
 static HRESULT EnumRfc1766_create(LANGID LangId, IEnumRfc1766 **ppEnum)
 {
     EnumRfc1766_impl *rfc;
-    struct enum_locales_data data;
+    unsigned int i;
 
     TRACE("%04x, %p\n", LangId, ppEnum);
 
-    rfc = malloc(sizeof(EnumRfc1766_impl));
+    rfc = malloc(sizeof(*rfc));
+    if (!rfc) return E_OUTOFMEMORY;
     rfc->IEnumRfc1766_iface.lpVtbl = &IEnumRfc1766_vtbl;
     rfc->ref = 1;
     rfc->pos = 0;
-    rfc->total = 0;
-
-    data.total = 0;
-    data.allocated = 160;
-    data.info = malloc(data.allocated * sizeof(RFC1766INFO));
-    if (!data.info)
+    rfc->total = ARRAY_SIZE(rfc1766_database);
+    rfc->info = calloc(rfc->total, sizeof(*rfc->info));
+    if (!rfc->info)
     {
         free(rfc);
         return E_OUTOFMEMORY;
     }
-
-    EnumSystemLocalesEx(enum_locales_proc, LOCALE_WINDOWS, (LPARAM)&data, NULL);
-
-    TRACE("enumerated %ld rfc1766 structures\n", data.total);
-
-    if (!data.total)
+    if (!SUBLANGID(LangId)) LangId = MAKELANGID(LANG_ENGLISH, SUBLANG_DEFAULT);
+    for (i = 0; i < rfc->total; ++i)
     {
-        free(data.info);
-        free(rfc);
-        return E_FAIL;
+        rfc->info[i].lcid = rfc1766_database[i].lcid;
+        lstrcpyW(rfc->info[i].wszRfc1766, rfc1766_database[i].tag);
+        if (!localized_rfc1766_name(rfc->info[i].lcid, LangId,
+                                   rfc->info[i].wszLocaleName))
+        {
+            free(rfc->info);
+            free(rfc);
+            return E_FAIL;
+        }
     }
-
-    rfc->info = data.info;
-    rfc->total = data.total;
-
     *ppEnum = &rfc->IEnumRfc1766_iface;
     return S_OK;
 }
@@ -2567,6 +2707,7 @@ static HRESULT WINAPI fnIMultiLanguage_GetRfc1766Info(
 
     if (!pRfc1766Info)
         return E_INVALIDARG;
+    if (!rfc1766_database_tag(Locale)) return E_FAIL;
 
     if ((PRIMARYLANGID(Locale) == LANG_ENGLISH) ||
         (PRIMARYLANGID(Locale) == LANG_CHINESE) ||
@@ -2588,7 +2729,8 @@ static HRESULT WINAPI fnIMultiLanguage_GetRfc1766Info(
     pRfc1766Info->wszLocaleName[0] = 0;
 
     if ((!lcid_to_rfc1766W(Locale, pRfc1766Info->wszRfc1766, MAX_RFC1766_NAME)) &&
-        (GetLocaleInfoW(Locale, type, pRfc1766Info->wszLocaleName, MAX_LOCALE_NAME) > 0))
+        (localized_rfc1766_name(Locale, 0, pRfc1766Info->wszLocaleName) ||
+         GetLocaleInfoW(Locale, type, pRfc1766Info->wszLocaleName, MAX_LOCALE_NAME) > 0))
             return S_OK;
 
     /* Locale not supported */
@@ -2957,19 +3099,48 @@ static HRESULT WINAPI fnIMultiLanguage3_EnumRfc1766(
     return EnumRfc1766_create(LangId, ppEnumRfc1766);
 }
 
+static BOOL localized_rfc1766_name(LCID locale, LANGID language, WCHAR *name)
+{
+    HMODULE module;
+    HRSRC resource;
+    const WCHAR *strings, *end;
+    UINT i, length;
+
+    if (locale > 0xffff || !GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS |
+        GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT, (const WCHAR *)localized_rfc1766_name, &module))
+        return FALSE;
+    resource = FindResourceExW(module, (const WCHAR *)RT_STRING,
+                               MAKEINTRESOURCEW((locale >> 4) + 1), language);
+    if (!resource)
+        resource = FindResourceExW(module, (const WCHAR *)RT_STRING,
+                                   MAKEINTRESOURCEW((locale >> 4) + 1), MAKELANGID(LANG_ENGLISH, SUBLANG_DEFAULT));
+    if (!resource || !(strings = LockResource(LoadResource(module, resource)))) return FALSE;
+    end = strings + SizeofResource(module, resource) / sizeof(WCHAR);
+    for (i = 0; i < (locale & 15); ++i)
+    {
+        if (strings >= end || *strings >= end - strings) return FALSE;
+        strings += *strings + 1;
+    }
+    if (strings >= end || !*strings || *strings >= end - strings) return FALSE;
+    length = min(*strings, MAX_LOCALE_NAME - 1);
+    memcpy(name, strings + 1, length * sizeof(WCHAR));
+    name[length] = 0;
+    return TRUE;
+}
+
 static HRESULT WINAPI fnIMultiLanguage3_GetRfc1766Info(
     IMultiLanguage3* iface,
     LCID Locale,
     LANGID LangId,
     PRFC1766INFO pRfc1766Info)
 {
-    static LANGID last_lang = -1;
     LCTYPE type = LOCALE_SLANGUAGE;
 
     TRACE("(%p, 0x%04lx, 0x%04x, %p)\n", iface, Locale, LangId, pRfc1766Info);
 
     if (!pRfc1766Info)
         return E_INVALIDARG;
+    if (!rfc1766_database_tag(Locale)) return E_FAIL;
 
     if ((PRIMARYLANGID(Locale) == LANG_ENGLISH) ||
         (PRIMARYLANGID(Locale) == LANG_CHINESE) ||
@@ -2990,15 +3161,10 @@ static HRESULT WINAPI fnIMultiLanguage3_GetRfc1766Info(
     pRfc1766Info->wszRfc1766[0] = 0;
     pRfc1766Info->wszLocaleName[0] = 0;
 
-    if ((PRIMARYLANGID(LangId) != LANG_ENGLISH) &&
-        (last_lang != LangId)) {
-        FIXME("Only English names supported (requested: 0x%04x)\n", LangId);
-        last_lang = LangId;
-    }
-
-    if ((!lcid_to_rfc1766W(Locale, pRfc1766Info->wszRfc1766, MAX_RFC1766_NAME)) &&
-        (GetLocaleInfoW(Locale, type, pRfc1766Info->wszLocaleName, MAX_LOCALE_NAME) > 0))
-            return S_OK;
+    if (!lcid_to_rfc1766W(Locale, pRfc1766Info->wszRfc1766, MAX_RFC1766_NAME) &&
+        (localized_rfc1766_name(Locale, LangId, pRfc1766Info->wszLocaleName) ||
+         GetLocaleInfoW(Locale, type, pRfc1766Info->wszLocaleName, MAX_LOCALE_NAME) > 0))
+        return S_OK;
 
     /* Locale not supported */
     return E_INVALIDARG;
@@ -3266,6 +3432,187 @@ static HRESULT WINAPI fnIMultiLanguage3_ValidateCodePageEx(
     return S_FALSE;
 }
 
+static BOOL outbound_codepage_bytes(UINT codepage, UINT base_codepage, const BYTE *bytes, UINT count)
+{
+    UINT i, value, lead, trail;
+    BOOL dbcs = codepage == 932 || codepage == 949 || codepage == 950;
+
+    if (!dbcs && codepage != 51932 && codepage != 51949 && codepage != 50225 && codepage != 52936) return TRUE;
+    for (i = 0; i < count; ++i)
+    {
+        lead = bytes[i];
+        if (!IsDBCSLeadByteEx(base_codepage, lead))
+        {
+            if (dbcs && lead >= 0x80 && (codepage != 932 || lead < 0xa1 || lead > 0xdf)) return FALSE;
+            if ((codepage == 50225 || codepage == 51949) && lead > 0x80) return FALSE;
+            if (codepage == 52936 && lead > 0x80 && lead != 0xff) return FALSE;
+            if (codepage == 51932 && lead > 0x80 && lead != 0xa0 && lead != 0xff &&
+                (lead < 0xa1 || lead > 0xdf)) return FALSE;
+            continue;
+        }
+        if (++i == count) return FALSE;
+        trail = bytes[i];
+        if (dbcs) continue;
+        if (codepage == 51932)
+        {
+            value = (lead << 8) | trail;
+            if (value >= 0xfa40 && value <= 0xfc4b)
+            {
+                if (value <= 0xfa49) value -= 0x0b51;
+                else if (value <= 0xfa53) value -= 0x72f6;
+                else if (value <= 0xfa57) value -= 0x0b5b;
+                else if (value == 0xfa58) value = 0x878a;
+                else if (value == 0xfa59) value = 0x8782;
+                else if (value == 0xfa5a) value = 0x8784;
+                else if (value == 0xfa5b) value = 0x879a;
+                else if (trail < 0x5c) value -= 0x0d5f;
+                else if (trail >= 0x80 && trail <= 0x9b) value -= 0x0d1d;
+                else value -= 0x0d1c;
+            }
+            lead = value >> 8;
+            trail = value & 0xff;
+            lead = 2 * (lead - (lead > 0x9f ? 0xb1 : 0x71)) + 1;
+            if (trail > 0x9e)
+            {
+                trail -= 0x7e;
+                ++lead;
+            }
+            else
+            {
+                if (trail > 0x7e) --trail;
+                trail -= 0x1f;
+            }
+            lead |= 0x80;
+            trail |= 0x80;
+        }
+        if (lead < 0xa1 || lead > (codepage == 52936 ? 0xf7 : 0xfe) ||
+            trail < 0xa1 || trail > 0xfe) return FALSE;
+    }
+    return TRUE;
+}
+
+static HRESULT outbound_codepage_supported(UINT codepage, const WCHAR *text, UINT count, BOOL *supported)
+{
+    char *encoded;
+    WCHAR *decoded;
+    INT source_count = count, encoded_count = 0, decoded_count = count;
+    UINT base_codepage = codepage, i;
+    HRESULT hr;
+
+    *supported = FALSE;
+    if (codepage == CP_UNICODE || codepage == CP_UTF8 || codepage == CP_UTF7 || !count)
+    {
+        *supported = TRUE;
+        return S_OK;
+    }
+    for (i = 0; i < count; ++i)
+    {
+        if (text[i] >= 0xe000 && text[i] <= 0xf8ff) return S_OK;
+        if ((codepage == 874 || (codepage >= 1250 && codepage <= 1258)) &&
+            text[i] >= 0x80 && text[i] <= 0x9f) return S_OK;
+    }
+    switch (codepage)
+    {
+    case 38598: base_codepage = 28598; break;
+    case 50220:
+    case 50221:
+    case 50222:
+    case 51932: base_codepage = 932; break;
+    case 51949:
+    case 50225: base_codepage = 949; break;
+    case 52936: base_codepage = 936; break;
+    }
+    hr = ConvertINetUnicodeToMultiByte(NULL, base_codepage, text, &source_count, NULL, &encoded_count);
+    if (FAILED(hr) || !encoded_count) return S_OK;
+    if (!(encoded = malloc(encoded_count))) return E_OUTOFMEMORY;
+    if (!(decoded = malloc(count * sizeof(WCHAR))))
+    {
+        free(encoded);
+        return E_OUTOFMEMORY;
+    }
+    source_count = count;
+    hr = ConvertINetUnicodeToMultiByte(NULL, base_codepage, text, &source_count, encoded, &encoded_count);
+    if (SUCCEEDED(hr) && source_count == count &&
+        outbound_codepage_bytes(codepage, base_codepage, (const BYTE *)encoded, encoded_count))
+    {
+        source_count = encoded_count;
+        hr = ConvertINetMultiByteToUnicode(NULL, base_codepage, encoded, &source_count, decoded, &decoded_count);
+        if (SUCCEEDED(hr) && decoded_count == count)
+        {
+            for (i = 0; i < count; ++i)
+            {
+                if (text[i] == decoded[i]) continue;
+                if ((codepage == 51932 || (codepage >= 50220 && codepage <= 50222)) &&
+                    text[i] == 0x00a5 && decoded[i] == 0x005c) continue;
+                break;
+            }
+            *supported = i == count;
+        }
+    }
+    free(decoded);
+    free(encoded);
+    return S_OK;
+}
+
+static BOOL outbound_preserves_legacy_order(WCHAR ch)
+{
+    static const struct { WCHAR first, last; } ranges[] = {
+        {0x3000, 0x3003},
+        {0x3005, 0x3017},
+        {0x301d, 0x301f},
+        {0x3021, 0x3029},
+        {0x3041, 0x3093},
+        {0x309b, 0x309e},
+        {0x30a1, 0x30f6},
+        {0x30fb, 0x30fe},
+        {0x3105, 0x3129},
+        {0x3131, 0x318e},
+        {0x3200, 0x321c},
+        {0x3220, 0x3229},
+        {0x3231, 0x3232},
+        {0x3239, 0x3239},
+        {0x3260, 0x327b},
+        {0x327f, 0x327f},
+        {0x32a3, 0x32a8},
+        {0x3303, 0x3303},
+        {0x330d, 0x330d},
+        {0x3314, 0x3314},
+        {0x3318, 0x3318},
+        {0x3322, 0x3323},
+        {0x3326, 0x3327},
+        {0x332b, 0x332b},
+        {0x3336, 0x3336},
+        {0x333b, 0x333b},
+        {0x3349, 0x334a},
+        {0x334d, 0x334d},
+        {0x3351, 0x3351},
+        {0x3357, 0x3357},
+        {0x337b, 0x337e},
+        {0x3380, 0x3384},
+        {0x3388, 0x33ca},
+        {0x33cd, 0x33d3},
+        {0x33d5, 0x33d6},
+        {0x33d8, 0x33d8},
+        {0x33db, 0x33dd},
+        {0x4e00, 0x9fa5},
+        {0xac00, 0xd7a3},
+        {0xf900, 0xfa2d},
+        {0xff01, 0xff5e},
+        {0xff61, 0xff9f},
+        {0xffe0, 0xffe6},
+    };
+    UINT low = 0, high = ARRAY_SIZE(ranges), mid;
+
+    while (low < high)
+    {
+        mid = low + (high - low) / 2;
+        if (ch < ranges[mid].first) high = mid;
+        else if (ch > ranges[mid].last) low = mid + 1;
+        else return TRUE;
+    }
+    return FALSE;
+}
+
 static HRESULT WINAPI fnIMultiLanguage3_DetectOutboundCodePage(
     IMultiLanguage3 *iface,
     DWORD dwFlags,
@@ -3277,19 +3624,83 @@ static HRESULT WINAPI fnIMultiLanguage3_DetectOutboundCodePage(
     UINT *pnDetectedCodePages,
     WCHAR *lpSpecialChar)
 {
-    MLang_impl *This = impl_from_IMultiLanguage3( iface );
+    static const UINT codepages[] = {
+        20127,1252,1250,1251,1253,1254,1257,1258,1256,1255,874,28591,28592,20866,
+        21866,28595,28597,28593,28594,28596,28598,38598,28605,28599,932,949,950,936,
+        50220,50221,50222,51932,51949,50225,52936,CP_UTF8,CP_UTF7,CP_UNICODE
+    };
+    WCHAR *filtered = NULL;
+    const WCHAR *text = lpWideCharStr;
+    UINT i, j, pass, candidate, count = 0, text_count = cchWideChar;
+    BOOL supported, force_unicode = FALSE;
+    HRESULT hr = S_OK;
 
-    FIXME("(%p)->(%08lx %s %p %u %p %p(%u) %s)\n", This, dwFlags, debugstr_w(lpWideCharStr),
-          puiPreferredCodePages, nPreferredCodePages, puiDetectedCodePages,
-          pnDetectedCodePages, pnDetectedCodePages ? *pnDetectedCodePages : 0,
-          debugstr_w(lpSpecialChar));
-
-    if (!puiDetectedCodePages || !pnDetectedCodePages || !*pnDetectedCodePages)
+    if (!lpWideCharStr || !cchWideChar || cchWideChar > INT_MAX ||
+        !puiDetectedCodePages || !pnDetectedCodePages || !*pnDetectedCodePages ||
+        (nPreferredCodePages && !puiPreferredCodePages))
         return E_INVALIDARG;
 
-    puiDetectedCodePages[0] = CP_UTF8;
-    *pnDetectedCodePages = 1;
-    return S_OK;
+    if (dwFlags & MLDETECTF_EURO_UTF8)
+        for (i = 0; i < cchWideChar; ++i)
+            if (text[i] == 0x20ac) force_unicode = TRUE;
+
+    if ((dwFlags & MLDETECTF_FILTER_SPECIALCHAR) && lpSpecialChar)
+    {
+        if (!(filtered = malloc(cchWideChar * sizeof(WCHAR)))) return E_OUTOFMEMORY;
+        for (i = text_count = 0; i < cchWideChar; ++i)
+            if (!wcschr(lpSpecialChar, text[i])) filtered[text_count++] = text[i];
+        text = filtered;
+    }
+
+    for (pass = 0; pass < 2 && count < *pnDetectedCodePages; ++pass)
+    {
+        UINT candidates = pass ? ARRAY_SIZE(codepages) : nPreferredCodePages;
+        if (pass && nPreferredCodePages && (dwFlags & MLDETECTF_PREFERRED_ONLY) && !force_unicode) break;
+        for (i = 0; i < candidates && count < *pnDetectedCodePages; ++i)
+        {
+            candidate = pass ? codepages[i] : puiPreferredCodePages[i];
+            for (j = 0; j < ARRAY_SIZE(codepages); ++j)
+                if (codepages[j] == candidate) break;
+            if (j == ARRAY_SIZE(codepages)) continue;
+            if (force_unicode && candidate != CP_UTF8 && candidate != CP_UTF7 && candidate != CP_UNICODE) continue;
+            for (j = 0; j < count; ++j)
+                if (puiDetectedCodePages[j] == candidate) break;
+            if (j != count) continue;
+            hr = outbound_codepage_supported(candidate, text, text_count, &supported);
+            if (FAILED(hr)) goto done;
+            if (supported) puiDetectedCodePages[count++] = candidate;
+        }
+    }
+    if (count && !(dwFlags & MLDETECTF_PRESERVE_ORDER))
+    {
+        switch (puiDetectedCodePages[0])
+        {
+        case 932:
+        case 936:
+        case 949:
+        case 950:
+        case 50220:
+        case 50221:
+        case 50222:
+        case 51932:
+        case 51949:
+        case 50225:
+        case 52936:
+            for (i = 0; i < text_count; ++i)
+                if (outbound_preserves_legacy_order(text[i])) break;
+            if (i != text_count) break;
+            for (i = 0; i < count; ++i)
+                if (puiDetectedCodePages[i] == CP_UTF8) break;
+            if (i == count) break;
+            memmove(puiDetectedCodePages + 1, puiDetectedCodePages, i * sizeof(UINT));
+            puiDetectedCodePages[0] = CP_UTF8;
+            break;
+        }
+    }
+    *pnDetectedCodePages = count;
+done:
+    free(filtered);
+    return hr;
 }
 
 static HRESULT WINAPI fnIMultiLanguage3_DetectOutboundCodePageInIStream(
@@ -3302,19 +3713,29 @@ static HRESULT WINAPI fnIMultiLanguage3_DetectOutboundCodePageInIStream(
     UINT *pnDetectedCodePages,
     WCHAR *lpSpecialChar)
 {
-    MLang_impl *This = impl_from_IMultiLanguage3( iface );
+    LARGE_INTEGER offset;
+    ULARGE_INTEGER size;
+    ULONG read;
+    WCHAR *text;
+    HRESULT hr;
 
-    FIXME("(%p)->(%08lx %p %p %u %p %p(%u) %s)\n", This, dwFlags, pStrIn,
-          puiPreferredCodePages, nPreferredCodePages, puiDetectedCodePages,
-          pnDetectedCodePages, pnDetectedCodePages ? *pnDetectedCodePages : 0,
-          debugstr_w(lpSpecialChar));
-
-    if (!puiDetectedCodePages || !pnDetectedCodePages || !*pnDetectedCodePages)
+    if (!pStrIn || !puiDetectedCodePages || !pnDetectedCodePages || !*pnDetectedCodePages ||
+        (nPreferredCodePages && !puiPreferredCodePages))
         return E_INVALIDARG;
 
-    puiDetectedCodePages[0] = CP_UTF8;
-    *pnDetectedCodePages = 1;
-    return S_OK;
+    offset.QuadPart = 0;
+    hr = IStream_Seek(pStrIn, offset, STREAM_SEEK_END, &size);
+    if (FAILED(hr)) return hr;
+    hr = IStream_Seek(pStrIn, offset, STREAM_SEEK_SET, NULL);
+    if (FAILED(hr)) return hr;
+    if (size.QuadPart > INT_MAX) return E_OUTOFMEMORY;
+    if (!(text = malloc(max(size.LowPart, sizeof(WCHAR))))) return E_OUTOFMEMORY;
+    hr = IStream_Read(pStrIn, text, size.LowPart, &read);
+    if (SUCCEEDED(hr))
+        hr = fnIMultiLanguage3_DetectOutboundCodePage(iface, dwFlags, text, read / sizeof(WCHAR),
+            puiPreferredCodePages, nPreferredCodePages, puiDetectedCodePages, pnDetectedCodePages, lpSpecialChar);
+    free(text);
+    return hr;
 }
 
 static const IMultiLanguage3Vtbl IMultiLanguage3_vtbl =

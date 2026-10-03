@@ -18,3 +18,5 @@
 
 /* @makedep: mlang.rgs */
 2 WINE_REGISTRY mlang.rgs
+
+#include "locales.rc"
