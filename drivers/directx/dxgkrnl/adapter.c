@@ -2903,7 +2903,7 @@ DxgkPrepareTrackedDmaBuffer(
         if (!ExAcquireRundownProtection(&Adapter->SharedSurfaceRundown))
         {
             DxgkCancelTrackedDmaBuffer(Entry);
-            return STATUS_DELETE_PENDING;
+            return STATUS_GRAPHICS_PRESENT_OCCLUDED;
         }
         Entry->SharedSurfaceRundownHeld = TRUE;
     }
