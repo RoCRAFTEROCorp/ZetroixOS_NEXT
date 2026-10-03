@@ -1827,6 +1827,7 @@ DxgkVidPnClone(
             RtlCopyMemory(Clone->SourceModeSets[i], Source->SourceModeSets[i],
                            sizeof(DXGKP_VIDPN_SOURCE_MODESET));
             Clone->SourceModeSets[i]->Owner = Clone;
+            Clone->SourceModeSets[i]->References = 0;
         }
     }
 
@@ -1841,6 +1842,7 @@ DxgkVidPnClone(
             RtlCopyMemory(Clone->TargetModeSets[i], Source->TargetModeSets[i],
                            sizeof(DXGKP_VIDPN_TARGET_MODESET));
             Clone->TargetModeSets[i]->Owner = Clone;
+            Clone->TargetModeSets[i]->References = 0;
         }
         if (Source->MonitorModeSets[i] != NULL)
         {
@@ -3277,6 +3279,7 @@ VidPn_AcquireSourceModeSet(
         return STATUS_GRAPHICS_INVALID_VIDEO_PRESENT_SOURCE;
     }
 
+    InterlockedIncrement(&VidPn->SourceModeSets[VidPnSourceId]->References);
     *phVidPnSourceModeSet          = (D3DKMDT_HVIDPNSOURCEMODESET)VidPn->SourceModeSets[VidPnSourceId];
     *ppVidPnSourceModeSetInterface = &g_VidPnSourceModeSetInterface;
     return STATUS_SUCCESS;
@@ -3287,8 +3290,16 @@ VidPn_ReleaseSourceModeSet(
     _In_ D3DKMDT_HVIDPN                               hVidPn,
     _In_ D3DKMDT_HVIDPNSOURCEMODESET                  hVidPnSourceModeSet)
 {
-    UNREFERENCED_PARAMETER(hVidPn);
-    UNREFERENCED_PARAMETER(hVidPnSourceModeSet);
+    PDXGKP_VIDPN_SOURCE_MODESET ModeSet = DxgkpSourceModeSetFromHandle(hVidPnSourceModeSet);
+    PDXGKP_VIDPN VidPn = DxgkpVidPnFromHandle(hVidPn);
+
+    if (VidPn == NULL || ModeSet == NULL || ModeSet->Owner != VidPn)
+        return STATUS_INVALID_PARAMETER;
+    if (InterlockedDecrement(&ModeSet->References) > 0)
+        return STATUS_SUCCESS;
+    InterlockedExchange(&ModeSet->References, 0);
+    if (ModeSet->SourceId >= DXGKP_MAX_SOURCES || VidPn->SourceModeSets[ModeSet->SourceId] != ModeSet)
+        ExFreePoolWithTag(ModeSet, TAG_DXGK_MODESET);
     return STATUS_SUCCESS;
 }
 
@@ -3312,21 +3323,10 @@ VidPn_CreateNewSourceModeSet(
     if (VidPnSourceId >= VidPn->NumSources)
         return STATUS_GRAPHICS_INVALID_VIDEO_PRESENT_SOURCE;
 
-    /* Clear existing mode set for this source (reuse allocation). */
-    ModeSet = VidPn->SourceModeSets[VidPnSourceId];
+    ModeSet = DxgkpAllocateSourceModeSet(VidPn, VidPnSourceId);
     if (ModeSet == NULL)
-    {
-        ModeSet = DxgkpAllocateSourceModeSet(VidPn, VidPnSourceId);
-        if (ModeSet == NULL)
-            return STATUS_INSUFFICIENT_RESOURCES;
-        VidPn->SourceModeSets[VidPnSourceId] = ModeSet;
-    }
-    else
-    {
-        ModeSet->NumModes     = 0;
-        ModeSet->PinnedModeId = (UINT)-1;
-        ModeSet->NextModeId   = 0;
-    }
+        return STATUS_NO_MEMORY;
+    ModeSet->References = 1;
     VidPn->NewSourceModeValid = FALSE;
 
     *phVidPnSourceModeSet          = (D3DKMDT_HVIDPNSOURCEMODESET)ModeSet;
@@ -3341,17 +3341,23 @@ VidPn_AssignSourceModeSet(
     _In_ D3DKMDT_HVIDPNSOURCEMODESET                  hVidPnSourceModeSet)
 {
     PDXGKP_VIDPN VidPn;
-
-    UNREFERENCED_PARAMETER(hVidPnSourceModeSet);
+    PDXGKP_VIDPN_SOURCE_MODESET ModeSet = DxgkpSourceModeSetFromHandle(hVidPnSourceModeSet);
+    PDXGKP_VIDPN_SOURCE_MODESET Old;
 
     VidPn = DxgkpVidPnFromHandle(hVidPn);
-    if (VidPn == NULL)
+    if (VidPn == NULL || ModeSet == NULL || ModeSet->Owner != VidPn)
         return STATUS_INVALID_PARAMETER;
 
-    if (VidPnSourceId >= VidPn->NumSources)
+    if (VidPnSourceId >= VidPn->NumSources || ModeSet->SourceId != VidPnSourceId)
         return STATUS_GRAPHICS_INVALID_VIDEO_PRESENT_SOURCE;
 
-    /* In-place model: assignment is a no-op. */
+    Old = VidPn->SourceModeSets[VidPnSourceId];
+    if (Old == ModeSet)
+        return STATUS_SUCCESS;
+    VidPn->SourceModeSets[VidPnSourceId] = ModeSet;
+    InterlockedExchange(&ModeSet->References, 0);
+    if (Old != NULL && InterlockedCompareExchange(&Old->References, 0, 0) <= 0)
+        ExFreePoolWithTag(Old, TAG_DXGK_MODESET);
     return STATUS_SUCCESS;
 }
 
@@ -3399,6 +3405,7 @@ VidPn_AcquireTargetModeSet(
         return STATUS_GRAPHICS_INVALID_VIDEO_PRESENT_TARGET;
     }
 
+    InterlockedIncrement(&VidPn->TargetModeSets[TargetIndex]->References);
     *phVidPnTargetModeSet          = (D3DKMDT_HVIDPNTARGETMODESET)VidPn->TargetModeSets[TargetIndex];
     *ppVidPnTargetModeSetInterface = &g_VidPnTargetModeSetInterface;
     return STATUS_SUCCESS;
@@ -3409,8 +3416,18 @@ VidPn_ReleaseTargetModeSet(
     _In_ D3DKMDT_HVIDPN                               hVidPn,
     _In_ D3DKMDT_HVIDPNTARGETMODESET                  hVidPnTargetModeSet)
 {
-    UNREFERENCED_PARAMETER(hVidPn);
-    UNREFERENCED_PARAMETER(hVidPnTargetModeSet);
+    PDXGKP_VIDPN_TARGET_MODESET ModeSet = DxgkpTargetModeSetFromHandle(hVidPnTargetModeSet);
+    PDXGKP_VIDPN VidPn = DxgkpVidPnFromHandle(hVidPn);
+    ULONG TargetIndex;
+
+    if (VidPn == NULL || ModeSet == NULL || ModeSet->Owner != VidPn)
+        return STATUS_INVALID_PARAMETER;
+    if (InterlockedDecrement(&ModeSet->References) > 0)
+        return STATUS_SUCCESS;
+    InterlockedExchange(&ModeSet->References, 0);
+    TargetIndex = DxgkVidPnTargetIndexFromId(VidPn, ModeSet->TargetId);
+    if (TargetIndex == MAXULONG || VidPn->TargetModeSets[TargetIndex] != ModeSet)
+        ExFreePoolWithTag(ModeSet, TAG_DXGK_MODESET);
     return STATUS_SUCCESS;
 }
 
@@ -3434,21 +3451,10 @@ VidPn_CreateNewTargetModeSet(
     if (DxgkVidPnTargetIndexFromId(VidPn, VidPnTargetId) == MAXULONG)
         return STATUS_GRAPHICS_INVALID_VIDEO_PRESENT_TARGET;
 
-    ModeSet = (DxgkVidPnTargetIndexFromId(VidPn, VidPnTargetId) != MAXULONG)
-                  ? VidPn->TargetModeSets[DxgkVidPnTargetIndexFromId(VidPn, VidPnTargetId)] : NULL;
+    ModeSet = DxgkpAllocateTargetModeSet(VidPn, VidPnTargetId);
     if (ModeSet == NULL)
-    {
-        ModeSet = DxgkpAllocateTargetModeSet(VidPn, VidPnTargetId);
-        if (ModeSet == NULL)
-            return STATUS_INSUFFICIENT_RESOURCES;
-        VidPn->TargetModeSets[DxgkVidPnTargetIndexFromId(VidPn, VidPnTargetId)] = ModeSet;
-    }
-    else
-    {
-        ModeSet->NumModes     = 0;
-        ModeSet->PinnedModeId = (UINT)-1;
-        ModeSet->NextModeId   = 0;
-    }
+        return STATUS_NO_MEMORY;
+    ModeSet->References = 1;
     VidPn->NewTargetModeValid = FALSE;
 
     *phVidPnTargetModeSet          = (D3DKMDT_HVIDPNTARGETMODESET)ModeSet;
@@ -3463,16 +3469,25 @@ VidPn_AssignTargetModeSet(
     _In_ D3DKMDT_HVIDPNTARGETMODESET                  hVidPnTargetModeSet)
 {
     PDXGKP_VIDPN VidPn;
-
-    UNREFERENCED_PARAMETER(hVidPnTargetModeSet);
+    PDXGKP_VIDPN_TARGET_MODESET ModeSet = DxgkpTargetModeSetFromHandle(hVidPnTargetModeSet);
+    PDXGKP_VIDPN_TARGET_MODESET Old;
+    ULONG TargetIndex;
 
     VidPn = DxgkpVidPnFromHandle(hVidPn);
-    if (VidPn == NULL)
+    if (VidPn == NULL || ModeSet == NULL || ModeSet->Owner != VidPn)
         return STATUS_INVALID_PARAMETER;
 
-    if (DxgkVidPnTargetIndexFromId(VidPn, VidPnTargetId) == MAXULONG)
+    TargetIndex = DxgkVidPnTargetIndexFromId(VidPn, VidPnTargetId);
+    if (TargetIndex == MAXULONG || ModeSet->TargetId != VidPnTargetId)
         return STATUS_GRAPHICS_INVALID_VIDEO_PRESENT_TARGET;
 
+    Old = VidPn->TargetModeSets[TargetIndex];
+    if (Old == ModeSet)
+        return STATUS_SUCCESS;
+    VidPn->TargetModeSets[TargetIndex] = ModeSet;
+    InterlockedExchange(&ModeSet->References, 0);
+    if (Old != NULL && InterlockedCompareExchange(&Old->References, 0, 0) <= 0)
+        ExFreePoolWithTag(Old, TAG_DXGK_MODESET);
     return STATUS_SUCCESS;
 }
 

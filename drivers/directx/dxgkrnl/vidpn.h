@@ -75,6 +75,8 @@ typedef struct _DXGKP_VIDPN_SOURCE_MODESET
 
     /* Next available mode ID for CreateNewModeInfo. */
     UINT                            NextModeId;
+
+    LONG                            References;
 } DXGKP_VIDPN_SOURCE_MODESET, *PDXGKP_VIDPN_SOURCE_MODESET;
 
 /* ========================================================================
@@ -88,6 +90,7 @@ typedef struct _DXGKP_VIDPN_TARGET_MODESET
     struct _DXGKP_VIDPN            *Owner;
     D3DDDI_VIDEO_PRESENT_TARGET_ID  TargetId;
     UINT                            NextModeId;
+    LONG                            References;
 } DXGKP_VIDPN_TARGET_MODESET, *PDXGKP_VIDPN_TARGET_MODESET;
 
 /* ========================================================================
