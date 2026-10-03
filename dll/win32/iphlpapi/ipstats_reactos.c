@@ -482,7 +482,7 @@ DWORD getNumRoutes(void)
 
     TRACE("called.\n");
 
-    status = openTcpFile(&tcpFile, FILE_READ_DATA);
+    status = openTcpFile(&tcpFile, 0);
     if (!NT_SUCCESS(status))
     {
         ERR("openTcpFile returned 0x%08lx\n", status);
@@ -537,7 +537,7 @@ RouteTable *getRouteTable(void)
     DWORD numRoutes = getNumRoutes(), routesAdded = 0;
     TDIEntityID ent;
     HANDLE tcpFile;
-    NTSTATUS status = openTcpFile(&tcpFile, FILE_READ_DATA);
+    NTSTATUS status = openTcpFile(&tcpFile, 0);
     int i;
 
     if (!NT_SUCCESS(status))
@@ -609,7 +609,7 @@ DWORD getNumArpEntries(void)
 
     TRACE("called.\n");
 
-    status = openTcpFile(&tcpFile, FILE_READ_DATA);
+    status = openTcpFile(&tcpFile, 0);
     if (!NT_SUCCESS(status))
     {
         ERR("openTcpFile returned 0x%08lx\n", status);
@@ -659,7 +659,7 @@ PMIB_IPNETTABLE getArpTable(void)
 
     totalNumber = getNumArpEntries();
 
-    status = openTcpFile(&tcpFile, FILE_READ_DATA);
+    status = openTcpFile(&tcpFile, 0);
     if (!NT_SUCCESS(status))
     {
         ERR("openTcpFile returned 0x%08lx\n", status);
@@ -730,7 +730,7 @@ DWORD getNumUdpEntries(void)
 
     TRACE("called.\n");
 
-    status = openTcpFile(&tcpFile, FILE_READ_DATA);
+    status = openTcpFile(&tcpFile, 0);
     if (!NT_SUCCESS(status))
     {
         ERR("openTcpFile returned 0x%08lx\n", status);
@@ -780,7 +780,7 @@ PVOID getUdpTable(CLASS_TABLE Class)
 
     totalNumber = getNumUdpEntries();
 
-    status = openTcpFile(&tcpFile, FILE_READ_DATA);
+    status = openTcpFile(&tcpFile, 0);
     if (!NT_SUCCESS(status))
     {
         ERR("openTcpFile returned 0x%08lx\n", status);
@@ -838,7 +838,7 @@ DWORD getNumTcpEntries(void)
 
     TRACE("called.\n");
 
-    status = openTcpFile(&tcpFile, FILE_READ_DATA);
+    status = openTcpFile(&tcpFile, 0);
     if (!NT_SUCCESS(status))
     {
         ERR("openTcpFile returned 0x%08lx\n", status);
@@ -888,7 +888,7 @@ PVOID getTcpTable(CLASS_TABLE Class)
 
     totalNumber = getNumTcpEntries();
 
-    status = openTcpFile(&tcpFile, FILE_READ_DATA);
+    status = openTcpFile(&tcpFile, 0);
     if (!NT_SUCCESS(status))
     {
         ERR("openTcpFile returned 0x%08lx\n", status);

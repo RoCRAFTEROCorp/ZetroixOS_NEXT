@@ -408,7 +408,7 @@ static DWORD get_ipv4_compartment(struct nsi_get_all_parameters_ex *params)
     DWORD error;
 
     if (!key || *key != NET_IF_COMPARTMENT_ID_PRIMARY) return ERROR_FILE_NOT_FOUND;
-    if (!NT_SUCCESS(openTcpFile(&file, FILE_READ_DATA))) return ERROR_NOT_SUPPORTED;
+    if (!NT_SUCCESS(openTcpFile(&file, 0))) return ERROR_NOT_SUPPORTED;
     memset(&stats, 0, sizeof(stats));
     error = getIPStats(file, &stats);
     closeTcpFile(file);
@@ -467,7 +467,7 @@ static DWORD get_ipv4_stats(struct nsi_get_all_parameters_ex *params)
     HANDLE file;
     DWORD error;
 
-    if (!NT_SUCCESS(openTcpFile(&file, FILE_READ_DATA))) return ERROR_NOT_SUPPORTED;
+    if (!NT_SUCCESS(openTcpFile(&file, 0))) return ERROR_NOT_SUPPORTED;
     memset(&stats, 0, sizeof(stats));
     error = getIPStats(file, &stats);
     closeTcpFile(file);
@@ -511,7 +511,7 @@ static DWORD get_tcp_stats(struct nsi_get_all_parameters_ex *params)
     DWORD error;
 
     if (!family || *family != AF_INET) return ERROR_NOT_SUPPORTED;
-    if (!NT_SUCCESS(openTcpFile(&file, FILE_READ_DATA))) return ERROR_NOT_SUPPORTED;
+    if (!NT_SUCCESS(openTcpFile(&file, 0))) return ERROR_NOT_SUPPORTED;
     memset(&stats, 0, sizeof(stats));
     error = getTCPStats(file, &stats);
     closeTcpFile(file);
@@ -599,7 +599,7 @@ static DWORD get_udp_stats(struct nsi_get_all_parameters_ex *params)
     DWORD error;
 
     if (!family || *family != AF_INET) return ERROR_NOT_SUPPORTED;
-    if (!NT_SUCCESS(openTcpFile(&file, FILE_READ_DATA))) return ERROR_NOT_SUPPORTED;
+    if (!NT_SUCCESS(openTcpFile(&file, 0))) return ERROR_NOT_SUPPORTED;
     memset(&stats, 0, sizeof(stats));
     error = getUDPStats(file, &stats);
     closeTcpFile(file);

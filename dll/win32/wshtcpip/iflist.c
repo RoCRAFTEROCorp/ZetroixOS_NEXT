@@ -239,7 +239,7 @@ WSHIoctl_GetInterfaceList(
     list_init(&IntfIDList->entry);
 
     /* open tcp-driver */
-    Status = openTcpFile(&TcpFile, FILE_READ_DATA | FILE_WRITE_DATA);
+    Status = openTcpFile(&TcpFile, 0);
     if (!NT_SUCCESS(Status))
     {
         res = RtlNtStatusToDosError(Status);

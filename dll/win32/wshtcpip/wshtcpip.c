@@ -554,7 +554,7 @@ WSHNotify(
 
         case WSH_NOTIFY_BIND:
             DPRINT("WSHNotify: WSH_NOTIFY_BIND\n");
-            Status = openTcpFile(&TcpCC, FILE_READ_DATA);
+            Status = openTcpFile(&TcpCC, 0);
             if (Status != STATUS_SUCCESS)
                 return WSAEINVAL;
 
@@ -759,7 +759,7 @@ static INT ValidateMulticastInterface(ULONG Selector)
     ULONG HostSelector = ntohl(Selector);
 
     if (!Selector) return NO_ERROR;
-    Status = openTcpFile(&TcpFile, FILE_READ_DATA | FILE_WRITE_DATA);
+    Status = openTcpFile(&TcpFile, 0);
     if (!NT_SUCCESS(Status)) return WSAENETDOWN;
     Status = tdiGetEntityIDSet(TcpFile, &Entities, &Count);
     if (!NT_SUCCESS(Status))
