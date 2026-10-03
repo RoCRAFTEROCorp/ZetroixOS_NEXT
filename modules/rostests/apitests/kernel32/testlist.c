@@ -56,6 +56,7 @@ extern void func_MultiByteToWideChar(void);
 extern void func_Pipes(void);
 extern void func_PixeloramaCompat(void);
 extern void func_ProcessPreferredUILanguages(void);
+extern void func_PssSnapshot(void);
 extern void func_PrivMoveFileIdentityW(void);
 extern void func_QueueUserAPC(void);
 extern void func_QueryProcessCycleTime(void);
@@ -137,6 +138,7 @@ const struct test winetest_testlist[] =
     { "Pipes",                       func_Pipes },
     { "PixeloramaCompat",            func_PixeloramaCompat },
     { "ProcessPreferredUILanguages", func_ProcessPreferredUILanguages },
+    { "PssSnapshot",                 func_PssSnapshot },
     { "PrivMoveFileIdentityW",       func_PrivMoveFileIdentityW },
     { "QueueUserAPC",                func_QueueUserAPC },
     { "QueryProcessCycleTime",       func_QueryProcessCycleTime },

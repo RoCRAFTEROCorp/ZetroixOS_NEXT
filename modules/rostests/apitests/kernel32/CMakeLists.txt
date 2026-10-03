@@ -57,6 +57,7 @@ list(APPEND SOURCE
     Pipes.c
     PixeloramaCompat.c
     ProcessPreferredUILanguages.c
+    PssSnapshot.c
     PrivMoveFileIdentityW.c
     QueueUserAPC.c
     QueryProcessCycleTime.c

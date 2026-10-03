@@ -13,54 +13,22 @@
 #include <windef.h>
 #include <winbase.h>
 #include <winternl.h>
+#include <processsnapshot.h>
 
 #include "wine/kernelbase.h"
 
-#define PSS_CAPTURE_NONE 0
-#define PSS_QUERY_PROCESS_INFORMATION 0
-#define PSS_PROCESS_FLAGS_WOW64 0x00000002
+NTSYSAPI NTSTATUS WINAPI NtCreateProcessEx(PHANDLE, ACCESS_MASK, POBJECT_ATTRIBUTES, HANDLE, ULONG, HANDLE, HANDLE, HANDLE, ULONG);
 
-typedef struct _PSS_PROCESS_INFORMATION_ROS
-{
-    DWORD ExitStatus;
-    void *PebBaseAddress;
-    ULONG_PTR AffinityMask;
-    LONG BasePriority;
-    DWORD ProcessId;
-    DWORD ParentProcessId;
-    DWORD Flags;
-    FILETIME CreateTime;
-    FILETIME ExitTime;
-    FILETIME KernelTime;
-    FILETIME UserTime;
-    DWORD PriorityClass;
-    ULONG_PTR PeakVirtualSize;
-    ULONG_PTR VirtualSize;
-    DWORD PageFaultCount;
-    ULONG_PTR PeakWorkingSetSize;
-    ULONG_PTR WorkingSetSize;
-    ULONG_PTR QuotaPeakPagedPoolUsage;
-    ULONG_PTR QuotaPagedPoolUsage;
-    ULONG_PTR QuotaPeakNonPagedPoolUsage;
-    ULONG_PTR QuotaNonPagedPoolUsage;
-    ULONG_PTR PagefileUsage;
-    ULONG_PTR PeakPagefileUsage;
-    ULONG_PTR PrivateUsage;
-    DWORD ExecuteFlags;
-    WCHAR ImageFileName[MAX_PATH];
-} PSS_PROCESS_INFORMATION_ROS;
-
-#ifdef _WIN64
-C_ASSERT(sizeof(PSS_PROCESS_INFORMATION_ROS) == 704);
-C_ASSERT(FIELD_OFFSET(PSS_PROCESS_INFORMATION_ROS, ParentProcessId) == 32);
-C_ASSERT(FIELD_OFFSET(PSS_PROCESS_INFORMATION_ROS, ImageFileName) == 180);
-#endif
+C_ASSERT(sizeof(PSS_PROCESS_INFORMATION) == (sizeof(void *) == 8 ? 704 : 636));
+C_ASSERT(sizeof(void *) != 8 || FIELD_OFFSET(PSS_PROCESS_INFORMATION, ParentProcessId) == 32);
+C_ASSERT(sizeof(void *) != 8 || FIELD_OFFSET(PSS_PROCESS_INFORMATION, ImageFileName) == 180);
+C_ASSERT(sizeof(PSS_THREAD_INFORMATION) == 8);
 
 typedef struct _PSS_SNAPSHOT_ROS
 {
     struct _PSS_SNAPSHOT_ROS *Next;
-    DWORD ProcessId;
-    PSS_PROCESS_INFORMATION_ROS ProcessInfo;
+    PSS_PROCESS_INFORMATION ProcessInfo;
+    HANDLE VaCloneHandle;
 } PSS_SNAPSHOT_ROS;
 
 static RTL_SRWLOCK PssSnapshotLock = RTL_SRWLOCK_INIT;
@@ -80,25 +48,51 @@ PssFindSnapshot(
 DWORD
 WINAPI
 PssQuerySnapshot(
-    _In_ HANDLE SnapshotHandle,
-    _In_ DWORD InformationClass,
+    _In_ HPSS SnapshotHandle,
+    _In_ PSS_QUERY_INFORMATION_CLASS InformationClass,
     _Out_writes_bytes_(BufferLength) PVOID Buffer,
     _In_ DWORD BufferLength)
 {
     PSS_SNAPSHOT_ROS *Snapshot;
     DWORD Error = ERROR_SUCCESS;
-
-    if (InformationClass != PSS_QUERY_PROCESS_INFORMATION)
-        return ERROR_INVALID_PARAMETER;
-    if (BufferLength < sizeof(PSS_PROCESS_INFORMATION_ROS))
-        return ERROR_BAD_LENGTH;
+    DWORD RequiredLength = 0;
 
     RtlAcquireSRWLockShared(&PssSnapshotLock);
     Snapshot = PssFindSnapshot(SnapshotHandle);
-    if (Snapshot)
-        RtlCopyMemory(Buffer, &Snapshot->ProcessInfo, sizeof(Snapshot->ProcessInfo));
-    else
+    if (!Snapshot)
+    {
         Error = ERROR_INVALID_HANDLE;
+        goto Done;
+    }
+    switch (InformationClass)
+    {
+        case PSS_QUERY_PROCESS_INFORMATION:
+            RequiredLength = sizeof(PSS_PROCESS_INFORMATION);
+            break;
+        case PSS_QUERY_VA_CLONE_INFORMATION:
+            RequiredLength = sizeof(PSS_VA_CLONE_INFORMATION);
+            break;
+        case PSS_QUERY_THREAD_INFORMATION:
+            RequiredLength = sizeof(PSS_THREAD_INFORMATION);
+            break;
+        default:
+            Error = ERROR_INVALID_PARAMETER;
+            goto Done;
+    }
+    if (BufferLength != RequiredLength)
+        Error = ERROR_BAD_LENGTH;
+    else if (InformationClass == PSS_QUERY_THREAD_INFORMATION)
+        Error = ERROR_NOT_FOUND;
+    else if (InformationClass == PSS_QUERY_VA_CLONE_INFORMATION)
+    {
+        if (Snapshot->VaCloneHandle)
+            RtlCopyMemory(Buffer, &Snapshot->VaCloneHandle, sizeof(Snapshot->VaCloneHandle));
+        else
+            Error = ERROR_NOT_FOUND;
+    }
+    else
+        RtlCopyMemory(Buffer, &Snapshot->ProcessInfo, sizeof(Snapshot->ProcessInfo));
+Done:
     RtlReleaseSRWLockShared(&PssSnapshotLock);
     return Error;
 }
@@ -107,14 +101,15 @@ DWORD
 WINAPI
 PssFreeSnapshot(
     _In_ HANDLE ProcessHandle,
-    _In_ HANDLE SnapshotHandle)
+    _In_ HPSS SnapshotHandle)
 {
-    PROCESS_BASIC_INFORMATION BasicInfo;
     PSS_SNAPSHOT_ROS **Link;
     PSS_SNAPSHOT_ROS *Snapshot;
     NTSTATUS Status;
 
-    Status = NtQueryInformationProcess(ProcessHandle, ProcessBasicInformation, &BasicInfo, sizeof(BasicInfo), NULL);
+    Status = NtCompareObjects(ProcessHandle, NtCurrentProcess());
+    if (Status == STATUS_NOT_SAME_OBJECT)
+        return ERROR_INVALID_HANDLE;
     if (!NT_SUCCESS(Status))
         return RtlNtStatusToDosError(Status);
 
@@ -123,13 +118,10 @@ PssFreeSnapshot(
     {
         if ((HANDLE)Snapshot != SnapshotHandle)
             continue;
-        if (Snapshot->ProcessId != (DWORD)BasicInfo.UniqueProcessId)
-        {
-            RtlReleaseSRWLockExclusive(&PssSnapshotLock);
-            return ERROR_INVALID_HANDLE;
-        }
         *Link = Snapshot->Next;
         RtlReleaseSRWLockExclusive(&PssSnapshotLock);
+        if (Snapshot->VaCloneHandle)
+            NtClose(Snapshot->VaCloneHandle);
         RtlFreeHeap(NtCurrentTeb()->Peb->ProcessHeap, 0, Snapshot);
         return ERROR_SUCCESS;
     }
@@ -141,11 +133,11 @@ DWORD
 WINAPI
 PssCaptureSnapshot(
     _In_ HANDLE ProcessHandle,
-    _In_ DWORD CaptureFlags,
+    _In_ PSS_CAPTURE_FLAGS CaptureFlags,
     _In_opt_ DWORD ThreadContextFlags,
-    _Out_ HANDLE *SnapshotHandle)
+    _Out_ HPSS *SnapshotHandle)
 {
-    PSS_PROCESS_INFORMATION_ROS *Info;
+    PSS_PROCESS_INFORMATION *Info;
     PROCESS_BASIC_INFORMATION BasicInfo;
     PSS_SNAPSHOT_ROS *Snapshot;
     KERNEL_USER_TIMES Times;
@@ -161,7 +153,7 @@ PssCaptureSnapshot(
         *SnapshotHandle = NULL;
     if (!SnapshotHandle)
         return ERROR_INVALID_PARAMETER;
-    if (CaptureFlags != PSS_CAPTURE_NONE)
+    if (CaptureFlags != PSS_CAPTURE_NONE && CaptureFlags != PSS_CAPTURE_VA_CLONE)
         return ERROR_NOT_SUPPORTED;
 
     Status = NtQueryInformationProcess(ProcessHandle, ProcessBasicInformation, &BasicInfo, sizeof(BasicInfo), NULL);
@@ -220,11 +212,21 @@ PssCaptureSnapshot(
         return Error;
     }
 
-    Snapshot->ProcessId = Info->ProcessId;
+    if (CaptureFlags & PSS_CAPTURE_VA_CLONE)
+    {
+        Status = NtCreateProcessEx(&Snapshot->VaCloneHandle, MAXIMUM_ALLOWED, NULL,
+                                   ProcessHandle, 0, NULL, NULL, NULL, 0);
+        if (!NT_SUCCESS(Status))
+        {
+            RtlFreeHeap(NtCurrentTeb()->Peb->ProcessHeap, 0, Snapshot);
+            return RtlNtStatusToDosError(Status);
+        }
+    }
+
     RtlAcquireSRWLockExclusive(&PssSnapshotLock);
     Snapshot->Next = PssSnapshots;
     PssSnapshots = Snapshot;
     RtlReleaseSRWLockExclusive(&PssSnapshotLock);
-    *SnapshotHandle = (HANDLE)Snapshot;
+    *SnapshotHandle = (HPSS)Snapshot;
     return ERROR_SUCCESS;
 }
