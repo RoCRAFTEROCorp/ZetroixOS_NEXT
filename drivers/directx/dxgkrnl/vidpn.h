@@ -39,7 +39,7 @@
  * ====================================================================== */
 
 /* Maximum modes per mode set. */
-#define DXGKP_MAX_MODES     64
+#define DXGKP_MAX_MODES     256
 
 /* Maximum VidPN sources (display heads). */
 #define DXGKP_MAX_SOURCES   16
