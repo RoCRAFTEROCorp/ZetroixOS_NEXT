@@ -2299,6 +2299,72 @@ static NTSTATUS DxgkpVidPnRebuildForHotPlugGeneration(_In_ PDXGKRNL_ADAPTER Adap
 
 
 static VOID
+DxgkpDrainConnectionChanges(
+    _In_ PDXGKRNL_ADAPTER Adapter)
+{
+    PDXGKDDI_QUERYCONNECTIONCHANGE QueryConnectionChange;
+    DXGKARG_QUERYCONNECTIONCHANGE Args;
+    BOOLEAN Changed;
+    BOOLEAN AnyChanged = FALSE;
+    ULONG Count;
+    NTSTATUS Status = STATUS_SUCCESS;
+
+    PAGED_CODE();
+    QueryConnectionChange = DXGK_CB_FULL(Adapter, DxgkDdiQueryConnectionChange);
+    if (QueryConnectionChange == NULL)
+        return;
+    if (!DxgkBeginKmdTransaction(Adapter))
+    {
+        InterlockedExchange(&Adapter->ConnectorChangePending, 1);
+        return;
+    }
+    for (Count = 0; Count < 256; Count++)
+    {
+        RtlZeroMemory(&Args, sizeof(Args));
+        if (!DxgkAcquireKmdCall(Adapter))
+        {
+            InterlockedExchange(&Adapter->ConnectorChangePending, 1);
+            break;
+        }
+        _SEH2_TRY
+        {
+            Status = QueryConnectionChange(Adapter->MiniportDeviceContext, &Args);
+        }
+        _SEH2_EXCEPT(EXCEPTION_EXECUTE_HANDLER)
+        {
+            Status = _SEH2_GetExceptionCode();
+        }
+        _SEH2_END;
+        DxgkReleaseKmdCall(Adapter);
+        if (Status == STATUS_ALREADY_COMPLETE)
+            break;
+        if (!NT_SUCCESS(Status))
+        {
+            DXGKRNL_WARN("CONNECTOR_CHANGE: adapter %p query failed 0x%08lX\n", Adapter, Status);
+            break;
+        }
+        DXGKRNL_INFO("CONNECTOR_CHANGE: adapter %p id=%I64u target=%u status=%u\n",
+                     Adapter, Args.ConnectionChange.ConnectionChangeId,
+                     (UINT)Args.ConnectionChange.TargetId, (UINT)Args.ConnectionChange.ConnectionStatus);
+        if (Args.ConnectionChange.ConnectionStatus != MonitorStatusConnected &&
+            Args.ConnectionChange.ConnectionStatus != MonitorStatusDisconnected)
+        {
+            continue;
+        }
+        if (NT_SUCCESS(DxgkPnpIndicateChildConnection(Adapter,
+                                                      Args.ConnectionChange.TargetId,
+                                                      Args.ConnectionChange.ConnectionStatus == MonitorStatusConnected,
+                                                      &Changed)) && Changed)
+        {
+            AnyChanged = TRUE;
+        }
+    }
+    DxgkEndKmdTransaction(Adapter);
+    if (AnyChanged)
+        IoInvalidateDeviceRelations(Adapter->PhysicalDeviceObject, BusRelations);
+}
+
+static VOID
 NTAPI
 DxgkpHotPlugRebuildWorker(
     _In_ PVOID Context)
@@ -2313,6 +2379,11 @@ DxgkpHotPlugRebuildWorker(
     PAGED_CODE();
     for (;;)
     {
+        if (InterlockedExchange(&Adapter->ConnectorChangePending, 0) != 0 &&
+            Adapter->State == DxgkAdapterStateStarted)
+        {
+            DxgkpDrainConnectionChanges(Adapter);
+        }
         KeAcquireSpinLock(&Adapter->ChildListLock, &OldIrql);
         if (Adapter->State != DxgkAdapterStateStarted || InterlockedCompareExchange(&Adapter->RundownStarted, 0, 0) != 0)
         {

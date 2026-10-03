@@ -6099,26 +6099,28 @@ DxgkCbInvalidateHwContextNotSupported(
     return STATUS_NOT_SUPPORTED;
 }
 
-/*
- * The WDDM 2.2 connector callback announces entries in the miniport's
- * ordered QueryConnectionChange queue.  The legacy QueryChildStatus route
- * is not equivalent, so do not report that the queue was accepted until a
- * PASSIVE_LEVEL drain worker and topology transaction exist.
- */
 static NTSTATUS
 APIENTRY
-DxgkCbIndicateConnectorChangeNotSupported(
+DxgkCbIndicateConnectorChange(
     IN_CONST_HANDLE DeviceHandle)
 {
     PDXGKRNL_ADAPTER Adapter;
+    NTSTATUS Status;
 
     Adapter = DxgkpHandleToAdapter(DeviceHandle);
     if (Adapter == NULL)
         return STATUS_INVALID_HANDLE;
-    DXGKRNL_WARN("CONNECTOR_CHANGE: adapter %p requested a connection-queue "
-                 "drain; no provider is available\n", Adapter);
+    if (DXGK_CB_FULL(Adapter, DxgkDdiQueryConnectionChange) == NULL)
+    {
+        ExReleaseRundownProtection(&Adapter->ReverseCallbackRundownRef);
+        return STATUS_NOT_SUPPORTED;
+    }
+    InterlockedExchange(&Adapter->ConnectorChangePending, 1);
+    Status = DxgkVidPnQueueHotPlugRebuild(Adapter);
+    if (Status == STATUS_DELETE_PENDING && Adapter->State == DxgkAdapterStateStarting)
+        Status = STATUS_SUCCESS;
     ExReleaseRundownProtection(&Adapter->ReverseCallbackRundownRef);
-    return STATUS_NOT_SUPPORTED;
+    return Status;
 }
 
 /*
@@ -6998,7 +7000,7 @@ DxgkpFillInterface(
         Interface->DxgkCbInvalidateHwContext =
             DxgkCbInvalidateHwContextNotSupported; /* 0x148 */
         Interface->DxgkCbIndicateConnectorChange =
-            DxgkCbIndicateConnectorChangeNotSupported; /* 0x150 */
+            DxgkCbIndicateConnectorChange; /* 0x150 */
         Interface->DxgkCbUnblockUEFIFrameBufferRanges =
             DxgkCbUnblockUEFIFrameBufferRangesNotSupported; /* 0x158 */
         Interface->DxgkCbAcquirePostDisplayOwnership2 =

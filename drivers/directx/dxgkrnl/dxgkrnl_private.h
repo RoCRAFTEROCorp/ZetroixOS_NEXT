@@ -1089,6 +1089,7 @@ struct _DXGKRNL_ADAPTER
     DECLSPEC_ALIGN(8) volatile LONG64 HotPlugGeneration;
     volatile LONG               HotPlugWorkActive;
     WORK_QUEUE_ITEM             HotPlugWorkItem;
+    volatile LONG               ConnectorChangePending;
     BOOLEAN                     SystemDisplayEnabled;
     D3DDDIFORMAT                SystemDisplayColorFormat;
 
