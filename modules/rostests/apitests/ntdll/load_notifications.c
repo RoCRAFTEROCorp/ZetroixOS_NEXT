@@ -16,6 +16,7 @@ LONG g_DllMainCalled = 0;
 
 LONG g_TlsExcept = 0xffffff;
 LONG g_DllMainExcept = 0xffffff;
+BOOL g_DllMainReturn = TRUE;
 
 ULONG g_BaseHandlers = 0;
 
@@ -37,8 +38,8 @@ ULONG CountHandlers(VOID)
     return Count;
 }
 
-int g_TLS_ATTACH = 4;
-int g_TLS_DETACH = 3;
+int g_TLS_ATTACH = sizeof(void *) == sizeof(ULONGLONG) ? 0 : 4;
+int g_TLS_DETACH = sizeof(void *) == sizeof(ULONGLONG) ? 0 : 3;
 
 VOID WINAPI notify_TlsCallback(IN HINSTANCE hDllHandle, IN DWORD dwReason, IN LPVOID lpvReserved)
 {
@@ -60,8 +61,8 @@ VOID WINAPI notify_TlsCallback(IN HINSTANCE hDllHandle, IN DWORD dwReason, IN LP
     }
 }
 
-int g_DLL_ATTACH = 3;
-int g_DLL_DETACH = 2;
+int g_DLL_ATTACH = sizeof(void *) == sizeof(ULONGLONG) ? 0 : 3;
+int g_DLL_DETACH = sizeof(void *) == sizeof(ULONGLONG) ? 0 : 2;
 
 BOOL WINAPI notify_DllMain(IN HINSTANCE hDllHandle, IN DWORD dwReason, IN LPVOID lpvReserved)
 {
@@ -81,7 +82,7 @@ BOOL WINAPI notify_DllMain(IN HINSTANCE hDllHandle, IN DWORD dwReason, IN LPVOID
     {
         RaiseException(EXCEPTION_DATATYPE_MISALIGNMENT, EXCEPTION_NONCONTINUABLE, 0, NULL);
     }
-    return TRUE;
+    return g_DllMainReturn;
 }
 
 
@@ -117,6 +118,31 @@ static void execute_test(void)
         ok(0, "Unable to load it normally\n");
     }
     _SEH2_END;
+
+
+    _SEH2_TRY
+    {
+        g_TlsExcept = 0xffffff;
+        g_DllMainExcept = 0xffffff;
+        g_DllMainReturn = FALSE;
+        g_DllMainCalled = 0;
+        g_TlsCalled = 0;
+        g_BaseHandlers = CountHandlers();
+        mod = LoadLibraryW(dllpath);
+        dwErr = GetLastError();
+        ok(mod == NULL, "LoadLibrary returned %p after initialization failed\n", mod);
+        ok(GetModuleHandleW(dllpath) == NULL, "Module loaded (0x%lx)\n", dwErr);
+        ok_hex(dwErr, ERROR_DLL_INIT_FAILED);
+        ok_hex(g_DllMainCalled, 2);
+        ok_hex(g_TlsCalled, 2);
+        if (mod) FreeLibrary(mod);
+    }
+    _SEH2_EXCEPT(EXCEPTION_EXECUTE_HANDLER)
+    {
+        ok(0, "Exception after initialization returned FALSE\n");
+    }
+    _SEH2_END;
+    g_DllMainReturn = TRUE;
 
 
     _SEH2_TRY

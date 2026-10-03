@@ -845,6 +845,7 @@ LdrpRunInitializeRoutines(IN PCONTEXT Context OPTIONAL)
     ULONG BreakOnDllLoad;
     PTEB OldTldTeb;
     BOOLEAN DllStatus = FALSE;
+    BOOLEAN DllInitCompleted;
 
     DPRINT("LdrpRunInitializeRoutines() called for %wZ (%p/%p)\n",
         &LdrpImageEntry->BaseDllName,
@@ -1036,6 +1037,7 @@ LdrpRunInitializeRoutines(IN PCONTEXT Context OPTIONAL)
             RtlActivateActivationContextUnsafeFast(&ActCtx,
                                                    LdrEntry->EntryPointActivationContext);
 
+            DllInitCompleted = FALSE;
             _SEH2_TRY
             {
                 /* Check if it has TLS */
@@ -1055,6 +1057,7 @@ LdrpRunInitializeRoutines(IN PCONTEXT Context OPTIONAL)
                                                 LdrEntry->DllBase,
                                                 DLL_PROCESS_ATTACH,
                                                 Context);
+                DllInitCompleted = TRUE;
             }
             _SEH2_EXCEPT(LdrpDebugExceptionFilter(_SEH2_GetExceptionInformation()))
             {
@@ -1071,7 +1074,8 @@ LdrpRunInitializeRoutines(IN PCONTEXT Context OPTIONAL)
             LdrpCurrentDllInitializer = OldInitializer;
 
             /* Mark the entry as processed */
-            LdrEntry->Flags |= LDRP_PROCESS_ATTACH_CALLED;
+            if (DllInitCompleted)
+                LdrEntry->Flags |= LDRP_PROCESS_ATTACH_CALLED;
 
             /* Fail if DLL init failed */
             if (!DllStatus)
