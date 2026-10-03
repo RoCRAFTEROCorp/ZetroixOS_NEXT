@@ -1433,6 +1433,121 @@ static void test_messages(void)
     DeleteCriticalSection(&clipboard_cs);
 }
 
+static UINT timeout_destroy_count;
+static DWORD timeout_destroy_flags[2];
+static HANDLE timeout_done;
+static BOOL timeout_wait;
+
+static LRESULT CALLBACK clipboard_timeout_proc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp)
+{
+    if (msg == WM_DESTROYCLIPBOARD)
+    {
+        UINT index = timeout_destroy_count++;
+
+        if (index < ARRAY_SIZE(timeout_destroy_flags))
+            timeout_destroy_flags[index] = InSendMessageEx(NULL);
+        if (timeout_wait && !index)
+            ok(WaitForSingleObject(timeout_done, 7000) == WAIT_OBJECT_0, "Sender did not finish\n");
+        return 0;
+    }
+    return DefWindowProcA(hwnd, msg, wp, lp);
+}
+
+static DWORD WINAPI clipboard_timeout_thread(void *arg)
+{
+    BOOL ret;
+
+    ret = open_clipboard(NULL);
+    ok(ret, "OpenClipboard failed: %lu\n", GetLastError());
+    if (ret)
+    {
+        ok(EmptyClipboard(), "EmptyClipboard failed: %lu\n", GetLastError());
+        ok(CloseClipboard(), "CloseClipboard failed: %lu\n", GetLastError());
+    }
+    ok(SetEvent(timeout_done), "SetEvent failed: %lu\n", GetLastError());
+    return 0;
+}
+
+static void test_owner_notification_timeout(void)
+{
+    WNDCLASSA cls = {0};
+    HWND window;
+    HGLOBAL text;
+    HANDLE data;
+    BOOL ret;
+    MSG msg;
+    ATOM atom;
+    UINT mode;
+
+    cls.lpfnWndProc = clipboard_timeout_proc;
+    cls.hInstance = GetModuleHandleA(NULL);
+    cls.lpszClassName = "clipboard_timeout_test";
+    atom = RegisterClassA(&cls);
+    ok(atom != 0, "RegisterClass failed: %lu\n", GetLastError());
+    if (!atom) return;
+
+    window = CreateWindowA(cls.lpszClassName, NULL, 0, 0, 0, 0, 0, NULL, NULL, cls.hInstance, NULL);
+    ok(window != NULL, "CreateWindow failed: %lu\n", GetLastError());
+    if (!window) goto unregister;
+
+    timeout_done = CreateEventA(NULL, TRUE, FALSE, NULL);
+    ok(timeout_done != NULL, "CreateEvent failed: %lu\n", GetLastError());
+    if (!timeout_done) goto destroy;
+
+    for (mode = 0; mode < 3; ++mode)
+    {
+        winetest_push_context("mode %u", mode);
+        trace("Testing clipboard timeout mode %u\n", mode);
+        ret = open_clipboard(window);
+        ok(ret, "OpenClipboard failed: %lu\n", GetLastError());
+        if (!ret) break;
+        ret = EmptyClipboard();
+        ok(ret, "EmptyClipboard failed: %lu\n", GetLastError());
+        if (ret)
+        {
+            text = create_textW();
+            data = SetClipboardData(CF_UNICODETEXT, text);
+            ok(data != NULL, "SetClipboardData failed: %lu\n", GetLastError());
+            if (!data) GlobalFree(text);
+            ret = data != NULL;
+        }
+        ok(CloseClipboard(), "CloseClipboard failed: %lu\n", GetLastError());
+        if (!ret) break;
+        ok(GetClipboardOwner() == window, "Unexpected owner %p\n", GetClipboardOwner());
+
+        while (PeekMessageA(&msg, NULL, 0, 0, PM_REMOVE)) DispatchMessageA(&msg);
+        timeout_destroy_count = 0;
+        memset(timeout_destroy_flags, 0xcc, sizeof(timeout_destroy_flags));
+        timeout_wait = mode == 2;
+        ok(ResetEvent(timeout_done), "ResetEvent failed: %lu\n", GetLastError());
+        if (mode == 1)
+        {
+            run_process("grab_clipboard 0");
+            ok(!timeout_destroy_count, "Received %u messages before pumping\n", timeout_destroy_count);
+        }
+        else
+            run_thread(clipboard_timeout_thread, NULL, __LINE__);
+        while (PeekMessageA(&msg, NULL, 0, 0, PM_REMOVE)) DispatchMessageA(&msg);
+        ok(timeout_destroy_count == (mode == 2 ? 2 : 1),
+           "Received %u ownership notifications\n", timeout_destroy_count);
+        if (timeout_destroy_count)
+            ok(timeout_destroy_flags[0] == (mode == 1 ? ISMEX_NOTIFY : ISMEX_SEND),
+               "Unexpected first send flags %#lx\n", timeout_destroy_flags[0]);
+        if (mode == 2 && timeout_destroy_count > 1)
+            ok(timeout_destroy_flags[1] == ISMEX_NOTIFY,
+               "Unexpected second send flags %#lx\n", timeout_destroy_flags[1]);
+        winetest_pop_context();
+    }
+    if (mode < 3) winetest_pop_context();
+    timeout_wait = FALSE;
+    ok(CloseHandle(timeout_done), "CloseHandle failed: %lu\n", GetLastError());
+
+destroy:
+    ok(DestroyWindow(window), "DestroyWindow failed: %lu\n", GetLastError());
+unregister:
+    ok(UnregisterClassA(cls.lpszClassName, cls.hInstance), "UnregisterClass failed: %lu\n", GetLastError());
+}
+
 static BOOL is_moveable( HANDLE handle )
 {
     void *ptr = GlobalLock( handle );
@@ -2421,10 +2536,17 @@ START_TEST(clipboard)
         return;
     }
 
+    if (argc == 3 && !strcmp( argv[2], "owner_notification_timeout" ))
+    {
+        test_owner_notification_timeout();
+        return;
+    }
+
     test_RegisterClipboardFormatA();
     test_ClipboardOwner();
     test_synthesized();
     test_messages();
+    test_owner_notification_timeout();
     test_data_handles();
     test_GetUpdatedClipboardFormats();
     test_string_data();

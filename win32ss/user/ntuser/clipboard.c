@@ -923,9 +923,15 @@ UserEmptyClipboard(VOID)
 
     if (pWinStaObj->spwndClipOwner)
     {
+        HWND hwndOwner = UserHMGetHandle(pWinStaObj->spwndClipOwner);
+
         TRACE("Clipboard: WM_DESTROYCLIPBOARD to %p\n", UserHMGetHandle(pWinStaObj->spwndClipOwner));
         // For 32-bit applications this message is sent as a notification
-        co_IntSendMessageTimeout(UserHMGetHandle(pWinStaObj->spwndClipOwner), WM_DESTROYCLIPBOARD, 0, 0, SMTO_NORMAL, 5000, NULL);
+        if (!co_IntSendMessageTimeout(hwndOwner, WM_DESTROYCLIPBOARD, 0, 0, SMTO_NORMAL, 5000, NULL) &&
+            EngGetLastError() == ERROR_TIMEOUT)
+        {
+            co_IntSendMessageNoWait(hwndOwner, WM_DESTROYCLIPBOARD, 0, 0);
+        }
     }
 
     UserEmptyClipboardData(pWinStaObj);
