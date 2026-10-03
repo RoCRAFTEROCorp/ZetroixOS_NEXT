@@ -115,7 +115,7 @@ MiProbeAndLockNonpageablePages(
         }
 
         Frame = Physical >> PAGE_SHIFT;
-        if (Frame < Db->FrameCount)
+        if (Frame < Db->FrameCount && Db->Pfn[Frame].State != MiPageUnusable)
         {
             KIRQL OldIrql = MiPfnLock(Db, (ULONG)Frame);
 

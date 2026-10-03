@@ -394,7 +394,7 @@ MiCopyVirtualMemory(
         }
         else
         {
-            Status = MiProbeAndLockPages(SourceMdl, UserMode, FALSE);
+            Status = MiProbeAndLockPagesForCopy(SourceMdl, UserMode, FALSE);
             if (NT_SUCCESS(Status))
             {
                 Status = MiProbeAndLockPages(TargetMdl, UserMode, TRUE);

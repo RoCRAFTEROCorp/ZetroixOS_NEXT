@@ -1208,7 +1208,8 @@ MiResolvePrototypeFault(
     _In_ ULONG64 VirtualAddress,
     _Inout_ PMI_PTE Slot,
     _In_ ULONG TableFrame,
-    _In_ MI_FAULT_ACCESS Access)
+    _In_ MI_FAULT_ACCESS Access,
+    _In_ BOOLEAN ConsumeGuard)
 {
     PMI_SEGMENT Segment = Vad->Segment;
     ULONG64 Page = Vad->SegmentPageOffset + ((VirtualAddress - MI_VAD_START(Vad)) >> PAGE_SHIFT);
@@ -1229,8 +1230,9 @@ MiResolvePrototypeFault(
 
     if ((Protection & MI_PROT_NOACCESS) == MI_PROT_GUARD)
     {
-        MiPtWrite(Space, VirtualAddress, Slot, TableFrame,
-                  MiSoftMake(MiSoftPrototype, Protection & ~MI_PROT_GUARD, 0));
+        if (ConsumeGuard)
+            MiPtWrite(Space, VirtualAddress, Slot, TableFrame,
+                      MiSoftMake(MiSoftPrototype, Protection & ~MI_PROT_GUARD, 0));
         return STATUS_GUARD_PAGE_VIOLATION;
     }
 

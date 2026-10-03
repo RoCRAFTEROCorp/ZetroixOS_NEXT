@@ -1216,6 +1216,46 @@ NtQueryVirtualMemory(
 
 static
 NTSTATUS
+MiCopyAddressSpace(
+    _Inout_ PMI_ADDRESS_SPACE Space,
+    _In_ PVOID Address,
+    _Inout_ PVOID Buffer,
+    _In_ ULONG Size,
+    _In_ BOOLEAN UserMode,
+    _In_ BOOLEAN WriteAccess)
+{
+    PMI_MDL Mdl;
+    NTSTATUS Status;
+
+    Mdl = MiMdlAllocate(Space, (ULONG64)(ULONG_PTR)Address, Size);
+    if (Mdl == NULL)
+        return STATUS_INSUFFICIENT_RESOURCES;
+
+    _SEH2_TRY
+    {
+        Status = MiMapPagesForCopy(Mdl, UserMode, WriteAccess);
+        if (NT_SUCCESS(Status))
+        {
+            PVOID Mapping = (PVOID)(ULONG_PTR)(Mdl->MappedSystemVa + Mdl->ByteOffset);
+
+            if (WriteAccess)
+                RtlCopyMemory(Mapping, Buffer, Size);
+            else
+                RtlCopyMemory(Buffer, Mapping, Size);
+        }
+    }
+    _SEH2_FINALLY
+    {
+        if (Mdl->Locked)
+            MiUnlockPages(Mdl);
+        MiMdlFree(Mdl);
+    }
+    _SEH2_END;
+    return Status;
+}
+
+static
+NTSTATUS
 MiCopyChunk(
     _In_ PEPROCESS Process,
     _In_ PVOID ProcessAddress,
@@ -1228,6 +1268,7 @@ MiCopyChunk(
     NTSTATUS Status = STATUS_SUCCESS;
     KAPC_STATE ApcState;
     volatile SIZE_T Done = 0;
+    BOOLEAN Remote = Process != PsGetCurrentProcess();
 
     *Copied = 0;
     KeStackAttachProcess(&Process->Pcb, &ApcState);
@@ -1239,7 +1280,17 @@ MiCopyChunk(
             if (Mode != KernelMode)
                 ProbeForRead(ProcessAddress, Length, sizeof(CHAR));
 
-            RtlCopyMemory(Bounce, ProcessAddress, Length);
+            if (!MI_IS_SYSTEM_VA(ProcessAddress))
+            {
+                Status = MiCopyAddressSpace(MiSpaceOfProcess(Process), ProcessAddress,
+                                            Bounce, (ULONG)Length, Mode != KernelMode, FALSE);
+                if (!NT_SUCCESS(Status))
+                    ExRaiseStatus(Status);
+            }
+            else
+            {
+                RtlCopyMemory(Bounce, ProcessAddress, Length);
+            }
             Done = Length;
         }
         else
@@ -1257,7 +1308,18 @@ MiCopyChunk(
 
                 if (Piece > Length - Done)
                     Piece = Length - Done;
-                RtlCopyMemory((PUCHAR)ProcessAddress + Done, (PUCHAR)Bounce + Done, Piece);
+                if (Remote && !MI_IS_SYSTEM_VA((PUCHAR)ProcessAddress + Done))
+                {
+                    Status = MiCopyAddressSpace(MiSpaceOfProcess(Process),
+                                                (PUCHAR)ProcessAddress + Done,
+                                                (PUCHAR)Bounce + Done, (ULONG)Piece, Mode != KernelMode, TRUE);
+                    if (!NT_SUCCESS(Status))
+                        ExRaiseStatus(Status);
+                }
+                else
+                {
+                    RtlCopyMemory((PUCHAR)ProcessAddress + Done, (PUCHAR)Bounce + Done, Piece);
+                }
                 Done += Piece;
             }
         }

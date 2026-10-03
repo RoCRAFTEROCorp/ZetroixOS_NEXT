@@ -122,6 +122,8 @@ VOID MiUnmapFrames(_Inout_ PMI_SYSTEM System, _In_ ULONG64 Base, _In_ ULONG Page
 PMI_MDL MiMdlAllocate(_In_ PMI_ADDRESS_SPACE Space, _In_ ULONG64 VirtualAddress, _In_ ULONG ByteCount);
 VOID MiMdlFree(_Inout_ PMI_MDL Mdl);
 NTSTATUS MiProbeAndLockPages(_Inout_ PMI_MDL Mdl, _In_ BOOLEAN UserMode, _In_ BOOLEAN WriteAccess);
+NTSTATUS MiProbeAndLockPagesForCopy(_Inout_ PMI_MDL Mdl, _In_ BOOLEAN UserMode, _In_ BOOLEAN WriteAccess);
+NTSTATUS MiMapPagesForCopy(_Inout_ PMI_MDL Mdl, _In_ BOOLEAN UserMode, _In_ BOOLEAN WriteAccess);
 VOID MiUnlockPages(_Inout_ PMI_MDL Mdl);
 NTSTATUS MiBuildMdlForSystemRange(_Inout_ PMI_MDL Mdl);
 NTSTATUS MiMapLockedPages(_Inout_ PMI_MDL Mdl, _In_ MI_CACHE_TYPE CacheType, _Out_ PULONG64 SystemVa);

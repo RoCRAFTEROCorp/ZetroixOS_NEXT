@@ -264,7 +264,8 @@ MiFaultWorker(
     _In_ ULONG64 VirtualAddress,
     _In_ MI_FAULT_ACCESS Access,
     _In_ BOOLEAN UserMode,
-    _In_ BOOLEAN AllowExecutableWrite)
+    _In_ BOOLEAN AllowExecutableWrite,
+    _In_ BOOLEAN ConsumeGuard)
 {
     PMI_SYSTEM System = Space->System;
     ULONG64 PageVa = VirtualAddress & ~((ULONG64)PAGE_SIZE - 1);
@@ -309,7 +310,7 @@ RetryAddress:
     if (MiCloneLookup(Space, PageVa) != NULL)
     {
         MI_RW_RELEASE_SHARED(&Space->Lock);
-        Status = MiCloneFault(Space, PageVa, Access);
+        Status = MiCloneFault(Space, PageVa, Access, ConsumeGuard);
         if (Status == STATUS_PENDING_COPY)
             goto RetryAddress;
         return Status;
@@ -380,7 +381,7 @@ RetryPage:
         PMI_SEGMENT Segment = Vad->Segment;
         ULONG64 Page = Vad->SegmentPageOffset + ((PageVa >> PAGE_SHIFT) - Vad->Node.StartingVpn);
 
-        Status = MiResolvePrototypeFault(Space, Vad, PageVa, Slot, TableFrame, Access);
+        Status = MiResolvePrototypeFault(Space, Vad, PageVa, Slot, TableFrame, Access, ConsumeGuard);
         if (Status != STATUS_PENDING_PAGE_IN)
             goto Complete;
 
@@ -417,6 +418,12 @@ RetryPage:
     if ((Protection & MI_PROT_NOACCESS) == MI_PROT_GUARD)
     {
         MI_PTE Cleared = MiSoftWithProtection(Pte, Protection & ~MI_PROT_GUARD);
+
+        if (!ConsumeGuard)
+        {
+            Status = STATUS_GUARD_PAGE_VIOLATION;
+            goto Complete;
+        }
 
         if (MiSoftKind(Pte) == MiSoftTransition)
         {
@@ -630,7 +637,7 @@ MiFaultWithWriteAllowance(
     _In_ BOOLEAN UserMode,
     _In_ BOOLEAN AllowExecutableWrite)
 {
-    NTSTATUS Status = MiFaultWorker(Space, VirtualAddress, Access, UserMode, AllowExecutableWrite);
+    NTSTATUS Status = MiFaultWorker(Space, VirtualAddress, Access, UserMode, AllowExecutableWrite, TRUE);
 
     if (NT_SUCCESS(Status) && Access == MiFaultWrite && Space->HasWriteWatch)
         MiWriteWatchNoteWrite(Space, VirtualAddress);
@@ -646,4 +653,20 @@ MiFault(
     _In_ BOOLEAN UserMode)
 {
     return MiFaultWithWriteAllowance(Space, VirtualAddress, Access, UserMode, FALSE);
+}
+
+NTSTATUS
+MiFaultForCopy(
+    _Inout_ PMI_ADDRESS_SPACE Space,
+    _In_ ULONG64 VirtualAddress,
+    _In_ BOOLEAN UserMode,
+    _In_ BOOLEAN WriteAccess)
+{
+    NTSTATUS Status = MiFaultWorker(Space, VirtualAddress, WriteAccess ? MiFaultWrite : MiFaultRead,
+                                    UserMode, TRUE, FALSE);
+
+    if (NT_SUCCESS(Status) && WriteAccess && Space->HasWriteWatch)
+        MiWriteWatchNoteWrite(Space, VirtualAddress);
+
+    return Status;
 }

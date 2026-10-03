@@ -224,7 +224,8 @@ typedef struct _MI_CLONE_REF
 
 NTSTATUS MiCloneAddressSpace(_Inout_ PMI_ADDRESS_SPACE Source, _Inout_ PMI_ADDRESS_SPACE Target);
 PMI_CLONE_REF MiCloneLookup(_In_ PMI_ADDRESS_SPACE Space, _In_ ULONG64 Va);
-NTSTATUS MiCloneFault(_Inout_ PMI_ADDRESS_SPACE Space, _In_ ULONG64 Va, _In_ ULONG Access);
+NTSTATUS MiCloneFault(_Inout_ PMI_ADDRESS_SPACE Space, _In_ ULONG64 Va, _In_ ULONG Access,
+                      _In_ BOOLEAN ConsumeGuard);
 BOOLEAN MiCloneDeletePage(_Inout_ PMI_ADDRESS_SPACE Space, _In_ ULONG64 Va, _Inout_ PMI_PTE Slot,
                           _In_ ULONG TableFrame, _In_ MI_PTE NewValue);
 BOOLEAN MiCloneProtectPage(_Inout_ PMI_ADDRESS_SPACE Space, _In_ ULONG64 Va, _Inout_ PMI_PTE Slot,
@@ -335,7 +336,8 @@ VOID MiAweDestroyPagesLocked(_Inout_ PMI_ADDRESS_SPACE Space);
 NTSTATUS MiCopyOnWrite(_Inout_ PMI_ADDRESS_SPACE Space, _In_ PMI_VAD Vad, _In_ ULONG64 VirtualAddress,
                        _Inout_ PMI_PTE Slot, _In_ ULONG TableFrame, _In_ MI_PTE Pte);
 NTSTATUS MiResolvePrototypeFault(_Inout_ PMI_ADDRESS_SPACE Space, _In_ PMI_VAD Vad, _In_ ULONG64 VirtualAddress,
-                                 _Inout_ PMI_PTE Slot, _In_ ULONG TableFrame, _In_ MI_FAULT_ACCESS Access);
+                                 _Inout_ PMI_PTE Slot, _In_ ULONG TableFrame, _In_ MI_FAULT_ACCESS Access,
+                                 _In_ BOOLEAN ConsumeGuard);
 NTSTATUS MiMakePageValid(_Inout_ PMI_ADDRESS_SPACE Space, _In_ ULONG64 VirtualAddress, _Inout_ PMI_PTE Slot,
                          _In_ ULONG TableFrame, _In_ ULONG Frame, _In_ ULONG Protection, _In_ BOOLEAN Dirty);
 VOID MiReleasePageBacking(_Inout_ struct _MI_SYSTEM *System, _In_ ULONG Frame);
@@ -350,6 +352,8 @@ NTSTATUS MiFault(_Inout_ PMI_ADDRESS_SPACE Space, _In_ ULONG64 VirtualAddress, _
 NTSTATUS MiFaultWithWriteAllowance(_Inout_ PMI_ADDRESS_SPACE Space, _In_ ULONG64 VirtualAddress,
                                    _In_ MI_FAULT_ACCESS Access, _In_ BOOLEAN UserMode,
                                    _In_ BOOLEAN AllowExecutableWrite);
+NTSTATUS MiFaultForCopy(_Inout_ PMI_ADDRESS_SPACE Space, _In_ ULONG64 VirtualAddress,
+                        _In_ BOOLEAN UserMode, _In_ BOOLEAN WriteAccess);
 NTSTATUS MiSetExecutableWriteTracking(_Inout_ PMI_ADDRESS_SPACE Space, _In_ BOOLEAN Enable);
 NTSTATUS MiWriteWatchAttach(_Inout_ PMI_ADDRESS_SPACE Space, _Inout_ PMI_VAD Vad);
 NTSTATUS MiWriteWatchDuplicate(_Inout_ PMI_ADDRESS_SPACE Space, _Inout_ PMI_VAD Vad);

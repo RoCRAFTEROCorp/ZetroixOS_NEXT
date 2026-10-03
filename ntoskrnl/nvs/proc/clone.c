@@ -203,7 +203,7 @@ Done:
 }
 
 NTSTATUS
-MiCloneFault(PMI_ADDRESS_SPACE Space, ULONG64 Va, ULONG Access)
+MiCloneFault(PMI_ADDRESS_SPACE Space, ULONG64 Va, ULONG Access, BOOLEAN ConsumeGuard)
 {
     PMI_SYSTEM System = Space->System;
     ULONG Attempts = 0;
@@ -230,7 +230,8 @@ MiCloneFault(PMI_ADDRESS_SPACE Space, ULONG64 Va, ULONG Access)
         Protection = Ref->Protection;
         if ((Protection & MI_PROT_NOACCESS) == MI_PROT_GUARD)
         {
-            MiCloneProtectPage(Space, Va, Slot, TableFrame, Protection & ~MI_PROT_GUARD);
+            if (ConsumeGuard)
+                MiCloneProtectPage(Space, Va, Slot, TableFrame, Protection & ~MI_PROT_GUARD);
             Status = STATUS_GUARD_PAGE_VIOLATION;
             break;
         }

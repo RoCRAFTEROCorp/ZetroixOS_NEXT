@@ -57,7 +57,7 @@ MiUnlockFrames(
 
     for (i = 0; i < PageCount; i++)
     {
-        if (Frames[i] >= Db->FrameCount)
+        if (Frames[i] >= Db->FrameCount || Db->Pfn[Frames[i]].State == MiPageUnusable)
             continue;
 
         if (WriteAccess)
@@ -67,14 +67,17 @@ MiUnlockFrames(
     }
 }
 
+static
 NTSTATUS
-MiLockPages(
+MiLockPagesWorker(
     _Inout_ PMI_ADDRESS_SPACE Space,
     _In_ ULONG64 StartVa,
     _In_ ULONG PageCount,
     _In_ BOOLEAN UserMode,
     _In_ BOOLEAN WriteAccess,
-    _Out_ PMI_FRAME_NUMBER Frames)
+    _In_ BOOLEAN ConsumeGuard,
+    _Out_ PMI_FRAME_NUMBER Frames,
+    _Out_opt_ PULONG CacheFlags)
 {
     PMI_PFN_DATABASE Db = &Space->System->Pfn;
     ULONG i;
@@ -105,7 +108,7 @@ MiLockPages(
             {
                 ULONG64 Frame = Physical >> PAGE_SHIFT;
 
-                if (Frame < Db->FrameCount)
+                if (Frame < Db->FrameCount && Db->Pfn[Frame].State != MiPageUnusable)
                 {
                     KIRQL OldIrql = MiPfnLock(Db, (ULONG)Frame);
 
@@ -117,6 +120,8 @@ MiLockPages(
                 }
 
                 Frames[i] = (MI_FRAME_NUMBER)Frame;
+                if (CacheFlags != NULL)
+                    CacheFlags[i] = MiArchPteLeafFlags(Pte) & MI_LEAF_CACHE_MASK;
                 MI_RW_RELEASE_EXCLUSIVE(&Space->Lock);
                 Status = STATUS_SUCCESS;
                 break;
@@ -124,8 +129,9 @@ MiLockPages(
 
             MI_RW_RELEASE_EXCLUSIVE(&Space->Lock);
 
-            Status = MiFaultWithWriteAllowance(Space, Va, WriteAccess ? MiFaultWrite : MiFaultRead,
-                                               UserMode, TRUE);
+            Status = ConsumeGuard
+                ? MiFaultWithWriteAllowance(Space, Va, WriteAccess ? MiFaultWrite : MiFaultRead, UserMode, TRUE)
+                : MiFaultForCopy(Space, Va, UserMode, WriteAccess);
             if (!NT_SUCCESS(Status))
                 break;
 
@@ -140,6 +146,18 @@ MiLockPages(
     }
 
     return STATUS_SUCCESS;
+}
+
+NTSTATUS
+MiLockPages(
+    _Inout_ PMI_ADDRESS_SPACE Space,
+    _In_ ULONG64 StartVa,
+    _In_ ULONG PageCount,
+    _In_ BOOLEAN UserMode,
+    _In_ BOOLEAN WriteAccess,
+    _Out_ PMI_FRAME_NUMBER Frames)
+{
+    return MiLockPagesWorker(Space, StartVa, PageCount, UserMode, WriteAccess, TRUE, Frames, NULL);
 }
 
 NTSTATUS
@@ -228,6 +246,74 @@ MiProbeAndLockPages(
     if (NT_SUCCESS(Status))
         Mdl->Locked = TRUE;
 
+    return Status;
+}
+
+NTSTATUS
+MiProbeAndLockPagesForCopy(
+    _Inout_ PMI_MDL Mdl,
+    _In_ BOOLEAN UserMode,
+    _In_ BOOLEAN WriteAccess)
+{
+    NTSTATUS Status;
+
+    if (Mdl->Locked)
+        return STATUS_INVALID_PARAMETER;
+
+    Mdl->WriteAccess = WriteAccess;
+    Status = MiLockPagesWorker(Mdl->Space, Mdl->StartVa, Mdl->PageCount, UserMode, WriteAccess, FALSE,
+                                Mdl->Frames, NULL);
+    if (NT_SUCCESS(Status))
+        Mdl->Locked = TRUE;
+
+    return Status;
+}
+
+NTSTATUS
+MiMapPagesForCopy(
+    _Inout_ PMI_MDL Mdl,
+    _In_ BOOLEAN UserMode,
+    _In_ BOOLEAN WriteAccess)
+{
+    PMI_SYSTEM System = Mdl->Space->System;
+    PULONG CacheFlags;
+    NTSTATUS Status;
+    ULONG Page;
+
+    if (Mdl->Locked || Mdl->MappedSystemVa != 0)
+        return STATUS_INVALID_PARAMETER;
+
+    CacheFlags = MI_ALLOCATE((SIZE_T)Mdl->PageCount * sizeof(*CacheFlags));
+    if (CacheFlags == NULL)
+        return STATUS_INSUFFICIENT_RESOURCES;
+
+    Mdl->WriteAccess = WriteAccess;
+    Status = MiLockPagesWorker(Mdl->Space, Mdl->StartVa, Mdl->PageCount, UserMode, WriteAccess, FALSE,
+                                Mdl->Frames, CacheFlags);
+    if (NT_SUCCESS(Status))
+    {
+        Mdl->Locked = TRUE;
+        Mdl->MappedSystemVa = MiReserveSystemPtes(System, Mdl->PageCount);
+        if (Mdl->MappedSystemVa == 0)
+        {
+            Status = STATUS_INSUFFICIENT_RESOURCES;
+        }
+        else
+        {
+            for (Page = 0; Page < Mdl->PageCount; Page++)
+            {
+                Status = MiSystemMapFrames(System, Mdl->MappedSystemVa + (ULONG64)Page * PAGE_SIZE,
+                                            &Mdl->Frames[Page], 1,
+                                            WriteAccess ? MI_PROT_READWRITE : MI_PROT_READONLY,
+                                            CacheFlags[Page], FALSE);
+                if (!NT_SUCCESS(Status))
+                    break;
+            }
+        }
+        if (!NT_SUCCESS(Status))
+            MiUnlockPages(Mdl);
+    }
+    MI_FREE(CacheFlags);
     return Status;
 }
 
