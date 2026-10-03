@@ -132,6 +132,7 @@ struct _WINMM_MMDevice {
     /* HMIXER format is the same as the HWAVE format, but the I bits are
      * replaced by the value of this counter, to keep each HMIXER unique */
     UINT mixer_count;
+    BOOL mixer_open[MAX_DEVICES];
 
     CRITICAL_SECTION lock;
 
@@ -1965,8 +1966,9 @@ static LRESULT WINMM_GetPosition(HWAVE hwave, MMTIME *time)
 static WINMM_MMDevice *WINMM_GetMixerMMDevice(HMIXEROBJ hmix, DWORD flags,
         UINT *mmdev_index)
 {
-    UINT mmdev, dev, junk, *out;
-    BOOL is_out;
+    UINT mmdev, dev, junk, count, *out;
+    WINMM_MMDevice *mmdevice, **map;
+    BOOL is_out, open;
 
     if(!mmdev_index)
         out = &mmdev;
@@ -1992,9 +1994,27 @@ static WINMM_MMDevice *WINMM_GetMixerMMDevice(HMIXEROBJ hmix, DWORD flags,
         if(junk != 0x1 || (is_out && *out >= g_outmmdevices_count) ||
                (!is_out && *out >= g_inmmdevices_count))
             return NULL;
-        if(is_out)
-            return read_map(g_out_map, *out);
-        return read_map(g_in_map, *out);
+        if ((flags & 0xF0000000) == MIXER_OBJECTF_MIXER ||
+            (flags & 0xF0000000) == MIXER_OBJECTF_HMIXER)
+        {
+            mmdevice = &(is_out ? g_out_mmdevices : g_in_mmdevices)[*out];
+            EnterCriticalSection(&mmdevice->lock);
+            open = mmdevice->mixer_open[dev];
+            LeaveCriticalSection(&mmdevice->lock);
+            if (!open) return NULL;
+            if (mmdev_index)
+            {
+                EnterCriticalSection(&g_devthread_lock);
+                map = is_out ? g_out_map : g_in_map;
+                count = is_out ? g_outmmdevices_count : g_inmmdevices_count;
+                for (*out = 0; *out < count; ++*out)
+                    if (map[*out] == mmdevice) break;
+                LeaveCriticalSection(&g_devthread_lock);
+                if (*out == count) return NULL;
+            }
+            return mmdevice;
+        }
+        return read_map(is_out ? g_out_map : g_in_map, *out);
     case MIXER_OBJECTF_WAVEOUT:
         *out = HandleToULong(hmix);
         if(*out < g_outmmdevices_count)
@@ -3793,6 +3813,8 @@ UINT WINAPI mixerOpen(LPHMIXER lphMix, UINT uDeviceID, DWORD_PTR dwCallback,
 {
     WINMM_MMDevice *mmdevice;
     MMRESULT mr;
+    UINT i, slot;
+    BOOL is_out;
 
     TRACE("(%p, %d, %Ix, %Ix, %lx)\n", lphMix, uDeviceID, dwCallback,
             dwInstance, fdwOpen);
@@ -3810,17 +3832,25 @@ UINT WINAPI mixerOpen(LPHMIXER lphMix, UINT uDeviceID, DWORD_PTR dwCallback,
     if(uDeviceID >= g_outmmdevices_count + g_inmmdevices_count)
         return MMSYSERR_BADDEVICEID;
 
-    if(uDeviceID < g_outmmdevices_count){
-        mmdevice = read_map(g_out_map, uDeviceID);
-        *lphMix = (HMIXER)WINMM_MakeHWAVE(uDeviceID, TRUE,
-                mmdevice->mixer_count);
-    }else{
-        mmdevice = read_map(g_in_map, uDeviceID - g_outmmdevices_count);
-        *lphMix = (HMIXER)WINMM_MakeHWAVE(uDeviceID - g_outmmdevices_count,
-                FALSE, mmdevice->mixer_count);
-    }
+    is_out = uDeviceID < g_outmmdevices_count;
+    if (!is_out) uDeviceID -= g_outmmdevices_count;
+    mmdevice = read_map(is_out ? g_out_map : g_in_map, uDeviceID);
 
-    ++mmdevice->mixer_count;
+    EnterCriticalSection(&mmdevice->lock);
+    for (i = 0; i < MAX_DEVICES; ++i)
+    {
+        slot = (mmdevice->mixer_count + i) % MAX_DEVICES;
+        if (!mmdevice->mixer_open[slot]) break;
+    }
+    if (i == MAX_DEVICES)
+    {
+        LeaveCriticalSection(&mmdevice->lock);
+        return MMSYSERR_ALLOCATED;
+    }
+    mmdevice->mixer_open[slot] = TRUE;
+    mmdevice->mixer_count = (slot + 1) % MAX_DEVICES;
+    *lphMix = (HMIXER)WINMM_MakeHWAVE(mmdevice->index, is_out, slot);
+    LeaveCriticalSection(&mmdevice->lock);
 
     return MMSYSERR_NOERROR;
 }
@@ -3830,9 +3860,28 @@ UINT WINAPI mixerOpen(LPHMIXER lphMix, UINT uDeviceID, DWORD_PTR dwCallback,
  */
 UINT WINAPI mixerClose(HMIXER hMix)
 {
+    WINMM_MMDevice *mmdevice;
+    UINT mmdev, slot, junk;
+    BOOL is_out;
+    MMRESULT ret = MMSYSERR_INVALHANDLE;
+
     TRACE("(%p)\n", hMix);
 
-    return MMSYSERR_NOERROR;
+    if (!InitOnceExecuteOnce(&init_once, WINMM_InitMMDevices, NULL, NULL))
+        return MMSYSERR_INVALHANDLE;
+
+    mmdevice = WINMM_GetMixerMMDevice((HMIXEROBJ)hMix, MIXER_OBJECTF_HMIXER, NULL);
+    if (!mmdevice) return MMSYSERR_INVALHANDLE;
+
+    WINMM_DecomposeHWAVE((HWAVE)hMix, &mmdev, &is_out, &slot, &junk);
+    EnterCriticalSection(&mmdevice->lock);
+    if (mmdevice->mixer_open[slot])
+    {
+        mmdevice->mixer_open[slot] = FALSE;
+        ret = MMSYSERR_NOERROR;
+    }
+    LeaveCriticalSection(&mmdevice->lock);
+    return ret;
 }
 
 /**************************************************************************
