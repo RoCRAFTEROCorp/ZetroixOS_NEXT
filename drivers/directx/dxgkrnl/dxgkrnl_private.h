@@ -1172,6 +1172,7 @@ struct _DXGKRNL_ADAPTER
      * close admission without racing a DIRQL callback. */
     DECLSPEC_ALIGN(8) volatile LONG64 VsyncScanoutAddress[32];
     DECLSPEC_ALIGN(8) volatile LONG64 VsyncScanoutSequence[32];
+    DECLSPEC_ALIGN(8) volatile LONG64 VsyncScanoutPresentId[32];
     DECLSPEC_ALIGN(8) volatile LONG64 VsyncTargetSourceMap[32];
 
     /*
@@ -1277,6 +1278,7 @@ C_ASSERT((FIELD_OFFSET(DXGKRNL_ADAPTER, SubmittedFenceIdentities) & (sizeof(LONG
 C_ASSERT((FIELD_OFFSET(DXGKRNL_ADAPTER, VBlankResetGeneration) & (sizeof(LONG64) - 1)) == 0);
 C_ASSERT((FIELD_OFFSET(DXGKRNL_ADAPTER, VsyncScanoutAddress) & (sizeof(LONG64) - 1)) == 0);
 C_ASSERT((FIELD_OFFSET(DXGKRNL_ADAPTER, VsyncScanoutSequence) & (sizeof(LONG64) - 1)) == 0);
+C_ASSERT((FIELD_OFFSET(DXGKRNL_ADAPTER, VsyncScanoutPresentId) & (sizeof(LONG64) - 1)) == 0);
 C_ASSERT((FIELD_OFFSET(DXGKRNL_ADAPTER, VsyncTargetSourceMap) & (sizeof(LONG64) - 1)) == 0);
 C_ASSERT((DXGK_SUBMITTED_FENCE_IDENTITY_CAPACITY & (DXGK_SUBMITTED_FENCE_IDENTITY_CAPACITY - 1)) == 0);
 

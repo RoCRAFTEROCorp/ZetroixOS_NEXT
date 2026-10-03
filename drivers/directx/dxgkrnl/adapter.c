@@ -7308,6 +7308,33 @@ DxgkCbNotifyInterrupt(
             InterlockedOr(&Adapter->VsyncPending, (LONG)(1UL << SourceId));
         }
     }
+#if (DXGKDDI_INTERFACE_VERSION >= DXGKDDI_INTERFACE_VERSION_WDDM2_1)
+    if (NotifyInterruptData->InterruptType == DXGK_INTERRUPT_CRTC_VSYNC_WITH_MULTIPLANE_OVERLAY2)
+    {
+        ULONG SourceId = DxgkVidPnVsyncSourceFromTarget(Adapter, NotifyInterruptData->CrtcVsyncWithMultiPlaneOverlay2.VidPnTargetId);
+        UINT PlaneIndex;
+
+        if (SourceId < RTL_NUMBER_OF(Adapter->VsyncScanoutPresentId))
+        {
+            for (PlaneIndex = 0;
+                 NotifyInterruptData->CrtcVsyncWithMultiPlaneOverlay2.pMultiPlaneOverlayVsyncInfo != NULL &&
+                 PlaneIndex < NotifyInterruptData->CrtcVsyncWithMultiPlaneOverlay2.MultiPlaneOverlayVsyncInfoCount;
+                 PlaneIndex++)
+            {
+                const DXGK_MULTIPLANE_OVERLAY_VSYNC_INFO2 *Info =
+                    &NotifyInterruptData->CrtcVsyncWithMultiPlaneOverlay2.pMultiPlaneOverlayVsyncInfo[PlaneIndex];
+
+                if (Info->LayerIndex == 0)
+                    InterlockedExchange64(&Adapter->VsyncScanoutPresentId[SourceId], (LONG64)Info->PresentId);
+            }
+            if (!NotifyInterruptData->Flags.HsyncFlipCompletion)
+            {
+                InterlockedIncrement64(&Adapter->VsyncScanoutSequence[SourceId]);
+                InterlockedOr(&Adapter->VsyncPending, (LONG)(1UL << SourceId));
+            }
+        }
+    }
+#endif
 
     VidSchNotifyInterrupt(Adapter, NotifyInterruptData);
     DxgkpReleaseVidSchCallback(Adapter);
@@ -13023,6 +13050,7 @@ DxgkAdapterStart(
     Adapter->FlipCaps.Value = 0;
     RtlZeroMemory((PVOID)Adapter->VsyncScanoutAddress, sizeof(Adapter->VsyncScanoutAddress));
     RtlZeroMemory((PVOID)Adapter->VsyncScanoutSequence, sizeof(Adapter->VsyncScanoutSequence));
+    RtlZeroMemory((PVOID)Adapter->VsyncScanoutPresentId, sizeof(Adapter->VsyncScanoutPresentId));
 
     /*
      * Node accounting starts from zero on every start, and the clock it is

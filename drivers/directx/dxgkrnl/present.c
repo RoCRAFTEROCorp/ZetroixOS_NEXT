@@ -3903,6 +3903,7 @@ DxgkpWaitForMmioScanout(
     _In_ LONG64 TargetSequence,
     _In_ BOOLEAN MatchAddress,
     _In_ PHYSICAL_ADDRESS Address,
+    _In_ ULONG64 PresentId,
     _Out_ PLONG64 ObservedSequence)
 {
     PDXGKRNL_ADAPTER Adapter = Queue->Adapter;
@@ -3911,6 +3912,7 @@ DxgkpWaitForMmioScanout(
     LARGE_INTEGER Timeout;
     LONG64 Sequence;
     LONG64 EffectiveAddress;
+    LONG64 EffectivePresentId;
     NTSTATUS Status;
 
     /* A periodic bounded wait also observes device/reset teardown when the
@@ -3930,8 +3932,10 @@ DxgkpWaitForMmioScanout(
 
         Sequence = InterlockedCompareExchange64(&Adapter->VsyncScanoutSequence[SourceId], 0, 0);
         EffectiveAddress = InterlockedCompareExchange64(&Adapter->VsyncScanoutAddress[SourceId], 0, 0);
+        EffectivePresentId = InterlockedCompareExchange64(&Adapter->VsyncScanoutPresentId[SourceId], 0, 0);
         if (Sequence == InterlockedCompareExchange64(&Adapter->VsyncScanoutSequence[SourceId], 0, 0) &&
-            Sequence >= TargetSequence && (!MatchAddress || EffectiveAddress == Address.QuadPart))
+            Sequence >= TargetSequence && (!MatchAddress || EffectiveAddress == Address.QuadPart) &&
+            (PresentId == 0 || (LONG64)((ULONG64)EffectivePresentId - PresentId) >= 0))
         {
             *ObservedSequence = Sequence;
             return STATUS_SUCCESS;
@@ -3989,6 +3993,46 @@ DxgkpSetMmioOverlays(
     return NT_SUCCESS(Call->Status);
 }
 
+#if (DXGKDDI_INTERFACE_VERSION >= DXGKDDI_INTERFACE_VERSION_WDDM2_1)
+typedef struct _DXGKP_MMIO_MPO3_CALL
+{
+    PDXGKRNL_ADAPTER Adapter;
+    DXGKARG_SETVIDPNSOURCEADDRESSWITHMULTIPLANEOVERLAY3 Args;
+    DXGK_MULTIPLANE_OVERLAY_PLANE3 Plane;
+    DXGK_MULTIPLANE_OVERLAY_PLANE3 *PlanePointer;
+    DXGK_PRIMARYCONTEXTDATA Primary;
+    DXGK_PRIMARYCONTEXTDATA *PrimaryPointer;
+    LONG64 ArmSequence;
+    NTSTATUS Status;
+} DXGKP_MMIO_MPO3_CALL;
+
+static BOOLEAN NTAPI
+DxgkpSetMmioMpo3(
+    _In_ PVOID Context)
+{
+    DXGKP_MMIO_MPO3_CALL *Call = Context;
+
+    Call->ArmSequence = InterlockedCompareExchange64(
+                            &Call->Adapter->VsyncScanoutSequence[Call->Args.VidPnSourceId], 0, 0);
+    Call->Status = DXGK_CB_FULL(Call->Adapter, DxgkDdiSetVidPnSourceAddressWithMultiPlaneOverlay3)(
+                       Call->Adapter->MiniportDeviceContext, &Call->Args);
+    return NT_SUCCESS(Call->Status);
+}
+#endif
+
+static BOOLEAN
+DxgkpMmioFlipUsesMpo3(
+    _In_ PDXGKRNL_ADAPTER Adapter)
+{
+    if (DXGK_CB_FULL(Adapter, DxgkDdiSetVidPnSourceAddress) != NULL)
+        return FALSE;
+#if (DXGKDDI_INTERFACE_VERSION >= DXGKDDI_INTERFACE_VERSION_WDDM2_1)
+    return DXGK_CB_FULL(Adapter, DxgkDdiSetVidPnSourceAddressWithMultiPlaneOverlay3) != NULL;
+#else
+    return FALSE;
+#endif
+}
+
 static NTSTATUS
 DxgkpExecuteMmioFlip(
     _In_ PDXGKRNL_ADAPTER Adapter,
@@ -4000,6 +4044,11 @@ DxgkpExecuteMmioFlip(
     DXGK_PRESENTALLOCATIONINFO AllocationInfo[DXGK_PRESENT_MAX_INDEX + 1];
     DXGKP_MMIO_FLIP_CALL FlipCall;
     DXGKP_MMIO_OVERLAY_CALL OverlayCall;
+#if (DXGKDDI_INTERFACE_VERSION >= DXGKDDI_INTERFACE_VERSION_WDDM2_1)
+    DXGKP_MMIO_MPO3_CALL Mpo3Call;
+#endif
+    ULONG64 WaitPresentId = 0;
+    BOOLEAN Mpo3CompleteOnReturn = FALSE;
     BOOLEAN OverlayPinned[RXGK_PRESENT_MAX_OVERLAYS] = {0};
     PHYSICAL_ADDRESS OverlayAddress[RXGK_PRESENT_MAX_OVERLAYS];
     ULONG OverlayIndex;
@@ -4024,7 +4073,7 @@ DxgkpExecuteMmioFlip(
         Allocation->MiniportHandle == NULL ||
         Allocation->PrimaryVidPnSourceId != Entry->VidPnSourceId ||
         DXGK_CB_FULL(Adapter, DxgkDdiPresent) == NULL ||
-        DXGK_CB_FULL(Adapter, DxgkDdiSetVidPnSourceAddress) == NULL)
+        (DXGK_CB_FULL(Adapter, DxgkDdiSetVidPnSourceAddress) == NULL && !DxgkpMmioFlipUsesMpo3(Adapter)))
     {
         return STATUS_NOT_SUPPORTED;
     }
@@ -4051,7 +4100,7 @@ DxgkpExecuteMmioFlip(
     TargetSequence = Queue->MmioLastFlipSequence;
     if (Entry->FlipInterval > D3DDDI_FLIPINTERVAL_ONE)
         TargetSequence += Entry->FlipInterval - 1;
-    Status = DxgkpWaitForMmioScanout(Queue, Entry, ResetGeneration, TargetSequence, FALSE, Address, &ObservedSequence);
+    Status = DxgkpWaitForMmioScanout(Queue, Entry, ResetGeneration, TargetSequence, FALSE, Address, 0, &ObservedSequence);
     if (!NT_SUCCESS(Status))
         goto Cleanup;
 
@@ -4175,7 +4224,64 @@ DxgkpExecuteMmioFlip(
         Status = STATUS_INVALID_DEVICE_STATE;
         goto Cleanup;
     }
-    if (Entry->OverlayCount == 0)
+    if (Entry->OverlayCount == 0 && DxgkpMmioFlipUsesMpo3(Adapter))
+    {
+#if (DXGKDDI_INTERFACE_VERSION >= DXGKDDI_INTERFACE_VERSION_WDDM2_1)
+        RtlZeroMemory(&Mpo3Call, sizeof(Mpo3Call));
+        Mpo3Call.Adapter = Adapter;
+        Mpo3Call.Primary.hContext = Entry->Context != NULL ? PresentContext : NULL;
+        Mpo3Call.Primary.hAllocation = Allocation->MiniportHandle;
+        Mpo3Call.Primary.SegmentId = (WORD)Allocation->SegmentId;
+        Mpo3Call.Primary.SegmentAddress = Address;
+        Mpo3Call.PrimaryPointer = &Mpo3Call.Primary;
+        Mpo3Call.Plane.LayerIndex = 0;
+        Mpo3Call.Plane.PresentId = Entry->PresentId;
+        Mpo3Call.Plane.InputFlags.Enabled = 1;
+        Mpo3Call.Plane.InputFlags.FlipImmediate = FlipCall.Args.Flags.FlipImmediate;
+        Mpo3Call.Plane.InputFlags.FlipOnNextVSync = FlipCall.Args.Flags.FlipOnNextVSync;
+        Mpo3Call.Plane.ContextCount = 1;
+        Mpo3Call.Plane.ppContextData = &Mpo3Call.PrimaryPointer;
+        Mpo3Call.Plane.PlaneAttributes.SrcRect = Entry->SrcRect;
+        Mpo3Call.Plane.PlaneAttributes.DstRect = Entry->DstRect;
+        Mpo3Call.Plane.PlaneAttributes.ClipRect = Entry->DstRect;
+        Mpo3Call.Plane.PlaneAttributes.Rotation = D3DDDI_ROTATION_IDENTITY;
+        Mpo3Call.Plane.PlaneAttributes.StretchQuality = DXGK_MULTIPLANE_OVERLAY_STRETCH_QUALITY_BILINEAR;
+        Mpo3Call.PlanePointer = &Mpo3Call.Plane;
+        Mpo3Call.Args.VidPnSourceId = Entry->VidPnSourceId;
+        Mpo3Call.Args.PlaneCount = 1;
+        Mpo3Call.Args.ppPlanes = &Mpo3Call.PlanePointer;
+        Status = DxgkSynchronizeScanoutExecution(Adapter, DxgkpSetMmioMpo3, &Mpo3Call, &Synchronized);
+        if (NT_SUCCESS(Status))
+            Status = Mpo3Call.Status;
+        if (Status == STATUS_RETRY && Mpo3Call.Args.OutputFlags.PrePresentNeeded)
+        {
+            Mpo3Call.Args.InputFlags.RetryAtLowerIrql = 1;
+            Mpo3Call.Args.OutputFlags.Value = 0;
+            Mpo3Call.ArmSequence = InterlockedCompareExchange64(&Adapter->VsyncScanoutSequence[Entry->VidPnSourceId], 0, 0);
+            _SEH2_TRY
+            {
+                Status = DXGK_CB_FULL(Adapter, DxgkDdiSetVidPnSourceAddressWithMultiPlaneOverlay3)(
+                             Adapter->MiniportDeviceContext, &Mpo3Call.Args);
+            }
+            _SEH2_EXCEPT(EXCEPTION_EXECUTE_HANDLER)
+            {
+                Status = _SEH2_GetExceptionCode();
+            }
+            _SEH2_END;
+        }
+        FlipCall.ArmSequence = Mpo3Call.ArmSequence;
+        WaitPresentId = Entry->PresentId;
+        Mpo3CompleteOnReturn =
+            (Mpo3Call.Plane.InputFlags.FlipImmediate || Mpo3Call.Plane.OutputFlags.FlipConvertedToImmediate)
+#if (DXGKDDI_INTERFACE_VERSION >= DXGKDDI_INTERFACE_VERSION_WDDM2_2)
+            && !Mpo3Call.Plane.OutputFlags.HsyncInterruptCompletion
+#endif
+            ;
+#else
+        Status = STATUS_NOT_SUPPORTED;
+#endif
+    }
+    else if (Entry->OverlayCount == 0)
     {
         Status = DxgkSynchronizeScanoutExecution(Adapter, DxgkpSetMmioSourceAddress, &FlipCall, &Synchronized);
         if (NT_SUCCESS(Status))
@@ -4224,7 +4330,15 @@ DxgkpExecuteMmioFlip(
     DxgkEndKmdTransaction(Adapter);
     KmdTransaction = FALSE;
 
-    Status = DxgkpWaitForMmioScanout(Queue, Entry, ResetGeneration, FlipCall.ArmSequence + 1, TRUE, Address, &ObservedSequence);
+    if (Mpo3CompleteOnReturn)
+    {
+        ObservedSequence = InterlockedCompareExchange64(&Adapter->VsyncScanoutSequence[Queue->VidPnSourceId], 0, 0);
+        Status = STATUS_SUCCESS;
+    }
+    else
+    {
+        Status = DxgkpWaitForMmioScanout(Queue, Entry, ResetGeneration, FlipCall.ArmSequence + 1, WaitPresentId == 0, Address, WaitPresentId, &ObservedSequence);
+    }
     if (NT_SUCCESS(Status))
     {
         PDXGKVMM_ALLOCATION Displaced = Queue->MmioCurrentAllocation;
