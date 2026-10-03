@@ -268,9 +268,28 @@ done:
 
 static
 BOOL
+IsLocalSystemToken(HANDLE hToken)
+{
+    struct
+    {
+        TOKEN_USER User;
+        BYTE Sid[SECURITY_MAX_SID_SIZE];
+    } Info;
+    DWORD Length;
+
+    if (!GetTokenInformation(hToken, TokenUser, &Info, sizeof(Info), &Length))
+        return FALSE;
+
+    return IsWellKnownSid(Info.User.User.Sid, WinLocalSystemSid);
+}
+
+
+static
+BOOL
 SetUserEnvironment(PWSTR* Environment,
                    HKEY hKey,
-                   LPWSTR lpSubKeyName)
+                   LPWSTR lpSubKeyName,
+                   BOOL bSkipTemp)
 {
     LONG Error;
     HKEY hEnvKey;
@@ -355,6 +374,12 @@ SetUserEnvironment(PWSTR* Environment,
                               &dwValueDataLength);
         if (Error == ERROR_SUCCESS)
         {
+            if (bSkipTemp &&
+                (!_wcsicmp(lpValueName, L"TEMP") || !_wcsicmp(lpValueName, L"TMP")))
+            {
+                continue;
+            }
+
             if (!_wcsicmp(lpValueName, L"PATH"))
             {
                 /* Append 'Path' environment variable */
@@ -720,12 +745,14 @@ CreateEnvironmentBlock(OUT LPVOID *lpEnvironment,
     /* Set user environment variables */
     SetUserEnvironment(Environment,
                        hKeyUser,
-                       L"Environment");
+                       L"Environment",
+                       IsLocalSystemToken(hToken));
 
     /* Set user volatile environment variables */
     SetUserEnvironment(Environment,
                        hKeyUser,
-                       L"Volatile Environment");
+                       L"Volatile Environment",
+                       FALSE);
 
     RegCloseKey(hKeyUser);
 
