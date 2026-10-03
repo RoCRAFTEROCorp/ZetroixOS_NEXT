@@ -1335,10 +1335,12 @@ LsapSetPrivileges(
         if (!NT_SUCCESS(Status))
             return Status;
 
-        for (i = 0; i < TokenInfo1->Groups->GroupCount; i++)
+        for (i = 0; i <= TokenInfo1->Groups->GroupCount; i++)
         {
             Status = LsarOpenAccount(PolicyHandle,
-                                     TokenInfo1->Groups->Groups[i].Sid,
+                                     (i < TokenInfo1->Groups->GroupCount) ?
+                                         TokenInfo1->Groups->Groups[i].Sid :
+                                         TokenInfo1->User.User.Sid,
                                      ACCOUNT_VIEW,
                                      &AccountHandle);
             if (!NT_SUCCESS(Status))
