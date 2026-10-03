@@ -1106,6 +1106,7 @@ DxgkVidMmMapVirtualPresentAllocation(
     _In_ struct _DXGKVMM_VIRTUAL_DMA_BACKING *Backing,
     _In_ PDXGKVMM_ALLOCATION Binding,
     _In_ PDXGKVMM_ALLOCATION Allocation,
+    _In_opt_ HANDLE UserAllocationHandle,
     _In_ BOOLEAN Write,
     _Out_ D3DGPU_VIRTUAL_ADDRESS *OutAddress);
 

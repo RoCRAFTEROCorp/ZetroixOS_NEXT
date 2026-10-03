@@ -4171,6 +4171,42 @@ DxgkGpuVaPinAllocationRange(
     return DxgkpGpuVaPinRange(Adapter, Process, Address, Size, FALSE, FALSE, NULL);
 }
 
+BOOLEAN
+DxgkGpuVaFindAllocationMapping(
+    _In_ PDXGKRNL_PROCESS Process,
+    _In_ HANDLE AllocationHandle,
+    _In_ ULONGLONG Size,
+    _Out_ D3DGPU_VIRTUAL_ADDRESS *OutAddress)
+{
+    PLIST_ENTRY Entry;
+    BOOLEAN Found = FALSE;
+
+    PAGED_CODE();
+    if (Process == NULL || AllocationHandle == NULL || Size == 0 || OutAddress == NULL)
+        return FALSE;
+    *OutAddress = 0;
+    ExAcquireFastMutex(&Process->GpuVaLock);
+    for (Entry = Process->GpuVaRangeList.Flink;
+         Entry != &Process->GpuVaRangeList;
+         Entry = Entry->Flink)
+    {
+        PDXGKRNL_GPUVA_RANGE Range = CONTAINING_RECORD(Entry, DXGKRNL_GPUVA_RANGE, RangeListEntry);
+
+        if (Range->State != GpuVaStateMapped || Range->Binding == NULL ||
+            Range->hAllocation != AllocationHandle || Range->AllocationOffset != 0 ||
+            Range->SizeInBytes < Size || Range->Protection.SystemUseOnly ||
+            Range->Protection.Zero || Range->Protection.NoAccess)
+        {
+            continue;
+        }
+        *OutAddress = Range->GpuVirtualAddress;
+        Found = TRUE;
+        break;
+    }
+    ExReleaseFastMutex(&Process->GpuVaLock);
+    return Found;
+}
+
 VOID
 DxgkGpuVaUnpinRange(
     _In_ PDXGKRNL_PROCESS Process,

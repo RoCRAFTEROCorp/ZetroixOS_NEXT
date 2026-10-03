@@ -3327,7 +3327,7 @@ DxgkpExecuteFullPresentMeasured(
         PresentAllocationInfo[DXGK_PRESENT_DESTINATION_INDEX].hDeviceSpecificAllocation = DestinationDeviceSpecificHandle;
         if (SourcePresentBinding != NULL)
         {
-            Status = DxgkVidMmMapVirtualPresentAllocation(DmaBuffer->VirtualBacking, SourcePresentBinding, Entry->SourceAllocation, Entry->hSource == Entry->hDestination, &PresentAllocationInfo[DXGK_PRESENT_SOURCE_INDEX].AllocationVirtualAddress);
+            Status = DxgkVidMmMapVirtualPresentAllocation(DmaBuffer->VirtualBacking, SourcePresentBinding, Entry->SourceAllocation, (HANDLE)(ULONG_PTR)Entry->hSource, Entry->hSource == Entry->hDestination, &PresentAllocationInfo[DXGK_PRESENT_SOURCE_INDEX].AllocationVirtualAddress);
             if (!NT_SUCCESS(Status))
                 goto PresentCleanup;
         }
@@ -3337,7 +3337,7 @@ DxgkpExecuteFullPresentMeasured(
         }
         else if (DestinationPresentBinding != NULL)
         {
-            Status = DxgkVidMmMapVirtualPresentAllocation(DmaBuffer->VirtualBacking, DestinationPresentBinding, Entry->DestinationAllocation, TRUE, &PresentAllocationInfo[DXGK_PRESENT_DESTINATION_INDEX].AllocationVirtualAddress);
+            Status = DxgkVidMmMapVirtualPresentAllocation(DmaBuffer->VirtualBacking, DestinationPresentBinding, Entry->DestinationAllocation, (HANDLE)(ULONG_PTR)Entry->hDestination, TRUE, &PresentAllocationInfo[DXGK_PRESENT_DESTINATION_INDEX].AllocationVirtualAddress);
             if (!NT_SUCCESS(Status))
                 goto PresentCleanup;
         }

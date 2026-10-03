@@ -362,6 +362,7 @@ typedef struct _DXGKVMM_VIRTUAL_DMA_BACKING
         PDXGKVMM_ALLOCATION Binding;
         BOOLEAN Write;
         BOOLEAN Pinned;
+        BOOLEAN Borrowed;
     } DataMappings[2];
 } DXGKVMM_VIRTUAL_DMA_BACKING, *PDXGKVMM_VIRTUAL_DMA_BACKING;
 
@@ -1539,7 +1540,7 @@ DxgkpVidMmFreeVirtualDmaBufferMapping(
         DxgkGpuVaUnpinRange(Device->ProcessRecord, Backing->DataMappings[Index].Address, Backing->DataMappings[Index].Size);
     /* Binding invalidation leaves a reservation behind. These ranges
      * were allocated privately for Present, not reserved by a UMD. */
-    Status = DxgkGpuVaFree(Device->ProcessRecord, Backing->DataMappings[Index].Address, Backing->DataMappings[Index].Size);
+    Status = Backing->DataMappings[Index].Borrowed ? STATUS_SUCCESS : DxgkGpuVaFree(Device->ProcessRecord, Backing->DataMappings[Index].Address, Backing->DataMappings[Index].Size);
     Backing->DataMappingCount--;
     if (Index != Backing->DataMappingCount)
         Backing->DataMappings[Index] = Backing->DataMappings[Backing->DataMappingCount];
@@ -1617,11 +1618,14 @@ DxgkVidMmMapVirtualPresentAllocation(
     _In_ PDXGKVMM_VIRTUAL_DMA_BACKING Backing,
     _In_ PDXGKVMM_ALLOCATION Binding,
     _In_ PDXGKVMM_ALLOCATION Allocation,
+    _In_opt_ HANDLE UserAllocationHandle,
     _In_ BOOLEAN Write,
     _Out_ D3DGPU_VIRTUAL_ADDRESS *OutAddress)
 {
     D3DDDIGPUVIRTUALADDRESS_PROTECTION_TYPE Protection;
     PDXGKRNL_DEVICE Device = Backing->Device;
+    D3DGPU_VIRTUAL_ADDRESS UserAddress = 0;
+    BOOLEAN Borrowed;
     NTSTATUS Status;
     ULONG Index;
 
@@ -1630,14 +1634,19 @@ DxgkVidMmMapVirtualPresentAllocation(
         Allocation == NULL || OutAddress == NULL)
         return STATUS_INVALID_PARAMETER;
 
+    Borrowed = UserAllocationHandle != NULL &&
+               DxgkGpuVaFindAllocationMapping(Device->ProcessRecord, UserAllocationHandle, Allocation->Size, &UserAddress);
+
     /* Reuse the mapping of an earlier Present through the same binding.
      * The pin validates it: a binding destroyed since (allocation
      * generation change) had its range invalidated, and the pin fails. */
     for (Index = 0; Index < Backing->DataMappingCount; Index++)
     {
-        if (Backing->DataMappings[Index].Binding != Binding ||
+        if (Backing->DataMappings[Index].Borrowed != Borrowed ||
             Backing->DataMappings[Index].Size != Allocation->Size ||
-            Backing->DataMappings[Index].Write != Write)
+            (Borrowed ? Backing->DataMappings[Index].Address != UserAddress :
+                        (Backing->DataMappings[Index].Binding != Binding ||
+                         Backing->DataMappings[Index].Write != Write)))
             continue;
         if (Backing->DataMappings[Index].Pinned ||
             DxgkGpuVaPinAllocationRange(Device->Adapter, Device->ProcessRecord, Backing->DataMappings[Index].Address, Allocation->Size))
@@ -1664,6 +1673,20 @@ DxgkVidMmMapVirtualPresentAllocation(
             return STATUS_INVALID_PARAMETER;
     }
 
+    if (Borrowed &&
+        DxgkGpuVaPinAllocationRange(Device->Adapter, Device->ProcessRecord, UserAddress, Allocation->Size))
+    {
+        Index = Backing->DataMappingCount++;
+        Backing->DataMappings[Index].Address = UserAddress;
+        Backing->DataMappings[Index].Size = Allocation->Size;
+        Backing->DataMappings[Index].Binding = Binding;
+        Backing->DataMappings[Index].Write = Write;
+        Backing->DataMappings[Index].Pinned = TRUE;
+        Backing->DataMappings[Index].Borrowed = TRUE;
+        *OutAddress = UserAddress;
+        return STATUS_SUCCESS;
+    }
+
     Protection.Value = 0;
     Protection.Write = Write;
     Status = DxgkGpuVaMap(Device->Adapter, Device->ProcessRecord, Allocation, Binding->Handle, 0, 0, 0, 0, Allocation->Size, Protection, 0, 0, OutAddress);
@@ -1677,6 +1700,7 @@ DxgkVidMmMapVirtualPresentAllocation(
     Backing->DataMappings[Index].Binding = Binding;
     Backing->DataMappings[Index].Write = Write;
     Backing->DataMappings[Index].Pinned = FALSE;
+    Backing->DataMappings[Index].Borrowed = FALSE;
     Status = DxgkGpuVaFlushPageTableUpdates(Device->ProcessRecord);
     if (!NT_SUCCESS(Status))
         return Status;

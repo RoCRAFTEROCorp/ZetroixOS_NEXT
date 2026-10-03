@@ -2652,6 +2652,13 @@ DxgkGpuVaPinAllocationRange(
     _In_ D3DGPU_VIRTUAL_ADDRESS Address,
     _In_ ULONGLONG Size);
 
+BOOLEAN
+DxgkGpuVaFindAllocationMapping(
+    _In_ PDXGKRNL_PROCESS Process,
+    _In_ HANDLE AllocationHandle,
+    _In_ ULONGLONG Size,
+    _Out_ D3DGPU_VIRTUAL_ADDRESS *OutAddress);
+
 NTSTATUS
 DxgkGpuVaValidateUpdate(
     _In_ PDXGKRNL_ADAPTER Adapter,
