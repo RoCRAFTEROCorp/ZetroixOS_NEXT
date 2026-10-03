@@ -4175,6 +4175,8 @@ IntCompositionDwmDxSurface(_In_ PVOID pUser)
             break;
 
         case DWM_DX_SURFACE_UPDATE:
+            if (Entry->Redirect.DxGlobalShare == 0)
+                return STATUS_NOT_FOUND;
             if (Request.Window != Entry->Redirect.DxWindow ||
                 (Entry->Redirect.DxFlags & DWM_DX_PUBLISH_LAYER) ||
                 !IntCompositionUpdateDxPlacement(SourceWnd, TopWnd,

@@ -600,6 +600,8 @@ DwmpDxUpdateWindowSharedSurface(HWND Window,
         Exchange.UpdateRect = *(const RECTL *)UpdateRect;
     Status = (NTSTATUS)NtUserCallOneParam((DWORD_PTR)&Exchange,
                                           DWM_ROUTINE_DXSURFACE);
+    if (Status == STATUS_NOT_FOUND)
+        return S_FALSE;
     if (!NT_SUCCESS(Status))
         DwmDxReportFailure("update", Status);
     return DwmDxStatusToHresult(Status);
