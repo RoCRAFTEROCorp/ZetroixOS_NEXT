@@ -166,6 +166,8 @@ SETUP_CreateInterfaceList(
             KEY_QUERY_VALUE,
             &hKey);
         RegCloseKey(hEnumKey);
+        if (rc == ERROR_FILE_NOT_FOUND)
+            continue;
         if (rc != ERROR_SUCCESS)
             goto cleanup;
         dwLength = sizeof(KeyBuffer) - sizeof(WCHAR);
@@ -617,4 +619,52 @@ SetupDiDeleteDeviceInterfaceData(
     FIXME("SetupDiDeleteDeviceInterfaceData(%p %p) stub\n",
           DeviceInfoSet, DeviceInterfaceData);
     return TRUE;
+}
+
+LONG
+SETUP_CreateAllInterfaceLists(
+    struct DeviceInfoSet *list,
+    PCWSTR MachineName,
+    PCWSTR DeviceInstanceW,
+    BOOL OnlyPresentInterfaces)
+{
+    WCHAR KeyName[MAX_GUID_STRING_LEN + 1];
+    GUID InterfaceGuid;
+    HKEY hClassesKey;
+    DWORD Index, Length;
+    LONG rc;
+
+    rc = RegOpenKeyExW(list->HKLM, REGSTR_PATH_DEVICE_CLASSES, 0, KEY_ENUMERATE_SUB_KEYS, &hClassesKey);
+    if (rc == ERROR_FILE_NOT_FOUND)
+        return ERROR_SUCCESS;
+    if (rc != ERROR_SUCCESS)
+        return rc;
+
+    for (Index = 0; ; Index++)
+    {
+        Length = ARRAY_SIZE(KeyName);
+        rc = RegEnumKeyExW(hClassesKey, Index, KeyName, &Length, NULL, NULL, NULL, NULL);
+        if (rc == ERROR_NO_MORE_ITEMS)
+        {
+            rc = ERROR_SUCCESS;
+            break;
+        }
+        if (rc == ERROR_MORE_DATA)
+            continue;
+        if (rc != ERROR_SUCCESS)
+            break;
+        if (Length != MAX_GUID_STRING_LEN - 1 || KeyName[0] != '{' || KeyName[Length - 1] != '}')
+            continue;
+
+        KeyName[Length - 1] = UNICODE_NULL;
+        if (UuidFromStringW(&KeyName[1], &InterfaceGuid) != RPC_S_OK)
+            continue;
+
+        rc = SETUP_CreateInterfaceList(list, MachineName, &InterfaceGuid, DeviceInstanceW, OnlyPresentInterfaces);
+        if (rc != ERROR_SUCCESS)
+            break;
+    }
+
+    RegCloseKey(hClassesKey);
+    return rc;
 }

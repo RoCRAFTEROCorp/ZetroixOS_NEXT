@@ -414,6 +414,13 @@ SETUP_CreateInterfaceList(
     PCWSTR DeviceInstanceW /* OPTIONAL */,
     BOOL OnlyPresentInterfaces);
 
+LONG
+SETUP_CreateAllInterfaceLists(
+    struct DeviceInfoSet *list,
+    PCWSTR MachineName,
+    PCWSTR DeviceInstanceW,
+    BOOL OnlyPresentInterfaces);
+
 /* misc.c */
 
 DWORD

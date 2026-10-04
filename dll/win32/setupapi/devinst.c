@@ -2504,12 +2504,15 @@ HDEVINFO WINAPI SetupDiGetClassDevsExW(
 
     if (flags & DIGCF_DEVICEINTERFACE)
     {
-        if (!class)
+        if (flags & DIGCF_ALLCLASSES)
+            rc = SETUP_CreateAllInterfaceLists(list, machine, enumstr, flags & DIGCF_PRESENT);
+        else if (!class)
         {
             SetLastError(ERROR_INVALID_PARAMETER);
             goto cleanup;
         }
-        rc = SETUP_CreateInterfaceList(list, machine, class, enumstr, flags & DIGCF_PRESENT);
+        else
+            rc = SETUP_CreateInterfaceList(list, machine, class, enumstr, flags & DIGCF_PRESENT);
     }
     else
     {
