@@ -480,9 +480,17 @@ static BOOL test_modules(void)
     IMAGEHLP_MODULEW64 im;
     USHORT machine_wow, machine2;
     HANDLE dummy = (HANDLE)(ULONG_PTR)0xcafef00d;
+#ifdef __REACTOS__
+    char target_dll[MAX_PATH];
+#else
     const char* target_dll = "c:\\windows\\system32\\kernel32.dll";
+#endif
     unsigned count;
 
+#ifdef __REACTOS__
+    GetSystemDirectoryA(target_dll, MAX_PATH);
+    strcat(target_dll, "\\kernel32.dll");
+#endif
     im.SizeOfStruct = sizeof(im);
 
     /* can sym load an exec of different bitness even if 32Bit flag not set */
@@ -599,16 +607,35 @@ static void test_modules_overlap(void)
     DWORD64 base[2];
     const DWORD64 base1 = 0x00010000;
     HANDLE dummy = (HANDLE)(ULONG_PTR)0xcafef00d;
+#ifdef __REACTOS__
+    char target1_dll[MAX_PATH], target2_dll[MAX_PATH], target3_dll[MAX_PATH];
+#else
     const char* target1_dll = "c:\\windows\\system32\\kernel32.dll";
     const char* target2_dll = "c:\\windows\\system32\\winmm.dll";
     const char* target3_dll = "c:\\windows\\system32\\idontexist.dll";
+#endif
     char buffer[512];
     IMAGEHLP_SYMBOL64* sym = (void*)buffer;
 
     int i, j;
+#ifdef __REACTOS__
+    struct test_module target1_dflt;
+    DWORD64 base0, imsize0;
+
+    GetSystemDirectoryA(target1_dll, MAX_PATH);
+    strcpy(target2_dll, target1_dll);
+    strcpy(target3_dll, target1_dll);
+    strcat(target1_dll, "\\kernel32.dll");
+    strcat(target2_dll, "\\winmm.dll");
+    strcat(target3_dll, "\\idontexist.dll");
+    target1_dflt = get_test_module(target1_dll);
+    base0 = target1_dflt.base;
+    imsize0 = target1_dflt.size;
+#else
     struct test_module target1_dflt = get_test_module(target1_dll);
     DWORD64 base0 = target1_dflt.base;
     DWORD64 imsize0 = target1_dflt.size;
+#endif
     const struct test
     {
         DWORD64             first_base;
