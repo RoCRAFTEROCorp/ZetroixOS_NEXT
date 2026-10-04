@@ -304,7 +304,7 @@ RtlIsNameLegalDOS8Dot3(IN PCUNICODE_STRING Name,
     if ((OemName->Length > 12) || (OemName->Buffer == NULL)) return FALSE;
 
     /* a starting . is invalid, except for . and .. */
-    if (OemName->Buffer[0] == '.')
+    if (OemName->Length > 0 && OemName->Buffer[0] == '.')
     {
         if (OemName->Length != 1 && (OemName->Length != 2 || OemName->Buffer[1] != '.')) return FALSE;
         if (NameContainsSpaces) *NameContainsSpaces = FALSE;

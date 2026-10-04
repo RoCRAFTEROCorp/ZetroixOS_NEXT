@@ -2016,7 +2016,7 @@ RtlUpcaseUnicodeStringToCountedOemString(
 
     Length = RtlUnicodeStringToCountedOemSize(UniSource);
 
-    if (!Length)
+    if (!Length && AllocateDestinationString)
     {
         RtlZeroMemory(OemDest, sizeof(OEM_STRING));
     }
