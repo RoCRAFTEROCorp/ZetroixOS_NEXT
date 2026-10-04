@@ -195,11 +195,23 @@ static void DoMessageBoxW(const wchar_t *lead, const wchar_t *message)
 {
   MSGBOXPARAMSW msgbox;
   wchar_t text[2048];
+#ifdef __REACTOS__
+  wchar_t path[MAX_PATH];
+#endif
   INT ret;
 
+#ifdef __REACTOS__
+  if (!GetModuleFileNameW(0, path, ARRAY_SIZE(path)))
+    path[0] = 0;
+  path[ARRAY_SIZE(path) - 1] = 0;
+  _snwprintf(text, ARRAY_SIZE(text), L"%ls\n\nProgram: %ls\n%ls\n\n"
+          L"Press OK to exit the program, or Cancel to start the Wine debugger.\n",
+          lead, path, message);
+#else
   _snwprintf(text, ARRAY_SIZE(text), L"%ls\n\nProgram: %ls\n%ls\n\n"
           L"Press OK to exit the program, or Cancel to start the Wine debugger.\n",
           lead, MSVCRT__wpgmptr, message);
+#endif
 
   msgbox.cbSize = sizeof(msgbox);
   msgbox.hwndOwner = GetActiveWindow();

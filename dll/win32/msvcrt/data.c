@@ -448,6 +448,7 @@ void msvcrt_init_args(void)
       MSVCRT__pgmptr[MAX_PATH - 1] = '\0';
   }
 
+#ifndef __REACTOS__
   MSVCRT__wpgmptr = HeapAlloc(GetProcessHeap(), 0, MAX_PATH * sizeof(WCHAR));
   if (MSVCRT__wpgmptr)
   {
@@ -456,8 +457,25 @@ void msvcrt_init_args(void)
     else
       MSVCRT__wpgmptr[MAX_PATH - 1] = '\0';
   }
+#endif
 }
 
+#ifdef __REACTOS__
+static void init_wpgmptr(void)
+{
+  WCHAR *path;
+
+  if (MSVCRT__wpgmptr) return;
+  path = HeapAlloc(GetProcessHeap(), 0, MAX_PATH * sizeof(WCHAR));
+  if (!path) return;
+  if (!GetModuleFileNameW(0, path, MAX_PATH))
+    path[0] = '\0';
+  else
+    path[MAX_PATH - 1] = '\0';
+  MSVCRT__wpgmptr = path;
+}
+
+#endif
 /* INTERNAL: free memory used by args */
 void msvcrt_free_args(void)
 {
@@ -538,6 +556,10 @@ int CDECL __wgetmainargs(int *argc, wchar_t** *wargv, wchar_t** *wenvp,
 {
     TRACE("(%p,%p,%p,%d,%p).\n", argc, wargv, wenvp, expand_wildcards, new_mode);
 
+#ifdef __REACTOS__
+    init_wpgmptr();
+
+#endif
     if (expand_wildcards) {
         HeapFree(GetProcessHeap(), 0, wargv_expand);
         wargv_expand = HeapAlloc(GetProcessHeap(), 0,
@@ -715,6 +737,9 @@ char** CDECL _get_initial_narrow_environment(void)
 int CDECL _configure_wide_argv(int mode)
 {
   WARN("(%d) stub\n", mode);
+#ifdef __REACTOS__
+  init_wpgmptr();
+#endif
   return 0;
 }
 
