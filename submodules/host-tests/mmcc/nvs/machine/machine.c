@@ -167,6 +167,13 @@ MiArchSetFrameCache(ULONG Frame, ULONG Flags)
     return STATUS_SUCCESS;
 }
 
+VOID
+MiArchSyncInstructionCache(_In_ PVOID BaseAddress, _In_ SIZE_T Length)
+{
+    UNREFERENCED_PARAMETER(BaseAddress);
+    UNREFERENCED_PARAMETER(Length);
+}
+
 ULONG64
 MiArchBootFrameAlias(ULONG Frame)
 {
