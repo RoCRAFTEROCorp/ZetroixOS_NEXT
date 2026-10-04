@@ -126,6 +126,14 @@ HKCR
             Version = s '1.2'
             VersionIndependentProgId = s 'WbemScripting.SWbemLocator'
         }
+        '{9AED384E-CE8B-11D1-8B05-00600806D9B6}' = s 'SWbemNamedValueSet'
+        {
+            InprocServer32 = s '%MODULE%' { val ThreadingModel = s 'Apartment' }
+            ProgId = s 'WbemScripting.SWbemNamedValueSet.1'
+            TypeLib = s '{565783C6-CB41-11D1-8B02-00600806D9B6}'
+            Version = s '1.2'
+            VersionIndependentProgId = s 'WbemScripting.SWbemNamedValueSet'
+        }
     }
     'WbemScripting.SWbemLocator.1' = s 'SWbemLocator'
     {
@@ -135,5 +143,14 @@ HKCR
     {
         CLSID = s '{76A64158-CB41-11D1-8B02-00600806D9B6}'
         CurVer = s 'WbemScripting.SWbemLocator.1'
+    }
+    'WbemScripting.SWbemNamedValueSet.1' = s 'SWbemNamedValueSet'
+    {
+        CLSID = s '{9AED384E-CE8B-11D1-8B05-00600806D9B6}'
+    }
+    'WbemScripting.SWbemNamedValueSet' = s 'SWbemNamedValueSet'
+    {
+        CLSID = s '{9AED384E-CE8B-11D1-8B05-00600806D9B6}'
+        CurVer = s 'WbemScripting.SWbemNamedValueSet.1'
     }
 }
