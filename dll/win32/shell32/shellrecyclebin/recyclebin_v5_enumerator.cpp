@@ -353,7 +353,8 @@ RecycleBin5Enum::~RecycleBin5Enum()
     TRACE("(%p)\n", this);
 
     m_recycleBin->OnClosing(this);
-    UnmapViewOfFile(m_pInfo);
+    if (m_pInfo)
+        UnmapViewOfFile(m_pInfo);
     m_recycleBin->Release();
     SHFree(m_pszPrefix);
 }
@@ -378,6 +379,13 @@ STDMETHODIMP RecycleBin5Enum::Next(DWORD celt, IRecycleBinFile **rgelt, DWORD *p
         return E_POINTER;
     if (!pceltFetched && celt > 1)
         return E_INVALIDARG;
+
+    if (!m_pInfo)
+    {
+        if (pceltFetched)
+            *pceltFetched = 0;
+        return S_FALSE;
+    }
 
     ULARGE_INTEGER FileSize;
     FileSize.u.LowPart = GetFileSize(m_hInfo, &FileSize.u.HighPart);
@@ -445,6 +453,9 @@ RecycleBin5Enum::Init(
         return hr;
 
     m_hInfo = hInfo;
+    if (!hInfoMapped)
+        return S_OK;
+
     m_pInfo = (PINFO2_HEADER)MapViewOfFile(hInfoMapped, FILE_MAP_READ, 0, 0, 0);
     if (!m_pInfo)
         return HResultFromWin32(GetLastError());

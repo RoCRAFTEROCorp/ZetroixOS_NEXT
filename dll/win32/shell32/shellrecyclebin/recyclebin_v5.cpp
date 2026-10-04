@@ -170,6 +170,9 @@ protected:
     DWORD m_EnumeratorCount;
     CStringW m_VolumePath;
     CStringW m_Folder; /* [drive]:\[RECYCLE_BIN_DIRECTORY]\{SID} */
+    PSID m_OwnerSid;
+
+    HRESULT EnsureDatabase();
 };
 
 STDMETHODIMP RecycleBin5::QueryInterface(_In_ REFIID riid, _Out_ void **ppvObject)
@@ -207,6 +210,7 @@ RecycleBin5::~RecycleBin5()
         CloseHandle(m_hInfo);
     if (m_hInfoMapped)
         CloseHandle(m_hInfoMapped);
+    HeapFree(GetProcessHeap(), 0, m_OwnerSid);
 }
 
 STDMETHODIMP_(ULONG) RecycleBin5::Release()
@@ -277,6 +281,10 @@ STDMETHODIMP RecycleBin5::DeleteFile(_In_ LPCWSTR szFileName)
         CoTaskMemFree(szFullName);
         return HRESULT_FROM_WIN32(ERROR_INVALID_NAME);
     }
+
+    hr = EnsureDatabase();
+    if (FAILED(hr))
+        goto cleanup;
 
     hFile = CreateFileW(szFullName, 0, 0, NULL, OPEN_EXISTING, (dwAttributes & FILE_ATTRIBUTE_DIRECTORY) ? FILE_FLAG_BACKUP_SEMANTICS : 0, NULL);
     if (hFile == INVALID_HANDLE_VALUE)
@@ -502,6 +510,9 @@ STDMETHODIMP RecycleBin5::RemoveFromDatabase(
     if (m_EnumeratorCount != 0)
         return HRESULT_FROM_WIN32(ERROR_SHARING_VIOLATION);
 
+    if (!m_hInfoMapped)
+        return HRESULT_FROM_WIN32(ERROR_FILE_NOT_FOUND);
+
     pHeader = (PINFO2_HEADER)MapViewOfFile(m_hInfoMapped, FILE_MAP_WRITE, 0, 0, 0);
     if (!pHeader)
         return HRESULT_FROM_WIN32(GetLastError());
@@ -664,11 +675,46 @@ cleanup:
     return hr;
 }
 
+HRESULT RecycleBin5::EnsureDatabase()
+{
+    CStringW InfoPath;
+    HRESULT hr;
+
+    if (m_hInfoMapped)
+        return S_OK;
+
+    hr = RecycleBin5_Create(m_Folder, m_OwnerSid);
+    if (FAILED(hr))
+        return hr;
+
+    InfoPath = m_Folder;
+    InfoPath += L"\\" RECYCLE_BIN_FILE_NAME;
+    m_hInfo = CreateFileW(InfoPath, GENERIC_READ | GENERIC_WRITE, 0, NULL, OPEN_EXISTING, 0, NULL);
+    if (m_hInfo == INVALID_HANDLE_VALUE)
+    {
+        hr = HRESULT_FROM_WIN32(GetLastError());
+        m_hInfo = NULL;
+        return hr;
+    }
+
+    m_hInfoMapped = CreateFileMappingW(m_hInfo, NULL, PAGE_READWRITE | SEC_COMMIT, 0, 0, NULL);
+    if (!m_hInfoMapped)
+    {
+        hr = HRESULT_FROM_WIN32(GetLastError());
+        CloseHandle(m_hInfo);
+        m_hInfo = NULL;
+        return hr;
+    }
+
+    return S_OK;
+}
+
 RecycleBin5::RecycleBin5()
     : m_ref(1)
     , m_hInfo(NULL)
     , m_hInfoMapped(NULL)
     , m_EnumeratorCount(0)
+    , m_OwnerSid(NULL)
 {
 }
 
@@ -748,12 +794,26 @@ HRESULT RecycleBin5::Init(_In_ LPCWSTR VolumePath)
     if (m_hInfo == INVALID_HANDLE_VALUE &&
         (GetLastError() == ERROR_PATH_NOT_FOUND || GetLastError() == ERROR_FILE_NOT_FOUND))
     {
+        m_hInfo = NULL;
         m_Folder = m_Folder.Left(len);
-        hr = RecycleBin5_Create(m_Folder, TokenUserInfo ? TokenUserInfo->User.Sid : NULL);
-        m_Folder += L"\\" RECYCLE_BIN_FILE_NAME;
-        if (!SUCCEEDED(hr))
-            goto cleanup;
-        m_hInfo = CreateFileW(m_Folder, GENERIC_READ | GENERIC_WRITE, 0, NULL, OPEN_EXISTING, 0, NULL);
+        if (TokenUserInfo)
+        {
+            DWORD SidLength = GetLengthSid(TokenUserInfo->User.Sid);
+
+            m_OwnerSid = HeapAlloc(GetProcessHeap(), 0, SidLength);
+            if (!m_OwnerSid)
+            {
+                hr = E_OUTOFMEMORY;
+                goto cleanup;
+            }
+            if (!CopySid(SidLength, m_OwnerSid, TokenUserInfo->User.Sid))
+            {
+                hr = HRESULT_FROM_WIN32(GetLastError());
+                goto cleanup;
+            }
+        }
+        hr = S_OK;
+        goto cleanup;
     }
 
     if (m_hInfo == INVALID_HANDLE_VALUE)
