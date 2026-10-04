@@ -35,7 +35,7 @@ GetVolumeNameForVolumeMountPointA(IN LPCSTR lpszVolumeMountPoint,
     /* Initialize the strings we'll use for convention */
     VolumeName.Buffer = lpszVolumeName;
     VolumeName.Length = 0;
-    VolumeName.MaximumLength = cchBufferLength - 1;
+    VolumeName.MaximumLength = cchBufferLength;
 
     VolumeNameU.Length = 0;
     VolumeNameU.MaximumLength = (cchBufferLength - 1) * sizeof(WCHAR) + sizeof(UNICODE_NULL);
