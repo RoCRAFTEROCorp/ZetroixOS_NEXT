@@ -1458,9 +1458,13 @@ MiCreateSectionWithMode(
     }
     else if (AllocationAttributes & SEC_IMAGE)
     {
-        Status = MiValidateImageSigningPolicy(File);
+        Status = MiCreateImageControlArea(File, &Control);
         if (NT_SUCCESS(Status))
-            Status = MiCreateImageControlArea(File, &Control);
+        {
+            Status = MiValidateImageSigningPolicy(File);
+            if (!NT_SUCCESS(Status))
+                MiDereferenceControlArea(Control);
+        }
         if (NT_SUCCESS(Status))
         {
             Size = (MaximumSize != NULL && MaximumSize->QuadPart != 0) ? (ULONG64)MaximumSize->QuadPart
