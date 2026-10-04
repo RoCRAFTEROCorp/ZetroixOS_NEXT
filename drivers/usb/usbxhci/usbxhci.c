@@ -5205,7 +5205,7 @@ XHCI_ResetDeviceOnPort(
     {
         /* RESET_DEVICE succeeded - slot is now in Default state */
         Slot->Addressed = FALSE;
-        DPRINT1("usbxhci: ResetDeviceOnPort: RESET_DEV succeeded for slot %u on port %u, now in Default state\n",
+        DPRINT("usbxhci: ResetDeviceOnPort: RESET_DEV succeeded for slot %u on port %u, now in Default state\n",
                 Slot->SlotId, PortNumber);
     }
     else
@@ -5245,7 +5245,7 @@ XHCI_MpResetDevice(
 
     if (!Slot->PortResetSinceAddress)
     {
-        DPRINT1("usbxhci: MpResetDevice: no port reset since ADDRESS_DEV for slot %u on port %u, skipping RESET_DEV\n",
+        DPRINT("usbxhci: MpResetDevice: no port reset since ADDRESS_DEV for slot %u on port %u, skipping RESET_DEV\n",
                 Slot->SlotId, PortNumber);
         return MP_STATUS_SUCCESS;
     }
@@ -9549,7 +9549,7 @@ XHCI_ProbeMsiMsix(
             if (XHCI_ReadPciConfig(Extension, CapPtr + 2, &MsiControl, sizeof(MsiControl)))
             {
                 Extension->MsiEnabled = (MsiControl & 0x0001) ? TRUE : FALSE;
-                DPRINT1("usbxhci: MSI control=0x%04x MMC=%u enabled=%u\n",
+                DPRINT("usbxhci: MSI control=0x%04x MMC=%u enabled=%u\n",
                         MsiControl,
                         (MsiControl >> 1) & 0x7,
                         Extension->MsiEnabled ? 1 : 0);

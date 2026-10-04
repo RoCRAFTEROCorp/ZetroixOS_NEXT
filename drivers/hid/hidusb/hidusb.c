@@ -1954,7 +1954,7 @@ Hid_SetIdle(
     //
     // print status
     //
-    DPRINT1("Status %x\n", Status);
+    DPRINT("Status %x\n", Status);
     return Status;
 }
 

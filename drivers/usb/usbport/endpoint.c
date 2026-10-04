@@ -560,7 +560,7 @@ USBPORT_SetEndpointState(IN PUSBPORT_ENDPOINT Endpoint,
             State == USBPORT_ENDPOINT_REMOVE &&
             !USBPORT_EndpointHasAsyncState(Endpoint, Packet))
         {
-            DPRINT1("USBPORT_SetEndpointState: ABORTING+REMOVE fast path Endpoint=%p\n",
+            DPRINT("USBPORT_SetEndpointState: ABORTING+REMOVE fast path Endpoint=%p\n",
                     Endpoint);
 
             Endpoint->StateLast = State;
@@ -741,7 +741,7 @@ USBPORT_DeleteEndpoint(IN PDEVICE_OBJECT FdoDevice,
     BOOLEAN Result;
     KIRQL OldIrql;
 
-    DPRINT1("USBPORT_DeleteEndpoint: Endpoint - %p\n", Endpoint);
+    DPRINT("USBPORT_DeleteEndpoint: Endpoint - %p\n", Endpoint);
 
     FdoExtension = FdoDevice->DeviceExtension;
 
@@ -863,7 +863,7 @@ USBPORT_ClosePipe(IN PUSBPORT_DEVICE_HANDLE DeviceHandle,
     BOOLEAN IsReady;
     KIRQL OldIrql;
 
-    DPRINT1("USBPORT_ClosePipe \n");
+    DPRINT("USBPORT_ClosePipe \n");
 
     FdoExtension = FdoDevice->DeviceExtension;
 

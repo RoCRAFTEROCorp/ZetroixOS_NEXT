@@ -1276,7 +1276,7 @@ USBHI_RootHubInitNotification(IN PVOID BusContext,
     PdoExtension->RootHubInitContext = CallbackContext;
     PdoExtension->RootHubInitCallback = CallbackFunction;
 
-    DPRINT1("USBHI_RootHubInitNotification: stored callback %p ctx=%p seq=%lu caller=%p\n",
+    DPRINT("USBHI_RootHubInitNotification: stored callback %p ctx=%p seq=%lu caller=%p\n",
             CallbackFunction,
             CallbackContext,
             CallbackData->Sequence,
@@ -1775,7 +1775,7 @@ USBPORT_PdoQueryInterface(IN PDEVICE_OBJECT FdoDevice,
         if (NT_SUCCESS(Status))
         {
             /* Print interface */
-            DPRINT1("HandleQueryInterface UNKNOWN INTERFACE GUID: %wZ Version %x\n",
+            DPRINT("HandleQueryInterface UNKNOWN INTERFACE GUID: %wZ Version %x\n",
                     &GuidBuffer,
                     IoStack->Parameters.QueryInterface.Version);
 

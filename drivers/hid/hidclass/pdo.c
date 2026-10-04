@@ -568,7 +568,7 @@ HidClassPDO_PnP(
                 break;
             }
 
-            DPRINT1("[HIDCLASS]: IRP_MN_QUERY_ID IdType %x unimplemented\n", IoStack->Parameters.QueryId.IdType);
+            DPRINT("[HIDCLASS]: IRP_MN_QUERY_ID IdType %x unimplemented\n", IoStack->Parameters.QueryId.IdType);
             Status = STATUS_NOT_SUPPORTED;
             Irp->IoStatus.Information = 0;
             break;

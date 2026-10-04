@@ -12,7 +12,7 @@
 
 #if DBG
 #ifndef USBHUB_DBG_CONFIG_TRACE
-#define USBHUB_DBG_CONFIG_TRACE 1
+#define USBHUB_DBG_CONFIG_TRACE 0
 #endif
 #if USBHUB_DBG_CONFIG_TRACE
 #define USBHUB_CFG_TRACE DPRINT1
@@ -24,6 +24,7 @@
 #endif
 
 /* Enable SCE/PNP/enumeration debug output for usbhub in debug builds. */
+#define NDEBUG_USBHUB_SCE
 #include "dbg_uhub.h"
 
 #include <ntddstor.h>
@@ -1109,7 +1110,7 @@ USBH_SyncGetRootHubPdo(IN PDEVICE_OBJECT DeviceObject,
     PIO_STACK_LOCATION IoStack;
     NTSTATUS Status;
 
-    DPRINT1("USBH_SyncGetRootHubPdo: Target=%p Driver=%wZ StackSize=%lu\n",
+    DPRINT("USBH_SyncGetRootHubPdo: Target=%p Driver=%wZ StackSize=%lu\n",
             DeviceObject,
             (DeviceObject && DeviceObject->DriverObject) ? &DeviceObject->DriverObject->DriverName : NULL,
             DeviceObject ? (ULONG)DeviceObject->StackSize : 0);
@@ -1135,7 +1136,7 @@ USBH_SyncGetRootHubPdo(IN PDEVICE_OBJECT DeviceObject,
     IoStack->Parameters.Others.Argument1 = OutPdo1;
     IoStack->Parameters.Others.Argument2 = OutPdo2;
 
-    DPRINT1("USBH_SyncGetRootHubPdo: Irp=%p Major=%02x IoCtl=%08lx Arg1=%p Arg2=%p\n",
+    DPRINT("USBH_SyncGetRootHubPdo: Irp=%p Major=%02x IoCtl=%08lx Arg1=%p Arg2=%p\n",
             Irp,
             IoStack->MajorFunction,
             IoStack->Parameters.DeviceIoControl.IoControlCode,
@@ -2505,7 +2506,7 @@ USBH_ProcessPortStateChange(IN PUSBHUB_FDO_EXTENSION HubExtension,
                 PortData->ConnectionStatus = DeviceConnected;
                 PortData->LogFlags = 0;
 
-                DPRINT_ENUM("USBH_ProcessPortStateChange: Port %u connect -> enumerate\n",
+                DPRINT("USBH_ProcessPortStateChange: Port %u connect -> enumerate\n",
                             Port);
 
                 HubExtension->HubFlags |= USBHUB_FDO_FLAG_DO_ENUMERATION;
@@ -5839,7 +5840,7 @@ USBH_LogNewDevice(IN PUSBHUB_PORT_PDO_EXTENSION PortExtension)
 
     DeviceDescriptor = &PortExtension->DeviceDescriptor;
 
-    DPRINT1("USBH: announcing usb %lu-%S port %u (VID=%04X PID=%04X)\n",
+    DPRINT("USBH: announcing usb %lu-%S port %u (VID=%04X PID=%04X)\n",
             BusNumber,
             PortExtension->DevPath,
             PortExtension->PortNumber,
@@ -5932,7 +5933,7 @@ USBH_CreateDevice(IN PUSBHUB_FDO_EXTENSION HubExtension,
     NTSTATUS Status;
     UNICODE_STRING DestinationString;
 
-    DPRINT_ENUM("USBH_CreateDevice: Port - %u, UsbPortStatus - 0x%04x\n",
+    DPRINT("USBH_CreateDevice: Port - %u, UsbPortStatus - 0x%04x\n",
                 Port,
                 UsbPortStatus.AsUshort16);
 
@@ -5968,10 +5969,10 @@ USBH_CreateDevice(IN PUSBHUB_FDO_EXTENSION HubExtension,
 
     PortExtension = DeviceObject->DeviceExtension;
 
-    DPRINT_ENUM("USBH_CreateDevice: PortDevice - %p, <%wZ>\n",
+    DPRINT("USBH_CreateDevice: PortDevice - %p, <%wZ>\n",
                 DeviceObject,
                 &DeviceName);
-    DPRINT_ENUM("USBH_CreateDevice: PortExtension - %p\n",
+    DPRINT("USBH_CreateDevice: PortExtension - %p\n",
                 PortExtension);
 
     RtlZeroMemory(PortExtension, sizeof(USBHUB_PORT_PDO_EXTENSION));

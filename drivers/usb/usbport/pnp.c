@@ -353,7 +353,7 @@ USBPORT_ProgramMsiTable(
     /* Check if device supports 64-bit addressing (bit 7) */
     Is64BitCapable = (MsiControl & 0x0080) != 0;
 
-    DPRINT1("USBPORT_ProgramMsiTable: MSI Cap at 0x%x, Control=0x%04x, 64bit=%s\n",
+    DPRINT("USBPORT_ProgramMsiTable: MSI Cap at 0x%x, Control=0x%04x, 64bit=%s\n",
             MsiCapOffset, MsiControl, Is64BitCapable ? "yes" : "no");
 
     /* MSI only supports one message in our case (use first entry) */
@@ -422,7 +422,7 @@ USBPORT_ProgramMsiTable(
                                  sizeof(Data));
     }
 
-    DPRINT1("USBPORT_ProgramMsiTable: Programmed Addr=0x%I64x Data=0x%x Vector=%u\n",
+    DPRINT("USBPORT_ProgramMsiTable: Programmed Addr=0x%I64x Data=0x%x Vector=%u\n",
             Entry->MessageAddress.QuadPart, Entry->MessageData, Entry->Vector);
 
     /* Enable MSI: Set bit 0 of Message Control */
@@ -452,7 +452,7 @@ USBPORT_ProgramMsiTable(
                                  sizeof(Command));
     }
 
-    DPRINT1("USBPORT_ProgramMsiTable: Successfully programmed MSI (Control=0x%04x)\n",
+    DPRINT("USBPORT_ProgramMsiTable: Successfully programmed MSI (Control=0x%04x)\n",
             MsiControl);
 
     return STATUS_SUCCESS;
@@ -2583,7 +2583,7 @@ USBPORT_CreatePdo(IN PDEVICE_OBJECT FdoDevice,
     {
         FdoExtension->RootHubPdoExtension = DeviceObject->DeviceExtension;
 #if DBG
-        DPRINT1("USBPORT_CreatePdo: HubPdo=%p DevExt=%p\n",
+        DPRINT("USBPORT_CreatePdo: HubPdo=%p DevExt=%p\n",
                 DeviceObject,
                 FdoExtension->RootHubPdoExtension);
 #else

@@ -301,7 +301,7 @@ USBSTOR_HandleInternalDeviceControl(
         }
         case SRB_FUNCTION_CLAIM_DEVICE:
         {
-            DPRINT1("SRB_FUNCTION_CLAIM_DEVICE\n");
+            DPRINT("SRB_FUNCTION_CLAIM_DEVICE\n");
 
             // check if the device has been claimed
             if (PDODeviceExtension->Claimed)

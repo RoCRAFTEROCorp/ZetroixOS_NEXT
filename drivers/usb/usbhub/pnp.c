@@ -337,7 +337,7 @@ USBH_OpenConfiguration(IN PUSBHUB_FDO_EXTENSION HubExtension)
         return STATUS_UNSUCCESSFUL;
     }
 
-    DPRINT1("USBH_OpenConfiguration: using interface %u alt %u Pipes=%u MaxPacket0=%u\n",
+    DPRINT("USBH_OpenConfiguration: using interface %u alt %u Pipes=%u MaxPacket0=%u\n",
             Pid->bInterfaceNumber,
             Pid->bAlternateSetting,
             Pid->bNumEndpoints,
@@ -366,7 +366,7 @@ USBH_OpenConfiguration(IN PUSBHUB_FDO_EXTENSION HubExtension)
 
         HubExtension->ConfigHandle = Urb->UrbSelectConfiguration.ConfigurationHandle;
 
-        DPRINT1("USBH_OpenConfiguration: SelectConfig succeeded (PipeHandle=%p wTotalLength=%u)\n",
+        DPRINT("USBH_OpenConfiguration: SelectConfig succeeded (PipeHandle=%p wTotalLength=%u)\n",
                 HubExtension->PipeInfo.PipeHandle,
                 HubExtension->HubConfigDescriptor ?
                     HubExtension->HubConfigDescriptor->wTotalLength : 0);
@@ -1150,7 +1150,7 @@ USBH_EnumerateHubPorts(
                           NULL);
 
     NumberPorts = HubExtension->HubDescriptor->bNumberOfPorts;
-    DPRINT_ENUM("USBH_EnumerateHubPorts: NumberPorts - %x\n", NumberPorts);
+    DPRINT("USBH_EnumerateHubPorts: NumberPorts - %x\n", NumberPorts);
 
     Length = FIELD_OFFSET(DEVICE_RELATIONS, Objects) +
              NumberPorts * sizeof(PDEVICE_OBJECT);
@@ -1249,7 +1249,7 @@ EnumStart:
 
         if (DebounceCount != 0)
         {
-            DPRINT_ENUM("USBH_EnumerateHubPorts: pipelined debounce of %lu port(s)\n",
+            DPRINT("USBH_EnumerateHubPorts: pipelined debounce of %lu port(s)\n",
                         DebounceCount);
             USBH_PortDebounceMulti(HubExtension, DebounceEntries, DebounceCount);
         }
@@ -1282,7 +1282,7 @@ EnumStart:
             USBH_PortStatusForceConnected(&PortData->PortStatus);
             USBH_PortChangeMarkConnect(&PortData->PortStatus);
 
-            DPRINT_ENUM("USBH_EnumerateHubPorts: cached connect (no PDO) port %u (ConnStatus=%u)\n",
+            DPRINT("USBH_EnumerateHubPorts: cached connect (no PDO) port %u (ConnStatus=%u)\n",
                         Port,
                         PortData->ConnectionStatus);
         }
@@ -1324,7 +1324,7 @@ EnumStart:
             PortData->ConnectionStatus = DeviceConnected;
             USBH_PortChangeMarkConnect(&PortData->PortStatus);
             USBH_PortStatusForceConnected(&PortData->PortStatus);
-            DPRINT_ENUM("USBH_EnumerateHubPorts: forcing PDO creation from cached state on port %u\n",
+            DPRINT("USBH_EnumerateHubPorts: forcing PDO creation from cached state on port %u\n",
                         Port);
         }
 
@@ -2420,7 +2420,7 @@ USBH_PdoQueryId(IN PUSBHUB_PORT_PDO_EXTENSION PortExtension,
             break;
 
         default:
-            DPRINT1("USBH_PdoQueryId: unknown query id type 0x%lx\n", IdType);
+            DPRINT("USBH_PdoQueryId: unknown query id type 0x%lx\n", IdType);
             return Irp->IoStatus.Status;
     }
 

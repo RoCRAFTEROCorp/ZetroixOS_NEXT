@@ -597,7 +597,7 @@ USBSTOR_PdoHandlePnp(
                break;
            }
 
-           DPRINT1("USBSTOR_PdoHandlePnp: IRP_MN_QUERY_ID IdType %x unimplemented\n", IoStack->Parameters.QueryId.IdType);
+           DPRINT("USBSTOR_PdoHandlePnp: IRP_MN_QUERY_ID IdType %x unimplemented\n", IoStack->Parameters.QueryId.IdType);
            Status = STATUS_NOT_SUPPORTED;
            Irp->IoStatus.Information = 0;
            break;

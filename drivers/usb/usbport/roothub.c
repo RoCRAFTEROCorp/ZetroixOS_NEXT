@@ -1206,7 +1206,7 @@ USBPORT_InvalidateRootHub(PVOID MiniPortExtension)
 
         if (!Endpoint)
         {
-            DPRINT1("USBPORT_InvalidateRootHub: no SCE endpoint registered\n");
+            DPRINT("USBPORT_InvalidateRootHub: no SCE endpoint registered\n");
             return 0;
         }
 

@@ -937,7 +937,7 @@ USBPORT_PdoInternalDeviceControl(IN PDEVICE_OBJECT PdoDevice,
 
     if (IoCtl == IOCTL_INTERNAL_USB_GET_ROOTHUB_PDO)
     {
-        DPRINT1("USBPORT_PdoInternalDeviceControl: IOCTL_INTERNAL_USB_GET_ROOTHUB_PDO Pdo=%p Arg1=%p Arg2=%p\n",
+        DPRINT("USBPORT_PdoInternalDeviceControl: IOCTL_INTERNAL_USB_GET_ROOTHUB_PDO Pdo=%p Arg1=%p Arg2=%p\n",
                 PdoDevice,
                 IoStack->Parameters.Others.Argument1,
                 IoStack->Parameters.Others.Argument2);
