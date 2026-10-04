@@ -36,6 +36,11 @@ set(_RISCV_NT_COMPILE_OPTIONS
 
 # Apply the NT compiler contract to every normal PE/COFF target.
 add_compile_options(${_RISCV_NT_COMPILE_OPTIONS})
+set(RISCV64_MARCH "rv64gc" CACHE STRING
+    "RISC-V ISA string or profile name (for example rva22u64) every module is compiled for")
+set(RISCV64_FAST_MISALIGNED_ACCESS FALSE CACHE BOOL
+    "The target harts perform misaligned scalar loads and stores to main memory in hardware")
+add_compile_options(-march=${RISCV64_MARCH})
 if(NOT CMAKE_BUILD_TYPE STREQUAL "Release")
     if(OPTIMIZE STREQUAL "1" OR OPTIMIZE STREQUAL "2")
         add_compile_options(-Os)
@@ -180,6 +185,9 @@ function(set_module_type_toolchain module type)
         -Wl,--major-os-version,${_NT_MAJOR}
         -Wl,--minor-os-version,0${_NT_MINOR})
     target_link_libraries(${module} setjmp)
+    if(RISCV64_FAST_MISALIGNED_ACCESS AND NOT type IN_LIST KERNEL_MODULE_TYPES)
+        target_compile_options(${module} PRIVATE -mno-scalar-strict-align)
+    endif()
     if(type IN_LIST KERNEL_MODULE_TYPES)
         if(type STREQUAL "kmdfdriver")
             set(type "wdmdriver")
