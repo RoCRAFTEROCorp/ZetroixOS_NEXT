@@ -189,6 +189,8 @@ SoftGpuAllocateFrameBuffer(
     PVOID OldFrameBuffer;
     SIZE_T AllocationSize;
     SIZE_T OldFrameBufferSize;
+    MEMORY_CACHING_TYPE NewCacheType;
+    MEMORY_CACHING_TYPE OldCacheType;
 
     if (Device == NULL ||
         ((Device->FrameBuffer == NULL) !=
@@ -227,12 +229,13 @@ SoftGpuAllocateFrameBuffer(
     if (HighAddress.QuadPart == 0)
         HighAddress.QuadPart = (LONGLONG)-1;
     SkipBytes.QuadPart = 0;
+    NewCacheType = SoftGpuPlatformSegmentCacheType();
     NewFrameBuffer = MmAllocateContiguousMemorySpecifyCache(
                          AllocationSize,
                          LowAddress,
                          HighAddress,
                          SkipBytes,
-                         MmWriteCombined);
+                         NewCacheType);
     if (NewFrameBuffer == NULL)
     {
         DPRINT1("SOFTGPU: failed to allocate %Iu-byte framebuffer\n",
@@ -250,15 +253,17 @@ SoftGpuAllocateFrameBuffer(
      */
     OldFrameBuffer = Device->FrameBuffer;
     OldFrameBufferSize = Device->FrameBufferSize;
+    OldCacheType = Device->FrameBufferCacheType;
     Device->FrameBuffer = NewFrameBuffer;
     Device->FrameBufferPhys = NewPhysicalAddress;
     Device->FrameBufferSize = AllocationSize;
+    Device->FrameBufferCacheType = NewCacheType;
 
     if (OldFrameBuffer != NULL)
     {
         MmFreeContiguousMemorySpecifyCache(OldFrameBuffer,
                                            OldFrameBufferSize,
-                                           MmWriteCombined);
+                                           OldCacheType);
     }
 
     DPRINT("SOFTGPU: framebuffer virt=%p phys=0x%I64x size=%Iu "
@@ -1330,7 +1335,7 @@ SoftGpuDdiRemoveDevice(
     {
         MmFreeContiguousMemorySpecifyCache(Device->FrameBuffer,
                                            Device->FrameBufferSize,
-                                           MmWriteCombined);
+                                           Device->FrameBufferCacheType);
         Device->FrameBuffer = NULL;
         Device->FrameBufferSize = 0;
         Device->FrameBufferPhys.QuadPart = 0;
@@ -1411,6 +1416,8 @@ SoftGpuDdiGetNodeMetadata(
         (pDesc)->Flags.CpuVisible                = 1;                       \
         (pDesc)->Flags.PopulatedFromSystemMemory = 1;                       \
         (pDesc)->Flags.LocalBudgetGroup          = 1;                       \
+        (pDesc)->Flags.CacheCoherent = (Index) == 0 &&                      \
+            (Dev)->FrameBufferCacheType == MmCached;                        \
         (pDesc)->BaseAddress = (Index) == 0 ? (Dev)->FrameBufferPhys : (Dev)->DmaWorkspacePhysical; \
         (pDesc)->CpuTranslatedAddress = (pDesc)->BaseAddress;                \
         (pDesc)->Size = (Index) == 0 ? (Dev)->FrameBufferSize : (Dev)->DmaWorkspaceSize; \

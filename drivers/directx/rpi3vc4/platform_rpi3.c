@@ -236,3 +236,19 @@ SoftGpuPlatformQueryScanLine(
 {
     return Rpi3Vc4QueryScanLine(Device, GetScanLine);
 }
+
+MEMORY_CACHING_TYPE
+SoftGpuPlatformSegmentCacheType(VOID)
+{
+    return MmWriteCombined;
+}
+
+NTSTATUS
+SoftGpuPlatformQueryDescriptor(
+    _In_ PSOFTGPU_DEVICE Device,
+    _Inout_ PDXGK_DEVICE_DESCRIPTOR DeviceDescriptor)
+{
+    UNREFERENCED_PARAMETER(Device);
+    UNREFERENCED_PARAMETER(DeviceDescriptor);
+    return STATUS_MONITOR_NO_DESCRIPTOR;
+}

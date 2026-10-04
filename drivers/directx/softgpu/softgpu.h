@@ -260,6 +260,7 @@ typedef struct _SOFTGPU_DEVICE
     PVOID               FrameBuffer;
     PHYSICAL_ADDRESS    FrameBufferPhys;
     SIZE_T              FrameBufferSize;
+    MEMORY_CACHING_TYPE FrameBufferCacheType;
     /* Optional platform-owned segment for constrained DMA workspaces. */
     PHYSICAL_ADDRESS    DmaWorkspacePhysical;
     SIZE_T              DmaWorkspaceSize;
@@ -451,6 +452,14 @@ NTSTATUS
 SoftGpuPlatformQueryScanLine(
     _In_ PSOFTGPU_DEVICE Device,
     _Inout_ PDXGKARG_GETSCANLINE GetScanLine);
+
+NTSTATUS
+SoftGpuPlatformQueryDescriptor(
+    _In_ PSOFTGPU_DEVICE Device,
+    _Inout_ PDXGK_DEVICE_DESCRIPTOR DeviceDescriptor);
+
+MEMORY_CACHING_TYPE
+SoftGpuPlatformSegmentCacheType(VOID);
 
 #if defined(SOFTGPU_PLATFORM_HARDWARE_OVERLAY)
 NTSTATUS

@@ -12836,7 +12836,8 @@ VidMmMapSegmentCpu(
         return STATUS_SUCCESS;
     }
 
-    Segment->CpuBase = MmMapIoSpace(Segment->CpuTranslatedAddress, (SIZE_T)Segment->Size, MmWriteCombined);
+    Segment->CpuBase = MmMapIoSpace(Segment->CpuTranslatedAddress, (SIZE_T)Segment->Size,
+                                    Segment->Flags.CacheCoherent ? MmCached : MmWriteCombined);
 
     if (Segment->CpuBase == NULL)
     {
@@ -14051,6 +14052,7 @@ DxgkpVidMmBuildAllocationUserMdl(
     ULONG MappingSize;
     PMDL Mdl;
     ULONG i;
+    BOOLEAN Coherent = FALSE;
 
     ASSERT(Allocation != NULL);
     ASSERT(OutMdl != NULL);
@@ -14127,6 +14129,7 @@ DxgkpVidMmBuildAllocationUserMdl(
 
         if (!VidMmSegmentIsCpuVisible(Segment))
             return STATUS_INVALID_PARAMETER;
+        Coherent = (BOOLEAN)Segment->Flags.CacheCoherent;
     }
 
     PhysicalAddress = Allocation->PhysicalAddress;
@@ -14152,7 +14155,7 @@ DxgkpVidMmBuildAllocationUserMdl(
 
     *OutMdl = Mdl;
     *OutUserOffset = Offset;
-    *OutCacheType = MmWriteCombined;
+    *OutCacheType = (Allocation->Cached || Coherent) ? MmCached : MmWriteCombined;
     return STATUS_SUCCESS;
 }
 

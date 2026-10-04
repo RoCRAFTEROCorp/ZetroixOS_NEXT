@@ -2033,7 +2033,7 @@ SoftGpuDdiQueryDeviceDescriptor(
         return STATUS_INVALID_PARAMETER;
 
     DPRINT("SOFTGPU: QueryDeviceDescriptor ChildUid=%lu\n", ChildUid);
-    return STATUS_MONITOR_NO_DESCRIPTOR;
+    return SoftGpuPlatformQueryDescriptor(Device, DeviceDescriptor);
 }
 
 /* EOF */
