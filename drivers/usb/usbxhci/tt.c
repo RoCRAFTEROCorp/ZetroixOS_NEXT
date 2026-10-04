@@ -8,18 +8,6 @@
 #include "usbxhci.h"
 
 #define USBPORT_NO_HUB_ADDRESS 0xFFFF
-#define XHCI_DEFAULT_TT_THINK_TIME 0
-
-static
-ULONG
-XHCI_GetHubThinkTime(
-    _In_opt_ PXHCI_DEVICE_SLOT HubSlot)
-{
-    if (HubSlot && HubSlot->HasTtInfo)
-        return HubSlot->TtThinkTime & 0x3;
-
-    return XHCI_DEFAULT_TT_THINK_TIME;
-}
 
 BOOLEAN
 XHCI_EndpointNeedsTt(
@@ -68,8 +56,6 @@ XHCI_ApplyTtInfo(
     TtInfo = (ULONG)(HubSlot->SlotId & XHCI_SLOT_TT_SLOT_MASK);
     TtInfo |= (((ULONG)EndpointProperties->TtPortNumber << XHCI_SLOT_TT_PORT_SHIFT) &
                XHCI_SLOT_TT_PORT_MASK);
-    TtInfo |= (XHCI_GetHubThinkTime(HubSlot) << XHCI_SLOT_TT_THINK_TIME_SHIFT) &
-              XHCI_SLOT_TT_THINK_TIME_MASK;
 
     SlotContext->TtInfo = TtInfo;
 }
