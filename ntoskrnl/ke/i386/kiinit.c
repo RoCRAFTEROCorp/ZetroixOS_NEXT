@@ -358,6 +358,7 @@ KiInitializePcr(IN ULONG ProcessorNumber,
 
     /* Setup the processor set */
     Pcr->PrcbData.MultiThreadProcessorSet = Pcr->PrcbData.SetMember;
+    Pcr->PrcbData.MultiThreadSetMaster = &Pcr->PrcbData;
 }
 
 static
