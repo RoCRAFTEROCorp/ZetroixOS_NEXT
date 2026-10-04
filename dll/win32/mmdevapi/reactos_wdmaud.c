@@ -125,6 +125,7 @@ struct reactos_stream
     UINT32 rt_buffer_frames;
     UINT32 rt_period_frames;
     UINT32 rt_period_index;
+    UINT32 rt_capture_frame;
     BOOL rt_refill_ready;
     ULONG rt_next_packet_number;
     UINT32 rt_period_queued_frames[REACTOS_RT_NOTIFICATION_COUNT];
@@ -1243,7 +1244,7 @@ static HRESULT open_stream_pin(struct reactos_stream *stream)
     }
 
     stream->pin = info.hDevice;
-    if (stream->flow == eRender && duplicate_stream_pin(stream))
+    if (duplicate_stream_pin(stream))
     {
         if (initialize_wavert(stream))
             return S_OK;
@@ -2131,7 +2132,9 @@ static HRESULT start_physical_stream(struct reactos_stream *stream)
     if (stream->rt_enabled)
     {
         EnterCriticalSection(&stream->lock);
-        if (!prime_wavert_buffer(stream))
+        if (stream->flow == eCapture)
+            stream->rt_capture_frame = 0;
+        else if (!prime_wavert_buffer(stream))
         {
             stream->started = FALSE;
             LeaveCriticalSection(&stream->lock);
@@ -3371,6 +3374,84 @@ static void reactos_capture_timer_loop(struct reactos_stream *stream)
     }
 }
 
+static BOOL read_wavert_capture_frame(struct reactos_stream *stream, UINT32 *frame)
+{
+    KSPROPERTY property;
+    KSAUDIO_POSITION position;
+    DWORD returned;
+
+    ZeroMemory(&property, sizeof(property));
+    property.Set = audio_property_set;
+    property.Id = KSPROPERTY_AUDIO_POSITION;
+    property.Flags = KSPROPERTY_TYPE_GET;
+    if (!pin_ioctl(stream->user_pin, IOCTL_KS_PROPERTY, &property, sizeof(property),
+                   &position, sizeof(position), &returned) || returned < sizeof(position))
+        return FALSE;
+    *frame = (UINT32)((position.PlayOffset / stream->device_frame_size) % stream->rt_buffer_frames);
+    return TRUE;
+}
+
+static void reactos_capture_rt_timer_loop(struct reactos_stream *stream)
+{
+    HANDLE waits[2] = { stream->stop_event, stream->rt_event };
+    UINT32 device_frame, available, frames, first, output_capacity;
+    BYTE *read_buffer;
+
+    while (stream_from_handle((stream_handle)(ULONG_PTR)stream))
+    {
+        if (WaitForMultipleObjects(2, waits, FALSE, 20) == WAIT_OBJECT_0)
+            break;
+
+        EnterCriticalSection(&stream->lock);
+        if (stream->closing || !stream->started)
+        {
+            LeaveCriticalSection(&stream->lock);
+            break;
+        }
+        if (stream->capture_locked || stream->capture_frames)
+        {
+            if (stream->event)
+                SetEvent(stream->event);
+            LeaveCriticalSection(&stream->lock);
+            continue;
+        }
+
+        output_capacity = stream->capture_conversion ? (UINT32)(((UINT64)stream->device_period_frames * stream->format.Format.nSamplesPerSec + stream->device_format.Format.nSamplesPerSec - 1) / stream->device_format.Format.nSamplesPerSec + 1) : stream->device_period_frames;
+        if (FAILED(ensure_stream_buffer(stream, output_capacity)) ||
+            (stream->capture_conversion && FAILED(ensure_device_buffer(stream, stream->device_period_frames))) ||
+            !read_wavert_capture_frame(stream, &device_frame))
+        {
+            LeaveCriticalSection(&stream->lock);
+            continue;
+        }
+
+        available = (device_frame + stream->rt_buffer_frames - stream->rt_capture_frame) % stream->rt_buffer_frames;
+        frames = min(available, stream->device_period_frames);
+        if (!frames)
+        {
+            LeaveCriticalSection(&stream->lock);
+            continue;
+        }
+
+        read_buffer = stream->capture_conversion ? stream->device_buffer : stream->buffer;
+        first = min(frames, stream->rt_buffer_frames - stream->rt_capture_frame);
+        memcpy(read_buffer, stream->rt_buffer + (SIZE_T)stream->rt_capture_frame * stream->device_frame_size,
+               (SIZE_T)first * stream->device_frame_size);
+        if (frames > first)
+            memcpy(read_buffer + (SIZE_T)first * stream->device_frame_size, stream->rt_buffer,
+                   (SIZE_T)(frames - first) * stream->device_frame_size);
+        stream->rt_capture_frame = (stream->rt_capture_frame + frames) % stream->rt_buffer_frames;
+
+        if (stream->capture_conversion)
+            frames = convert_capture_frames(stream, stream->device_buffer, frames, stream->buffer, stream->buffer_alloc_frames);
+        stream->capture_frames = frames;
+        stream->padding = frames;
+        if (frames && stream->event)
+            SetEvent(stream->event);
+        LeaveCriticalSection(&stream->lock);
+    }
+}
+
 static void reactos_render_rt_timer_loop(struct reactos_stream *stream)
 {
     HANDLE wait_handles[2];
@@ -3506,7 +3587,10 @@ static DWORD WINAPI reactos_timer_thread(void *param)
 
     if (stream->flow == eCapture)
     {
-        reactos_capture_timer_loop(stream);
+        if (stream->rt_enabled)
+            reactos_capture_rt_timer_loop(stream);
+        else
+            reactos_capture_timer_loop(stream);
         return 0;
     }
 
