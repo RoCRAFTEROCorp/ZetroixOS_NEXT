@@ -14,6 +14,12 @@
 /* Core heap definitions */
 #define HEAP_SEGMENTS 64
 
+#define HEAP_LFH_INDEX 0xFF
+#define HEAP_LFH_FRONT_END 2
+#define HEAP_LFH_OVERHEAD 8
+#define HEAP_LFH_MAX_BLOCK 0x400
+#define HEAP_LFH_BUCKETS ((HEAP_LFH_MAX_BLOCK >> HEAP_ENTRY_SHIFT) + 1)
+
 #define HEAP_ENTRY_SIZE ((ULONG)sizeof(HEAP_ENTRY))
 #ifdef _WIN64
 #define HEAP_ENTRY_SHIFT 4
@@ -270,6 +276,10 @@ typedef struct _HEAP
     PVOID FrontEndHeap;
     USHORT FrontHeapLockCount;
     UCHAR FrontEndHeapType;
+    UCHAR RequestedFrontEndHeapType;
+    PUSHORT FrontEndHeapUsageData;
+    USHORT FrontEndHeapMaximumIndex;
+    UCHAR FrontEndHeapStatusBitmap[(HEAP_LFH_BUCKETS + 7) / 8];
     HEAP_COUNTERS Counters;
     HEAP_TUNING_PARAMETERS TuningParameters;
     RTL_BITMAP FreeHintBitmap;  // FIXME: non-Vista
@@ -479,5 +489,53 @@ RtlpRemoveHeapFromProcessList(PHEAP Heap);
 VOID
 NTAPI
 RtlInitializeHeapManager(VOID);
+
+VOID
+RtlpLfhInitializeHeap(PHEAP Heap, ULONG Flags, PRTL_HEAP_PARAMETERS Parameters, PVOID UsageData);
+
+SIZE_T
+RtlpLfhUsageDataSize(PHEAP Heap, ULONG Flags, PRTL_HEAP_PARAMETERS Parameters);
+
+VOID
+RtlpLfhDestroyHeap(PHEAP Heap);
+
+NTSTATUS
+RtlpLfhSetCompatibility(PHEAP Heap, ULONG Value);
+
+PVOID
+RtlpLfhAllocate(PHEAP Heap, ULONG Flags, SIZE_T Size);
+
+VOID
+RtlpLfhNoteBackendAllocate(PHEAP Heap, ULONG Flags, SIZE_T Size);
+
+VOID
+RtlpLfhNoteBackendFree(PHEAP Heap, PHEAP_ENTRY HeapEntry);
+
+PHEAP
+RtlpLfhOwner(PVOID Ptr);
+
+BOOLEAN
+RtlpLfhFree(PHEAP Heap, PVOID Ptr);
+
+SIZE_T
+RtlpLfhSize(PHEAP Heap, PVOID Ptr);
+
+PVOID
+RtlpLfhReAllocate(PHEAP Heap, ULONG Flags, PVOID Ptr, SIZE_T Size);
+
+BOOLEAN
+RtlpLfhValidate(PHEAP Heap, PVOID Ptr);
+
+BOOLEAN
+RtlpLfhWalkUserBlock(PHEAP Heap, PHEAP_ENTRY Entry, struct _RTL_HEAP_WALK_ENTRY *WalkEntry);
+
+NTSTATUS
+RtlpLfhWalkNext(PHEAP Heap, struct _RTL_HEAP_WALK_ENTRY *WalkEntry, PHEAP_ENTRY *Next);
+
+BOOLEAN
+RtlpLfhWalkRegion(PHEAP Heap, struct _RTL_HEAP_WALK_ENTRY *WalkEntry);
+
+BOOLEAN
+RtlpLfhIsRegion(PHEAP Heap, PVOID Address);
 
 #endif

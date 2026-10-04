@@ -130,6 +130,8 @@ RtlpInitializeHeap(OUT PHEAP Heap,
     NTSTATUS Status;
     PHEAP_UCR_DESCRIPTOR UcrDescriptor;
     SIZE_T FreeHintCount;
+    SIZE_T UsageDataSize;
+    PVOID UsageData = NULL;
 
     /* Preconditions */
     ASSERT(Heap != NULL);
@@ -161,6 +163,13 @@ RtlpInitializeHeap(OUT PHEAP Heap,
     /* Add space for the initial Heap UnCommitted Range Descriptor list */
     UcrDescriptor = (PHEAP_UCR_DESCRIPTOR) ((ULONG_PTR) (Heap) + HeaderSize);
     HeaderSize += NumUCRs * sizeof(HEAP_UCR_DESCRIPTOR);
+
+    UsageDataSize = RtlpLfhUsageDataSize(Heap, Flags, Parameters);
+    if (UsageDataSize)
+    {
+        UsageData = (PVOID)((ULONG_PTR)Heap + HeaderSize);
+        HeaderSize += UsageDataSize;
+    }
 
     HeaderSize = ROUND_UP(HeaderSize, HEAP_ENTRY_SIZE);
     /* Sanity check */
@@ -246,6 +255,8 @@ RtlpInitializeHeap(OUT PHEAP Heap,
     /* Register the initial Heap UnCommitted Region Descriptors */
     for (Index = 0; Index < NumUCRs; ++Index)
         InsertTailList(&Heap->UCRList, &UcrDescriptor[Index].ListEntry);
+
+    RtlpLfhInitializeHeap(Heap, Flags, Parameters, UsageData);
 
     return STATUS_SUCCESS;
 }
@@ -1905,6 +1916,8 @@ RtlDestroyHeap(HANDLE HeapPtr) /* [in] Handle of heap */
     if (RtlpGetMode() == UserMode &&
         HeapPtr == NtCurrentPeb()->ProcessHeap) return HeapPtr;
 
+    RtlpLfhDestroyHeap(Heap);
+
     /* Free up all big allocations */
     Current = Heap->VirtualAllocdBlocks.Flink;
     while (Current != &Heap->VirtualAllocdBlocks)
@@ -2259,12 +2272,22 @@ RtlAllocateHeap(IN PVOID HeapPtr,
 
     Index = AllocationSize >> HEAP_ENTRY_SHIFT;
 
+    if (Heap->FrontEndHeapUsageData)
+    {
+        PVOID LfhBlock = RtlpLfhAllocate(Heap, Flags, Size);
+        if (LfhBlock)
+            return LfhBlock;
+    }
+
     /* Acquire the lock if necessary */
     if (!(Flags & HEAP_NO_SERIALIZE))
     {
         RtlEnterHeapLock(Heap->LockVariable, TRUE);
         HeapLocked = TRUE;
     }
+
+    if (Heap->FrontEndHeapUsageData)
+        RtlpLfhNoteBackendAllocate(Heap, Flags, Size);
 
     /* Depending on the size, the allocation is going to be done from dedicated,
        non-dedicated lists or a virtual block of memory */
@@ -2495,6 +2518,7 @@ BOOLEAN NTAPI RtlFreeHeap(
     SIZE_T BlockSize;
     PHEAP_VIRTUAL_ALLOC_ENTRY VirtualEntry;
     BOOLEAN Locked = FALSE;
+    PHEAP LfhHeap = NULL;
     NTSTATUS Status;
 
     /* Freeing NULL pointer is a legal operation */
@@ -2514,10 +2538,12 @@ BOOLEAN NTAPI RtlFreeHeap(
     /* Protect with SEH in case the pointer is not valid */
     _SEH2_TRY
     {
+        LfhHeap = RtlpLfhOwner(Ptr);
+
         /* Check this entry, fail if it's invalid */
-        if (!(HeapEntry->Flags & HEAP_ENTRY_BUSY) ||
+        if (!LfhHeap && (!(HeapEntry->Flags & HEAP_ENTRY_BUSY) ||
             (((ULONG_PTR)Ptr & 0x7) != 0) ||
-            (HeapEntry->SegmentOffset >= HEAP_SEGMENTS))
+            (HeapEntry->SegmentOffset >= HEAP_SEGMENTS)))
         {
             /* This is an invalid block */
             RtlpReportInvalidFree(HeapPtr, Ptr);
@@ -2533,6 +2559,14 @@ BOOLEAN NTAPI RtlFreeHeap(
         _SEH2_YIELD(return FALSE);
     }
     _SEH2_END;
+
+    if (LfhHeap)
+    {
+        if (RtlpLfhFree(LfhHeap, Ptr))
+            return TRUE;
+        RtlpReportInvalidFree(HeapPtr, Ptr);
+        return FALSE;
+    }
 
     /* Lock if necessary */
     if (!(Flags & HEAP_NO_SERIALIZE))
@@ -2568,6 +2602,9 @@ BOOLEAN NTAPI RtlFreeHeap(
     {
         /* Normal allocation */
         BlockSize = HeapEntry->Size;
+
+        if (Heap->FrontEndHeapUsageData)
+            RtlpLfhNoteBackendFree(Heap, HeapEntry);
 
         // TODO: Tagging
 
@@ -2902,6 +2939,7 @@ RtlReAllocateHeap(HANDLE HeapPtr,
     PHEAP_VIRTUAL_ALLOC_ENTRY VirtualAllocBlock;
     EXCEPTION_RECORD ExceptionRecord;
     UCHAR SegmentOffset;
+    PHEAP LfhHeap;
 
     /* Return success in case of a null pointer */
     if (!Ptr)
@@ -2923,6 +2961,9 @@ RtlReAllocateHeap(HANDLE HeapPtr,
         RtlSetLastWin32ErrorAndNtStatusFromNtStatus(STATUS_NO_MEMORY);
         return NULL;
     }
+
+    if ((LfhHeap = RtlpLfhOwner(Ptr)))
+        return RtlpLfhReAllocate(LfhHeap, Flags, Ptr, Size);
 
     /* Calculate allocation size and index */
     if (Size)
@@ -3438,6 +3479,7 @@ RtlSizeHeap(
     PHEAP Heap = (PHEAP)HeapPtr;
     PHEAP_ENTRY HeapEntry;
     SIZE_T EntrySize;
+    PHEAP LfhHeap;
 
     // FIXME This is a hack around missing SEH support!
     if (!Heap)
@@ -3452,6 +3494,9 @@ RtlSizeHeap(
     /* Call special heap */
     if (RtlpHeapIsSpecial(Flags))
         return RtlDebugSizeHeap(Heap, Flags, Ptr);
+
+    if ((LfhHeap = RtlpLfhOwner(Ptr)))
+        return RtlpLfhSize(LfhHeap, Ptr);
 
     /* Get the heap entry pointer */
     HeapEntry = (PHEAP_ENTRY)Ptr - 1;
@@ -3983,6 +4028,7 @@ BOOLEAN NTAPI RtlValidateHeap(
     PHEAP Heap = (PHEAP)HeapPtr;
     BOOLEAN HeapLocked = FALSE;
     BOOLEAN HeapValid;
+    PHEAP LfhHeap;
 
     /* Check for page heap */
     if (Heap->ForceFlags & HEAP_FLAG_PAGE_ALLOCS)
@@ -4008,6 +4054,8 @@ BOOLEAN NTAPI RtlValidateHeap(
     /* Either validate whole heap or just one entry */
     if (!Block)
         HeapValid = RtlpValidateHeap(Heap, TRUE);
+    else if ((LfhHeap = RtlpLfhOwner(Block)))
+        HeapValid = RtlpLfhValidate(LfhHeap, Block);
     else
         HeapValid = RtlpValidateHeapEntry(Heap, (PHEAP_ENTRY)Block - 1);
 
@@ -4310,12 +4358,19 @@ RtlpWalkHeapSegment(PHEAP_SEGMENT Segment,
     PHEAP_UCR_DESCRIPTOR Ucr;
     PLIST_ENTRY Link;
     SIZE_T Size;
+    NTSTATUS Status;
 
     if (WalkEntry->Flags & RTL_HEAP_ENTRY_REGION)
     {
         if (WalkEntry->DataAddress != Segment->BaseAddress)
             return STATUS_INVALID_PARAMETER;
         Entry = Segment->FirstEntry;
+    }
+    else if (!(WalkEntry->Flags & RTL_HEAP_ENTRY_UNCOMMITTED) &&
+             (Status = RtlpLfhWalkNext(Segment->Heap, WalkEntry, &Entry)) != STATUS_NOT_FOUND)
+    {
+        if (Status != STATUS_MORE_ENTRIES)
+            return Status;
     }
     else if (WalkEntry->Flags & RTL_HEAP_ENTRY_UNCOMMITTED)
     {
@@ -4398,6 +4453,8 @@ RtlpWalkHeapSegment(PHEAP_SEGMENT Segment,
         {
             if (Entry->UnusedBytes > Size)
                 return STATUS_HEAP_CORRUPTION;
+            if (RtlpLfhWalkUserBlock(Segment->Heap, Entry, WalkEntry))
+                return STATUS_SUCCESS;
             WalkEntry->DataAddress = Entry + 1;
             WalkEntry->DataSize = Size - Entry->UnusedBytes;
             WalkEntry->OverheadBytes = Entry->UnusedBytes;
@@ -4426,6 +4483,9 @@ RtlpWalkHeap(PHEAP Heap, PRTL_HEAP_WALK_ENTRY WalkEntry)
     NTSTATUS Status;
 
     Link = Heap->VirtualAllocdBlocks.Flink;
+    if (WalkEntry->DataAddress && (WalkEntry->Flags & RTL_HEAP_ENTRY_REGION) &&
+        RtlpLfhIsRegion(Heap, WalkEntry->DataAddress))
+        return STATUS_NO_MORE_ENTRIES;
     if (WalkEntry->DataAddress)
     {
         Index = WalkEntry->SegmentIndex;
@@ -4472,7 +4532,7 @@ RtlpWalkHeap(PHEAP Heap, PRTL_HEAP_WALK_ENTRY WalkEntry)
         return STATUS_SUCCESS;
     }
     if (Link == &Heap->VirtualAllocdBlocks)
-        return STATUS_NO_MORE_ENTRIES;
+        return RtlpLfhWalkRegion(Heap, WalkEntry) ? STATUS_SUCCESS : STATUS_NO_MORE_ENTRIES;
     VirtualEntry = CONTAINING_RECORD(Link, HEAP_VIRTUAL_ALLOC_ENTRY, Entry);
     WalkEntry->DataAddress = &VirtualEntry->BusyBlock + 1;
     WalkEntry->DataSize = RtlpGetSizeOfBigBlock(&VirtualEntry->BusyBlock);
@@ -4550,14 +4610,10 @@ RtlSetHeapInformation(IN HANDLE HeapHandle OPTIONAL,
             return STATUS_BUFFER_TOO_SMALL;
         }
 
-        /* Check for a special magic value for enabling LFH */
-        if (*(PULONG)HeapInformation != 2)
-        {
-            return STATUS_UNSUCCESSFUL;
-        }
+        if (!HeapHandle || ((PHEAP)HeapHandle)->Signature != HEAP_SIGNATURE)
+            return STATUS_INVALID_PARAMETER;
 
-        DPRINT1("RtlSetHeapInformation() needs to enable LFH\n");
-        return STATUS_SUCCESS;
+        return RtlpLfhSetCompatibility((PHEAP)HeapHandle, *(PULONG)HeapInformation);
     }
 
     return STATUS_SUCCESS;
