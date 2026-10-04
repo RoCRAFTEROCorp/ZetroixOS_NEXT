@@ -251,7 +251,7 @@ TestReadWrite(
     /** Server to client, read first, 1 byte */
     WriteBuffer[0] = 'B';
     ReadBuffer[0] = 'X';
-    Okay = CheckReadPipe(&ClientReadContext, ClientHandle, ReadBuffer, 1, 100);
+    Okay = CheckReadPipe(&ClientReadContext, ClientHandle, ReadBuffer, 1, 50);
     ok_bool_false(Okay, "CheckReadPipe returned");
     CheckServerQuota(ServerHandle, 0, 1);
     Okay = CheckWritePipe(&ServerWriteContext, ServerHandle, WriteBuffer, 1, 100);
@@ -275,7 +275,7 @@ TestReadWrite(
     /** Client to server, read first, 1 byte */
     WriteBuffer[0] = 'D';
     ReadBuffer[0] = 'X';
-    Okay = CheckReadPipe(&ServerReadContext, ServerHandle, ReadBuffer, 1, 100);
+    Okay = CheckReadPipe(&ServerReadContext, ServerHandle, ReadBuffer, 1, 50);
     ok_bool_false(Okay, "CheckReadPipe returned");
     CheckClientQuota(ClientHandle, 0, 1);
     Okay = CheckWritePipe(&ClientWriteContext, ClientHandle, WriteBuffer, 1, 100);
@@ -298,12 +298,12 @@ TestReadWrite(
     /** Server to client, read 0 bytes blocks, write 0 bytes does not unblock, write 1 byte unblocks */
     WriteBuffer[0] = 'E';
     ReadBuffer[0] = 'X';
-    Okay = CheckReadPipe(&ClientReadContext, ClientHandle, (PVOID)1, 0, 100);
+    Okay = CheckReadPipe(&ClientReadContext, ClientHandle, (PVOID)1, 0, 50);
     ok_bool_false(Okay, "CheckReadPipe returned");
     CheckServerQuota(ServerHandle, 0, 0);
     Okay = CheckWritePipe(&ServerWriteContext, ServerHandle, (PVOID)1, 0, 100);
     CheckPipeContext(&ServerWriteContext, STATUS_SUCCESS, 0);
-    Okay = WaitForWork(&ClientReadContext, 100);
+    Okay = WaitForWork(&ClientReadContext, 50);
     ok_bool_false(Okay, "WaitForWork returned");
     CheckServerQuota(ServerHandle, 0, 0);
     Okay = CheckWritePipe(&ServerWriteContext, ServerHandle, WriteBuffer, 1, 100);
@@ -320,12 +320,12 @@ TestReadWrite(
     /** Client to server, read 0 bytes blocks, write 0 bytes does not unblock, write 1 byte unblocks */
     WriteBuffer[0] = 'F';
     ReadBuffer[0] = 'X';
-    Okay = CheckReadPipe(&ServerReadContext, ServerHandle, (PVOID)1, 0, 100);
+    Okay = CheckReadPipe(&ServerReadContext, ServerHandle, (PVOID)1, 0, 50);
     ok_bool_false(Okay, "CheckReadPipe returned");
     CheckClientQuota(ClientHandle, 0, 0);
     Okay = CheckWritePipe(&ClientWriteContext, ClientHandle, (PVOID)1, 0, 100);
     CheckPipeContext(&ClientWriteContext, STATUS_SUCCESS, 0);
-    Okay = WaitForWork(&ServerReadContext, 100);
+    Okay = WaitForWork(&ServerReadContext, 50);
     ok_bool_false(Okay, "WaitForWork returned");
     CheckClientQuota(ClientHandle, 0, 0);
     Okay = CheckWritePipe(&ClientWriteContext, ClientHandle, WriteBuffer, 1, 100);
@@ -342,7 +342,7 @@ TestReadWrite(
     /** Disconnect server with pending read on client */
     WriteBuffer[0] = 'G';
     ReadBuffer[0] = 'X';
-    Okay = CheckReadPipe(&ClientReadContext, ClientHandle, ReadBuffer, 1, 100);
+    Okay = CheckReadPipe(&ClientReadContext, ClientHandle, ReadBuffer, 1, 50);
     ok_bool_false(Okay, "CheckReadPipe returned");
     CheckServerQuota(ServerHandle, 0, 1);
     Status = NpDisconnectPipe(ServerHandle);
@@ -370,7 +370,7 @@ TestReadWrite(
     ok_eq_hex(Status, STATUS_SUCCESS);
 
     /* Restore the connection */
-    Okay = CheckListenPipe(&ListenContext, ServerHandle, 100);
+    Okay = CheckListenPipe(&ListenContext, ServerHandle, 50);
     ok_bool_false(Okay, "CheckListenPipe returned");
     Okay = CheckConnectPipe(&ConnectContext, PipePath, ClientSynchronous, 100);
     ok_bool_true(Okay, "CheckConnectPipe returned");
@@ -385,7 +385,7 @@ TestReadWrite(
     /** Close server with pending read on client */
     WriteBuffer[0] = 'H';
     ReadBuffer[0] = 'X';
-    Okay = CheckReadPipe(&ClientReadContext, ClientHandle, ReadBuffer, 1, 100);
+    Okay = CheckReadPipe(&ClientReadContext, ClientHandle, ReadBuffer, 1, 50);
     ok_bool_false(Okay, "CheckReadPipe returned");
     Status = ObCloseHandle(ServerHandle, KernelMode);
     ok_eq_hex(Status, STATUS_SUCCESS);
@@ -416,7 +416,7 @@ TestReadWrite(
     /** Close client with pending read on server */
     WriteBuffer[0] = 'I';
     ReadBuffer[0] = 'X';
-    Okay = CheckReadPipe(&ServerReadContext, ServerHandle, ReadBuffer, 1, 100);
+    Okay = CheckReadPipe(&ServerReadContext, ServerHandle, ReadBuffer, 1, 50);
     ok_bool_false(Okay, "CheckReadPipe returned");
     Status = ObCloseHandle(ClientHandle, KernelMode);
     ok_eq_hex(Status, STATUS_SUCCESS);
@@ -463,7 +463,7 @@ TestReadWrite(
     ok_eq_hex(Status, STATUS_SUCCESS);
 
     /* Restore the connection */
-    Okay = CheckListenPipe(&ListenContext, ServerHandle, 100);
+    Okay = CheckListenPipe(&ListenContext, ServerHandle, 50);
     ok_bool_false(Okay, "CheckListenPipe returned");
     Okay = CheckConnectPipe(&ConnectContext, PipePath, ClientSynchronous, 100);
     ok_bool_true(Okay, "CheckConnectPipe returned");

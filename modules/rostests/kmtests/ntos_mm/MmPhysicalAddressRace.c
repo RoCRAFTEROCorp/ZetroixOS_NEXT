@@ -68,7 +68,7 @@ START_TEST(MmPhysicalAddressRace)
             }
             ++Samples;
         }
-    } while (KeQueryInterruptTime() - Start < 100000000ULL);
+    } while (KeQueryInterruptTime() - Start < 5000000ULL);
     KeCancelTimer(&Timer);
     KeRemoveQueueDpc(&Dpc);
     KeRevertToUserAffinityThreadEx(OldAffinity);

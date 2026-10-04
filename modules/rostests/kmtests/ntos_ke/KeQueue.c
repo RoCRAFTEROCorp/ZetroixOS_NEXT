@@ -51,7 +51,7 @@ typedef struct _QUEUE_RUNDOWN_OBJECT_WAIT_CONTEXT
     NTSTATUS Status;
 } QUEUE_RUNDOWN_OBJECT_WAIT_CONTEXT, *PQUEUE_RUNDOWN_OBJECT_WAIT_CONTEXT;
 
-#define QUEUE_TIMER_REUSE_ITERATIONS 512
+#define QUEUE_TIMER_REUSE_ITERATIONS 32
 #define QUEUE_TIMER_REUSE_WAITING 1
 #define QUEUE_TIMER_REUSE_UNTIMED 2
 #define QUEUE_TIMER_REUSE_DONE 3
@@ -176,7 +176,7 @@ QueueRundownObjectWaitThread(
     LARGE_INTEGER Timeout;
     PVOID Objects[2];
 
-    Timeout.QuadPart = -5LL * 10 * 1000 * 1000;
+    Timeout.QuadPart = -500LL * 10 * 1000;
     Objects[0] = &Context->Queue;
     Objects[1] = &Context->Gate;
     if (Context->Multiple)

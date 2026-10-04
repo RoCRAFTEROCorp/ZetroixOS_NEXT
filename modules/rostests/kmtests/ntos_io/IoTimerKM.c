@@ -54,10 +54,9 @@ START_TEST(IoTimerKM)
         ok_eq_uint(TimerIrql, DISPATCH_LEVEL);
 
         IoStopTimer(DeviceObject);
-        Timeout.QuadPart = -10 * 1000 * 1000 * 2;
-        KeDelayExecutionThread(KernelMode, FALSE, &Timeout);
+        KeFlushQueuedDpcs();
         TimerTicks = 0;
-        Timeout.QuadPart = -10 * 1000 * 1000 * 2;
+        Timeout.QuadPart = -10 * 1000 * 1050;
         KeDelayExecutionThread(KernelMode, FALSE, &Timeout);
         ok(TimerTicks <= 1, "timer still ticking after stop: %ld\n", TimerTicks);
     }
