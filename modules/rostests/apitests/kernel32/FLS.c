@@ -21,6 +21,7 @@ static BOOL (WINAPI *pRtlIsCriticalSectionLockedByThread)(RTL_CRITICAL_SECTION *
 
 #define NtCurrentPeb() (NtCurrentTeb()->ProcessEnvironmentBlock)
 #define WINVER_2003    0x0502
+#define WINVER_WIN10   0x0A00
 
 static DWORD g_WinVersion = 0;
 PVOID g_FlsData1 = NULL;
@@ -69,6 +70,13 @@ void ok_fls_(DWORD dwIndex, PVOID pValue, PFLS_CALLBACK_FUNCTION lpCallback)
     PFLS_CALLBACK_INFO FlsCallback;
     PVOID* FlsData;
     PVOID gotValue;
+
+    if (g_WinVersion >= WINVER_WIN10)
+    {
+        gotValue = pFlsGetValue(dwIndex);
+        winetest_ok(gotValue == pValue, "Expected FlsGetValue(%lu) to be %p, was %p\n", dwIndex, pValue, gotValue);
+        return;
+    }
 
     FlsCallback = (PFLS_CALLBACK_INFO)NtCurrentPeb()->FlsCallback;
     FlsData = (PVOID*)NtCurrentTeb()->FlsData;
