@@ -762,7 +762,7 @@ static const WCHAR *value_name_state( struct parser *parser, const WCHAR *pos )
             set_state( parser, EOL_BACKSLASH );
             return p;
         default:
-            if (!isspaceW(*p)) token_end = p + 1;
+            if (*p && !isspaceW(*p)) token_end = p + 1;
             else
             {
                 push_token( parser, p );
@@ -876,7 +876,7 @@ static const WCHAR *trailing_spaces_state( struct parser *parser, const WCHAR *p
             set_state( parser, EOL_BACKSLASH );
             return p;
         }
-        if (!isspaceW(*p)) break;
+        if (*p && !isspaceW(*p)) break;
     }
     pop_state( parser );
     return p;
@@ -1767,6 +1767,7 @@ BOOL WINAPI SetupFindNextMatchLineW( PINFCONTEXT context_in, PCWSTR key,
                                      PINFCONTEXT context_out )
 {
     struct inf_file *file = context_in->CurrentInf;
+    WCHAR buffer[MAX_STRING_LEN + 1];
     struct section *section;
     struct line *line;
     unsigned int i;
@@ -1780,7 +1781,8 @@ BOOL WINAPI SetupFindNextMatchLineW( PINFCONTEXT context_in, PCWSTR key,
     for (i = context_in->Line+1, line = &section->lines[i]; i < section->nb_lines; i++, line++)
     {
         if (line->key_field == -1) continue;
-        if (!strcmpiW( key, file->fields[line->key_field].text ))
+        PARSER_string_substW( file, file->fields[line->key_field].text, buffer, ARRAY_SIZE(buffer) );
+        if (!strcmpiW( key, buffer ))
         {
             if (context_out != context_in) *context_out = *context_in;
             context_out->Line = i;
@@ -2053,7 +2055,7 @@ BOOL WINAPI SetupGetBinaryField( PINFCONTEXT context, DWORD index, BYTE *buffer,
     struct inf_file *file = context->CurrentInf;
     struct line *line = get_line( file, context->Section, context->Line );
     struct field *field;
-    int i;
+    int i, pass;
 
     if (!line)
     {
@@ -2066,36 +2068,42 @@ BOOL WINAPI SetupGetBinaryField( PINFCONTEXT context, DWORD index, BYTE *buffer,
         return FALSE;
     }
     index--;  /* fields start at 0 */
-    if (required) *required = line->nb_fields - index;
-    if (!buffer) return TRUE;
-    if (size < line->nb_fields - index)
+    for (pass = 0; pass < 2; pass++)
     {
-        SetLastError( ERROR_INSUFFICIENT_BUFFER );
-        return FALSE;
-    }
-    field = &file->fields[line->first_field + index];
-    for (i = index; i < line->nb_fields; i++, field++)
-    {
-        const WCHAR *p = field->text;
-        DWORD value = 0;
-        int d;
+        field = &file->fields[line->first_field + index];
+        for (i = index; i < line->nb_fields; i++, field++)
+        {
+            const WCHAR *p = field->text;
+            DWORD value = 0;
+            int d;
 
-        if (*p == '0')
-        {
-            ++p;
-            if (*p == 'X' || *p == 'x')
-                ++p;
-        }
-        for (; *p && (d = xdigit_to_int(*p)) != -1; p++)
-        {
-            if ((value <<= 4) > 255)
+            if (*p == '0')
             {
-                SetLastError( ERROR_INVALID_DATA );
-                return FALSE;
+                ++p;
+                if (*p == 'X' || *p == 'x')
+                    ++p;
             }
-            value |= d;
+            for (; *p && (d = xdigit_to_int(*p)) != -1; p++)
+            {
+                if ((value <<= 4) > 255)
+                {
+                    SetLastError( ERROR_INVALID_DATA );
+                    return FALSE;
+                }
+                value |= d;
+            }
+            if (pass)
+                buffer[i - index] = value;
         }
-        buffer[i - index] = value;
+        if (pass)
+            break;
+        if (required) *required = line->nb_fields - index;
+        if (!buffer) return TRUE;
+        if (size < line->nb_fields - index)
+        {
+            SetLastError( ERROR_INSUFFICIENT_BUFFER );
+            return FALSE;
+        }
     }
     if (TRACE_ON(setupapi))
     {
@@ -2103,6 +2111,7 @@ BOOL WINAPI SetupGetBinaryField( PINFCONTEXT context, DWORD index, BYTE *buffer,
                context->Inf, context->CurrentInf, context->Section, context->Line, index );
         for (i = index; i < line->nb_fields; i++) TRACE( " %02x\n", buffer[i - index] );
     }
+    SetLastError( ERROR_SUCCESS );
     return TRUE;
 }
 
