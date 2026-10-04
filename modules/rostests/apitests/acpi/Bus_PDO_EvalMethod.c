@@ -195,6 +195,10 @@ struct acpi_device
         unsigned int power_manageable:1;
         unsigned int force_power_state:1;
     } flags;
+    struct
+    {
+        char *hardware_id;
+    } pnp;
 };
 
 typedef struct _GTM_OBJECT_BUFFER
@@ -249,6 +253,42 @@ acpi_bus_get_device(ACPI_HANDLE Handle, struct acpi_device **Device)
     UNREFERENCED_PARAMETER(Device);
     ok(0, "Unexpected call to acpi_bus_get_device\n");
     return -1;
+}
+
+ACPI_STATUS
+acpi_evaluate_integer(ACPI_HANDLE Handle, ACPI_STRING Pathname, struct acpi_object_list *Arguments, unsigned long long *Data)
+{
+    UNREFERENCED_PARAMETER(Handle);
+    UNREFERENCED_PARAMETER(Pathname);
+    UNREFERENCED_PARAMETER(Arguments);
+    UNREFERENCED_PARAMETER(Data);
+    ok(0, "Unexpected call to acpi_evaluate_integer\n");
+    return AE_NOT_FOUND;
+}
+
+ACPI_STATUS
+AcpiGetType(ACPI_HANDLE Object, ACPI_OBJECT_TYPE *OutType)
+{
+    UNREFERENCED_PARAMETER(Object);
+    UNREFERENCED_PARAMETER(OutType);
+    return AE_NOT_FOUND;
+}
+
+ACPI_STATUS
+AcpiGetTable(ACPI_STRING Signature, UINT32 Instance, ACPI_TABLE_HEADER **OutTable)
+{
+    UNREFERENCED_PARAMETER(Signature);
+    UNREFERENCED_PARAMETER(Instance);
+    UNREFERENCED_PARAMETER(OutTable);
+    ok(0, "Unexpected call to AcpiGetTable\n");
+    return AE_NOT_FOUND;
+}
+
+void
+AcpiPutTable(ACPI_TABLE_HEADER *Table)
+{
+    UNREFERENCED_PARAMETER(Table);
+    ok(0, "Unexpected call to AcpiPutTable\n");
 }
 
 int
