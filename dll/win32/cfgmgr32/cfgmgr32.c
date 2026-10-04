@@ -418,7 +418,13 @@ static LSTATUS enum_class_device_interfaces( HKEY root, struct device_interface 
             for (tmp = wcschr( instance, '\\' ); tmp; tmp = wcschr( tmp, '\\' )) *tmp = '#';
             for (UINT j = 0; !err && !(err = RegEnumKeyW( iface_key, j, iface->refstr, ARRAY_SIZE(iface->refstr) )); j++)
             {
+#ifdef __REACTOS__
+                ULONG len = (iface->refstr[0] == '#' && iface->refstr[1]) ?
+                    swprintf( path, ARRAY_SIZE(path), L"\\\\?\\%s#%s\\%s", instance, iface->class, iface->refstr + 1 ) :
+                    swprintf( path, ARRAY_SIZE(path), L"\\\\?\\%s#%s", instance, iface->class );
+#else
                 ULONG len = swprintf( path, ARRAY_SIZE(path), L"\\\\?\\%s%s%s", instance, iface->refstr, iface->class );
+#endif
                 if (all || device_interface_enabled( iface_key, iface )) err = callback( iface_key, iface, path, len + 1, context );
             }
             if (err == ERROR_NO_MORE_ITEMS) err = ERROR_SUCCESS;
