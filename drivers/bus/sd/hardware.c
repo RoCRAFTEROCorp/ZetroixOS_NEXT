@@ -679,10 +679,28 @@ SdBusHardwareAttachOps(
     return STATUS_SUCCESS;
 }
 
+ULONG
+SdBusHardwareGetBaseClock(
+    _In_ PFDO_EXTENSION FdoExtension)
+{
+    PSDBUS_HARDWARE_EXTENSION HardwareExtension;
+
+    HardwareExtension = FdoExtension->HardwareExtension;
+    if (HardwareExtension == NULL ||
+        HardwareExtension->Ops == NULL ||
+        HardwareExtension->Ops->GetBaseClock == NULL)
+    {
+        return 0;
+    }
+
+    return HardwareExtension->Ops->GetBaseClock(FdoExtension);
+}
+
 NTSTATUS
 SdBusHardwareAttach(
     _In_ PFDO_EXTENSION FdoExtension)
 {
+    static const PCWSTR SpacemitK1Ids[] = { L"spacemit_k1-x-sdhci" };
     static const PCWSTR Bcm2835SdHostIds[] = { L"BCM2855" };
     static const PCWSTR BrcmstbIds[] = { L"BRCM5D12", L"80860F16" };
     static const PCWSTR Bcm2847Ids[] = { L"BCM2847" };
@@ -699,6 +717,11 @@ SdBusHardwareAttach(
     if (Pdo == NULL)
     {
         return STATUS_SUCCESS;
+    }
+
+    if (SdBusDeviceMatchesAnyId(Pdo, SpacemitK1Ids, RTL_NUMBER_OF(SpacemitK1Ids)))
+    {
+        return SdBusK1xAttach(FdoExtension);
     }
 
     if (SdBusDeviceMatchesAnyId(Pdo, Bcm2835SdHostIds, RTL_NUMBER_OF(Bcm2835SdHostIds)))
@@ -748,4 +771,22 @@ SdBusHardwareAttach(
 
     DPRINT1("SdBusHardwareAttach: brcmstb UHS hardware ops attached; voltage switch enabled\n");
     return STATUS_SUCCESS;
+}
+
+NTSTATUS
+SdBusHardwareSetHs400EnhancedStrobe(
+    _In_ PFDO_EXTENSION FdoExtension,
+    _In_ BOOLEAN Enable)
+{
+    PSDBUS_HARDWARE_EXTENSION HardwareExtension;
+
+    HardwareExtension = FdoExtension->HardwareExtension;
+    if (HardwareExtension == NULL ||
+        HardwareExtension->Ops == NULL ||
+        HardwareExtension->Ops->SetHs400EnhancedStrobe == NULL)
+    {
+        return STATUS_NOT_SUPPORTED;
+    }
+
+    return HardwareExtension->Ops->SetHs400EnhancedStrobe(FdoExtension, Enable);
 }

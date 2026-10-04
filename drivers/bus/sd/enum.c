@@ -1067,6 +1067,82 @@ SdBusSetEmmcBusWidth(
     return LastStatus;
 }
 
+static VOID
+SdBusLeaveEmmcHs400(
+    _In_ PFDO_EXTENSION FdoExtension,
+    _In_ ULONG Rca)
+{
+    (VOID)SdBusHardwareSetHs400EnhancedStrobe(FdoExtension, FALSE);
+    (VOID)SdBusEmmcSwitchByRca(FdoExtension,
+                               Rca,
+                               EMMC_SWITCH_ACCESS_WRITE_BYTE,
+                               (UCHAR)EMMC_EXT_CSD_HS_TIMING,
+                               EMMC_TIMING_HIGH_SPEED,
+                               0,
+                               SD_DATA_TIMEOUT_MS);
+    (VOID)SdBusEmmcSwitchByRca(FdoExtension,
+                               Rca,
+                               EMMC_SWITCH_ACCESS_WRITE_BYTE,
+                               (UCHAR)EMMC_EXT_CSD_BUS_WIDTH,
+                               EMMC_BUS_WIDTH_8,
+                               0,
+                               SD_DATA_TIMEOUT_MS);
+}
+
+static VOID
+SdBusEnableEmmcHs400EnhancedStrobe(
+    _In_ PFDO_EXTENSION FdoExtension,
+    _In_ PPDO_EXTENSION PdoExtension,
+    _In_ ULONG Rca)
+{
+    NTSTATUS Status;
+
+    if (!NT_SUCCESS(SdBusHardwareSetHs400EnhancedStrobe(FdoExtension, FALSE)))
+    {
+        return;
+    }
+
+    Status = SdBusEmmcSwitchByRca(FdoExtension,
+                                  Rca,
+                                  EMMC_SWITCH_ACCESS_WRITE_BYTE,
+                                  (UCHAR)EMMC_EXT_CSD_BUS_WIDTH,
+                                  EMMC_BUS_WIDTH_8_DDR | EMMC_BUS_WIDTH_STROBE,
+                                  0,
+                                  SD_DATA_TIMEOUT_MS);
+    if (!NT_SUCCESS(Status))
+    {
+        DPRINT1("SdBusEnableEmmcHs400EnhancedStrobe: DDR strobe bus width failed (0x%08lx)\n",
+                Status);
+        return;
+    }
+
+    Status = SdBusEmmcSwitchByRca(FdoExtension,
+                                  Rca,
+                                  EMMC_SWITCH_ACCESS_WRITE_BYTE,
+                                  (UCHAR)EMMC_EXT_CSD_HS_TIMING,
+                                  EMMC_TIMING_HS400,
+                                  0,
+                                  0);
+    if (NT_SUCCESS(Status))
+    {
+        Status = SdBusHardwareSetHs400EnhancedStrobe(FdoExtension, TRUE);
+    }
+    if (NT_SUCCESS(Status))
+    {
+        Status = SdBusEmmcWaitReadyByRca(FdoExtension, Rca, SD_DATA_TIMEOUT_MS);
+    }
+    if (!NT_SUCCESS(Status))
+    {
+        DPRINT1("SdBusEnableEmmcHs400EnhancedStrobe: HS400 switch failed (0x%08lx), keeping High Speed\n",
+                Status);
+        SdBusLeaveEmmcHs400(FdoExtension, Rca);
+        return;
+    }
+
+    PdoExtension->ExtCsd[EMMC_EXT_CSD_HS_TIMING] = EMMC_TIMING_HS400;
+    DPRINT1("SdBusEnumerateCard: eMMC HS400 enhanced strobe enabled\n");
+}
+
 static BOOLEAN
 SdBusHostSupportsUhs(
     _In_ PFDO_EXTENSION FdoExtension)
@@ -1918,6 +1994,13 @@ SdBusEnumerateCard(
                     PdoExtension->ExtCsd[EMMC_EXT_CSD_HS_TIMING] =
                         EMMC_TIMING_HIGH_SPEED;
                     DPRINT1("SdBusEnumerateCard: eMMC high-speed mode enabled\n");
+
+                    if (FdoExtension->CurrentBusWidth == 8 &&
+                        (DeviceType & EMMC_DEVICE_TYPE_HS400_18) &&
+                        PdoExtension->ExtCsd[EMMC_EXT_CSD_STROBE_SUPPORT] == 1)
+                    {
+                        SdBusEnableEmmcHs400EnhancedStrobe(FdoExtension, PdoExtension, Rca);
+                    }
                 }
                 else
                 {
@@ -2266,6 +2349,48 @@ SdBusDowngradeCardToDefaultSpeed(
  *
  * @return STATUS_SUCCESS once a working clock is programmed, or STATUS_IO_TIMEOUT.
  */
+static NTSTATUS
+SdBusSetEmmcHs400Clock(
+    _In_ PFDO_EXTENSION FdoExtension,
+    _In_ PPDO_EXTENSION PdoExtension)
+{
+    ULONG VerifyExtCsdWords[128];
+    PUCHAR VerifyExtCsd = (PUCHAR)VerifyExtCsdWords;
+    NTSTATUS Status;
+
+    Status = SdBusProgramClock(FdoExtension, MMC_HS400_KHZ);
+    if (NT_SUCCESS(Status))
+    {
+        Status = SdBusHardwareSetHs400EnhancedStrobe(FdoExtension, TRUE);
+    }
+    if (NT_SUCCESS(Status))
+    {
+        Status = SdBusVerifyCardResponds(FdoExtension, PdoExtension);
+    }
+    if (NT_SUCCESS(Status))
+    {
+        RtlZeroMemory(VerifyExtCsdWords, sizeof(VerifyExtCsdWords));
+        Status = SdBusReadExtCsd(FdoExtension, VerifyExtCsd);
+        if (NT_SUCCESS(Status) && !SdBusEmmcExtCsdMatches(PdoExtension->ExtCsd, VerifyExtCsd))
+        {
+            Status = STATUS_DEVICE_DATA_ERROR;
+        }
+    }
+    if (NT_SUCCESS(Status))
+    {
+        DPRINT1("SdBusSetTransferClock: eMMC HS400 enhanced strobe at %ld kHz\n",
+                InterlockedCompareExchange(&FdoExtension->CurrentClockKhz, 0, 0));
+        return STATUS_SUCCESS;
+    }
+
+    DPRINT1("SdBusSetTransferClock: HS400 verify failed (0x%08lx), falling back to High Speed\n",
+            Status);
+    (VOID)SdBusProgramClock(FdoExtension, MMC_HIGH_SPEED_KHZ);
+    SdBusLeaveEmmcHs400(FdoExtension, PdoExtension->RelativeAddress);
+    PdoExtension->ExtCsd[EMMC_EXT_CSD_HS_TIMING] = EMMC_TIMING_HIGH_SPEED;
+    return Status;
+}
+
 NTSTATUS
 SdBusSetTransferClock(
     _In_ PFDO_EXTENSION FdoExtension,
@@ -2314,6 +2439,11 @@ SdBusSetTransferClock(
     if (PdoExtension->CardType == SdCardTypeEmmc ||
         PdoExtension->CardType == SdCardTypeMmc)
     {
+        if (PdoExtension->ExtCsd[EMMC_EXT_CSD_HS_TIMING] == EMMC_TIMING_HS400 &&
+            NT_SUCCESS(SdBusSetEmmcHs400Clock(FdoExtension, PdoExtension)))
+        {
+            return STATUS_SUCCESS;
+        }
         if ((HostCtrl & SDHCI_HC_HIGH_SPEED) &&
             PdoExtension->ExtCsd[EMMC_EXT_CSD_HS_TIMING] == EMMC_TIMING_HIGH_SPEED)
         {

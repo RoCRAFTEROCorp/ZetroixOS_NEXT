@@ -379,6 +379,10 @@ SdBusInitializeController(
 
     /* Extract base clock frequency */
     FdoExtension->MaxClockFrequency = SDHCI_BASE_CLK_MHZ(Caps) * 1000; /* kHz */
+    if (SdBusHardwareGetBaseClock(FdoExtension) != 0)
+    {
+        FdoExtension->MaxClockFrequency = SdBusHardwareGetBaseClock(FdoExtension);
+    }
 
     DPRINT1("SDHCI: Version %u.%02u, Caps 0x%08lx, Caps2 0x%08lx, BaseClock %lu kHz\n",
            (FdoExtension->SpecVersion >> 4) + 1,

@@ -24,6 +24,9 @@ typedef struct _SDBUS_HARDWARE_OPS
     VOID (*GetSlotCapabilities)(_In_ PFDO_EXTENSION FdoExtension,
                                 _Inout_ PULONG Capabilities,
                                 _Inout_ PULONG Capabilities2);
+    ULONG (*GetBaseClock)(_In_ PFDO_EXTENSION FdoExtension);
+    NTSTATUS (*SetHs400EnhancedStrobe)(_In_ PFDO_EXTENSION FdoExtension,
+                                       _In_ BOOLEAN Enable);
 } SDBUS_HARDWARE_OPS, *PSDBUS_HARDWARE_OPS;
 
 typedef struct _SDBUS_HARDWARE_EXTENSION
@@ -70,8 +73,21 @@ SdBusHardwareQueryUhsModes(
     _In_ PFDO_EXTENSION FdoExtension,
     _Out_ PULONG Modes);
 
+ULONG
+SdBusHardwareGetBaseClock(
+    _In_ PFDO_EXTENSION FdoExtension);
+
+NTSTATUS
+SdBusHardwareSetHs400EnhancedStrobe(
+    _In_ PFDO_EXTENSION FdoExtension,
+    _In_ BOOLEAN Enable);
+
 NTSTATUS
 SdBusHardwareAttach(
+    _In_ PFDO_EXTENSION FdoExtension);
+
+NTSTATUS
+SdBusK1xAttach(
     _In_ PFDO_EXTENSION FdoExtension);
 
 #endif /* _SDBUS_HARDWARE_H_ */

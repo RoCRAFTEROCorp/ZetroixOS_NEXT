@@ -15,6 +15,7 @@ list(APPEND SOURCE
     sdio.c
     emmc.c
     sdhost.c
+    k1x.c
     hardware.h
     sdhost.h
     sdbus.h)
