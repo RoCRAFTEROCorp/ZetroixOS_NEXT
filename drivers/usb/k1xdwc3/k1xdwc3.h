@@ -52,10 +52,10 @@
 #define K1X_GPIO_SET                0x018
 #define K1X_GPIO_CLEAR              0x024
 #define K1X_GPIO_SET_OUTPUT         0x054
-#define K1X_GPIO_HUB_ENABLE         123
-#define K1X_GPIO_HUB_RESET          124
-#define K1X_GPIO_HUB_VBUS           97
-#define K1X_HUB_VBUS_DELAY_MS       250
+#define K1X_GPIO_COUNT              128
+#define K1X_HUB_MAX_GPIOS           4
+#define K1X_HUB_POWER_OFF_MS        250
+#define K1X_HUB_VBUS_DELAY_MS       10
 
 #define DWC3_GCTL                   0xC110
 #define DWC3_GCTL_PRTCAP_MASK       (3UL << 12)
@@ -71,6 +71,21 @@
 #define DWC3_GUSB3PIPECTL_SUSPHY    (1UL << 17)
 #define DWC3_GUSB3PIPECTL_DEPOCHG   (1UL << 18)
 #define DWC3_REGISTER_SPAN          0xC300
+
+typedef struct _K1XDWC3_GPIO_LIST
+{
+    ULONG Count;
+    ULONG InterDelay;
+    ULONG Number[K1X_HUB_MAX_GPIOS];
+    BOOLEAN ActiveLow[K1X_HUB_MAX_GPIOS];
+} K1XDWC3_GPIO_LIST, *PK1XDWC3_GPIO_LIST;
+
+typedef struct _K1XDWC3_HUB_POWER
+{
+    K1XDWC3_GPIO_LIST Hub;
+    K1XDWC3_GPIO_LIST Vbus;
+    ULONG VbusDelay;
+} K1XDWC3_HUB_POWER, *PK1XDWC3_HUB_POWER;
 
 #define K1XDWC3_FDO 0x4F444631UL
 #define K1XDWC3_PDO 0x4F445031UL
