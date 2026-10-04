@@ -19,10 +19,6 @@ VOID NTAPI KiRiscvRequestSoftwareInterrupt(KIRQL Irql);
 VOID NTAPI KiRiscvClearSoftwareInterrupt(KIRQL Irql);
 VOID NTAPI KiRiscvSendSoftwareInterrupt(KAFFINITY TargetSet, KIRQL Irql);
 
-/* Never infer an MMIO pointer from a port number or invent a counter rate. */
-#define RISCV_HAL_REQUIRED(ReturnType, Name, Parameters) \
-    ReturnType NTAPI Name Parameters { KiRiscvUnimplemented(#Name); }
-
 
 /* Same contract as the x86 sti;hlt: entered with interrupts disabled, wakes
  * on the next unmasked interrupt and returns with interrupts enabled. The
@@ -33,30 +29,12 @@ HalProcessorIdle(VOID)
 {
     __asm__ __volatile__("csrsi sstatus, 2\n\twfi" ::: "memory");
 }
-RISCV_HAL_REQUIRED(UCHAR, READ_PORT_UCHAR, (PUCHAR Port))
-RISCV_HAL_REQUIRED(USHORT, READ_PORT_USHORT, (PUSHORT Port))
-RISCV_HAL_REQUIRED(ULONG, READ_PORT_ULONG, (PULONG Port))
-RISCV_HAL_REQUIRED(VOID, READ_PORT_BUFFER_UCHAR, (PUCHAR Port, PUCHAR Buffer, ULONG Count))
-RISCV_HAL_REQUIRED(VOID, READ_PORT_BUFFER_USHORT, (PUSHORT Port, PUSHORT Buffer, ULONG Count))
-RISCV_HAL_REQUIRED(VOID, READ_PORT_BUFFER_ULONG, (PULONG Port, PULONG Buffer, ULONG Count))
-RISCV_HAL_REQUIRED(VOID, WRITE_PORT_UCHAR, (PUCHAR Port, UCHAR Value))
-RISCV_HAL_REQUIRED(VOID, WRITE_PORT_USHORT, (PUSHORT Port, USHORT Value))
-RISCV_HAL_REQUIRED(VOID, WRITE_PORT_ULONG, (PULONG Port, ULONG Value))
-RISCV_HAL_REQUIRED(VOID, WRITE_PORT_BUFFER_UCHAR, (PUCHAR Port, PUCHAR Buffer, ULONG Count))
-RISCV_HAL_REQUIRED(VOID, WRITE_PORT_BUFFER_USHORT, (PUSHORT Port, PUSHORT Buffer, ULONG Count))
-RISCV_HAL_REQUIRED(VOID, WRITE_PORT_BUFFER_ULONG, (PULONG Port, PULONG Buffer, ULONG Count))
 
 /* QEMU virt exposes no PC speaker. Let beep.sys load and report unsupported
  * tone generation through the normal HAL failure result. */
 BOOLEAN NTAPI HalMakeBeep(ULONG Frequency) { UNREFERENCED_PARAMETER(Frequency); return FALSE; }
 ARC_STATUS NTAPI HalGetEnvironmentVariable(PCH Variable, USHORT Length, PCH Buffer) { return ENOENT; }
 ARC_STATUS NTAPI HalSetEnvironmentVariable(PCH Name, PCH Value) { return EACCES; }
-NTSTATUS NTAPI HalAdjustResourceList(PIO_RESOURCE_REQUIREMENTS_LIST *ResourceList)
-{
-    UNREFERENCED_PARAMETER(ResourceList);
-    return STATUS_NOT_SUPPORTED; /* PCI resources are assigned by PnP. */
-}
-
 NTSTATUS
 NTAPI
 HalAssignSlotResources(PUNICODE_STRING RegistryPath, PUNICODE_STRING DriverClassName,

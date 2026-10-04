@@ -238,6 +238,77 @@ HalpRiscvGetPciResource(PCM_PARTIAL_RESOURCE_DESCRIPTOR Resource)
     return TRUE;
 }
 
+static BOOLEAN
+HalpRiscvClampToWindow(_Inout_ PIO_RESOURCE_DESCRIPTOR Descriptor, _In_ ULONG AddressSpace,
+                       _In_ ULONG64 Length)
+{
+    RISCV_PCI_HOST *Host = &HalpRiscvPciHost;
+    ULONG64 Minimum = (ULONG64)Descriptor->u.Generic.MinimumAddress.QuadPart;
+    ULONG64 Maximum = (ULONG64)Descriptor->u.Generic.MaximumAddress.QuadPart;
+    ULONG64 BestLow = 0, BestHigh = 0;
+    ULONG Index;
+    BOOLEAN Found = FALSE;
+
+    for (Index = 0; Index < Host->RangeCount; ++Index)
+    {
+        RISCV_PCI_RANGE *Range = &Host->Ranges[Index];
+        ULONG64 Low = max(Minimum, Range->BusAddress);
+        ULONG64 High = min(Maximum, Range->BusAddress + Range->Size - 1);
+
+        if (Range->AddressSpace != AddressSpace || Low > High || High - Low + 1 < Length)
+            continue;
+        if (!Found || Low > BestLow)
+        {
+            BestLow = Low;
+            BestHigh = High;
+            Found = TRUE;
+        }
+    }
+    if (!Found)
+        return FALSE;
+    Descriptor->u.Generic.MinimumAddress.QuadPart = (LONGLONG)BestLow;
+    Descriptor->u.Generic.MaximumAddress.QuadPart = (LONGLONG)BestHigh;
+    return TRUE;
+}
+
+NTSTATUS
+NTAPI
+HalAdjustResourceList(PIO_RESOURCE_REQUIREMENTS_LIST *ResourceList)
+{
+    PIO_RESOURCE_REQUIREMENTS_LIST List;
+    PIO_RESOURCE_LIST Alternative;
+    ULONG Index, Entry;
+
+    if (!ResourceList || !*ResourceList)
+        return STATUS_INVALID_PARAMETER;
+    List = *ResourceList;
+    if (List->InterfaceType != PCIBus || !HalpRiscvPciHostPresent)
+        return STATUS_SUCCESS;
+
+    Alternative = &List->List[0];
+    for (Index = 0; Index < List->AlternativeLists; ++Index)
+    {
+        for (Entry = 0; Entry < Alternative->Count; ++Entry)
+        {
+            PIO_RESOURCE_DESCRIPTOR Descriptor = &Alternative->Descriptors[Entry];
+
+            switch (Descriptor->Type)
+            {
+                case CmResourceTypeMemory:
+                    HalpRiscvClampToWindow(Descriptor, 0, Descriptor->u.Memory.Length);
+                    break;
+                case CmResourceTypePort:
+                    HalpRiscvClampToWindow(Descriptor, 1, Descriptor->u.Port.Length);
+                    break;
+                default:
+                    break;
+            }
+        }
+        Alternative = (PIO_RESOURCE_LIST)&Alternative->Descriptors[Alternative->Count];
+    }
+    return STATUS_SUCCESS;
+}
+
 BOOLEAN
 NTAPI
 HalpRiscvGetPciBusRange(PULONG FirstBus, PULONG LastBus)
@@ -449,4 +520,54 @@ NTAPI
 HalSetBusData(BUS_DATA_TYPE BusDataType, ULONG BusNumber, ULONG SlotNumber, PVOID Buffer, ULONG Length)
 {
     return HalSetBusDataByOffset(BusDataType, BusNumber, SlotNumber, Buffer, 0, Length);
+}
+
+#undef READ_PORT_UCHAR
+#undef READ_PORT_USHORT
+#undef READ_PORT_ULONG
+#undef WRITE_PORT_UCHAR
+#undef WRITE_PORT_USHORT
+#undef WRITE_PORT_ULONG
+
+UCHAR NTAPI READ_PORT_UCHAR(PUCHAR Port) { return READ_REGISTER_UCHAR(Port); }
+USHORT NTAPI READ_PORT_USHORT(PUSHORT Port) { return READ_REGISTER_USHORT(Port); }
+ULONG NTAPI READ_PORT_ULONG(PULONG Port) { return READ_REGISTER_ULONG(Port); }
+VOID NTAPI WRITE_PORT_UCHAR(PUCHAR Port, UCHAR Value) { WRITE_REGISTER_UCHAR(Port, Value); }
+VOID NTAPI WRITE_PORT_USHORT(PUSHORT Port, USHORT Value) { WRITE_REGISTER_USHORT(Port, Value); }
+VOID NTAPI WRITE_PORT_ULONG(PULONG Port, ULONG Value) { WRITE_REGISTER_ULONG(Port, Value); }
+
+VOID NTAPI READ_PORT_BUFFER_UCHAR(PUCHAR Port, PUCHAR Buffer, ULONG Count)
+{
+    while (Count--)
+        *Buffer++ = READ_REGISTER_UCHAR(Port);
+}
+
+VOID NTAPI READ_PORT_BUFFER_USHORT(PUSHORT Port, PUSHORT Buffer, ULONG Count)
+{
+    while (Count--)
+        *Buffer++ = READ_REGISTER_USHORT(Port);
+}
+
+VOID NTAPI READ_PORT_BUFFER_ULONG(PULONG Port, PULONG Buffer, ULONG Count)
+{
+    while (Count--)
+        *Buffer++ = READ_REGISTER_ULONG(Port);
+}
+
+VOID NTAPI WRITE_PORT_BUFFER_UCHAR(PUCHAR Port, PUCHAR Buffer, ULONG Count)
+{
+    while (Count--)
+        WRITE_REGISTER_UCHAR(Port, *Buffer++);
+}
+
+VOID NTAPI WRITE_PORT_BUFFER_USHORT(PUSHORT Port, PUSHORT Buffer, ULONG Count)
+{
+    while (Count--)
+        WRITE_REGISTER_USHORT(Port, *Buffer++);
+}
+
+VOID NTAPI WRITE_PORT_BUFFER_ULONG(PULONG Port, PULONG Buffer, ULONG Count)
+{
+    while (Count--)
+        WRITE_REGISTER_ULONG(Port, *Buffer++);
 }
