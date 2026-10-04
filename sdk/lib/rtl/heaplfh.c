@@ -632,7 +632,7 @@ RtlpLfhWalkNext(PHEAP Heap, PRTL_HEAP_WALK_ENTRY WalkEntry, PHEAP_ENTRY *Next)
     if (!Lfh || !WalkEntry->DataAddress || WalkEntry->SegmentIndex >= HEAP_SEGMENTS)
         return STATUS_NOT_FOUND;
 
-    Segment = Heap->Segments[WalkEntry->SegmentIndex];
+    Segment = RtlpHeapSegmentFromAddress(Heap, WalkEntry->DataAddress);
     if (!Segment)
         return STATUS_NOT_FOUND;
 

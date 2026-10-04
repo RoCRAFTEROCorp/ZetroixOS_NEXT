@@ -264,7 +264,6 @@ typedef struct _HEAP
     ULONG_PTR AlignMask;
     LIST_ENTRY VirtualAllocdBlocks;
     LIST_ENTRY SegmentList;
-    struct _HEAP_SEGMENT *Segments[HEAP_SEGMENTS]; //FIXME: non-Vista
     USHORT AllocatorBackTraceIndex;
     ULONG NonDedicatedListLength;
     PVOID BlocksIndex; // HEAP_LIST_LOOKUP
@@ -290,6 +289,23 @@ typedef struct _HEAP_SEGMENT
 {
     HEAP_SEGMENT_MEMBERS;
 } HEAP_SEGMENT, *PHEAP_SEGMENT;
+
+FORCEINLINE
+PHEAP_SEGMENT
+RtlpHeapSegmentFromAddress(PHEAP Heap, PVOID Address)
+{
+    PLIST_ENTRY Link;
+    PHEAP_SEGMENT Segment;
+
+    for (Link = Heap->SegmentList.Flink; Link != &Heap->SegmentList; Link = Link->Flink)
+    {
+        Segment = CONTAINING_RECORD(Link, HEAP_SEGMENT, SegmentListEntry);
+        if ((ULONG_PTR)Address >= (ULONG_PTR)Segment->BaseAddress &&
+            (ULONG_PTR)Address < (ULONG_PTR)Segment->LastValidEntry)
+            return Segment;
+    }
+    return NULL;
+}
 
 typedef struct _HEAP_UCR_DESCRIPTOR
 {

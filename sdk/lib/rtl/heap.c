@@ -29,7 +29,7 @@
 #define HEAP_DECOMMIT_COMMITTED_DIVISOR 8
 #define HEAP_INITIAL_REGION 0x10000
 #define HEAP_INITIAL_COMMIT_ALIGN (0x400 * sizeof(PVOID))
-#define HEAP_MAX_GROW_SIZE ((SIZE_T)(sizeof(PVOID) == sizeof(ULONG) ? 0xFD0000 : 0x40000000))
+#define HEAP_MAX_GROW_SIZE 0xFD0000
 
 /* Bitmaps stuff */
 
@@ -234,8 +234,7 @@ RtlpInitializeHeap(OUT PHEAP Heap,
         Heap->AlignRound += sizeof(HEAP_ENTRY);
 
     /* Initialise the Heap Segment list */
-    for (Index = 0; Index < HEAP_SEGMENTS; ++Index)
-        Heap->Segments[Index] = NULL;
+    InitializeListHead(&Heap->SegmentList);
 
     /* Initialise the free entry lists. */
     InitializeListHead(&Heap->FreeLists);
@@ -401,7 +400,7 @@ RtlpInsertFreeBlock(PHEAP Heap,
     Flags = FreeEntry->Flags;
     PreviousSize = FreeEntry->PreviousSize;
     SegmentOffset = FreeEntry->SegmentOffset;
-    Segment = Heap->Segments[SegmentOffset];
+    Segment = RtlpHeapSegmentFromAddress(Heap, FreeEntry);
 
     /* Process it */
     while (BlockSize)
@@ -894,7 +893,7 @@ RtlpDeCommitFreeBlock(PHEAP Heap,
     }
 
     /* Get the segment */
-    Segment = Heap->Segments[FreeEntry->SegmentOffset];
+    Segment = RtlpHeapSegmentFromAddress(Heap, FreeEntry);
 
     /* Get the preceding entry */
     DecommitBase = ROUND_UP(FreeEntry, PAGE_SIZE);
@@ -1081,7 +1080,7 @@ RtlpInitializeHeapSegment(IN OUT PHEAP Heap,
     Segment->SegmentSignature = HEAP_SEGMENT_SIGNATURE;
     Segment->SegmentFlags = SegmentFlags;
     Segment->Heap = Heap;
-    Heap->Segments[SegmentIndex] = Segment;
+    InsertTailList(&Heap->SegmentList, &Segment->SegmentListEntry);
 
     /* Initialise the Heap Segment location information */
     Segment->BaseAddress = Segment;
@@ -1205,7 +1204,8 @@ RtlpShouldDeCommitFreeBlock(PHEAP Heap,
                             SIZE_T BlockSize)
 {
     SIZE_T CommittedPages = 0;
-    ULONG Index;
+    PLIST_ENTRY Link;
+    PHEAP_SEGMENT Segment;
 
     if (BlockSize < Heap->DeCommitFreeBlockThreshold ||
         BlockSize < (HEAP_DECOMMIT_MINIMUM_BLOCK >> HEAP_ENTRY_SHIFT) ||
@@ -1214,13 +1214,10 @@ RtlpShouldDeCommitFreeBlock(PHEAP Heap,
         return FALSE;
     }
 
-    for (Index = 0; Index < HEAP_SEGMENTS; Index++)
+    for (Link = Heap->SegmentList.Flink; Link != &Heap->SegmentList; Link = Link->Flink)
     {
-        if (Heap->Segments[Index] != NULL)
-        {
-            CommittedPages += Heap->Segments[Index]->NumberOfPages -
-                              Heap->Segments[Index]->NumberOfUnCommittedPages;
-        }
+        Segment = CONTAINING_RECORD(Link, HEAP_SEGMENT, SegmentListEntry);
+        CommittedPages += Segment->NumberOfPages - Segment->NumberOfUnCommittedPages;
     }
 
     return BlockSize >= (CommittedPages << (PAGE_SHIFT - HEAP_ENTRY_SHIFT)) / HEAP_DECOMMIT_COMMITTED_DIVISOR;
@@ -1391,8 +1388,8 @@ PHEAP_FREE_ENTRY
 RtlpExtendHeap(PHEAP Heap,
                SIZE_T Size)
 {
-    ULONG Pages;
-    UCHAR Index, EmptyIndex;
+    ULONG Pages, SegmentCount;
+    PLIST_ENTRY Link;
     SIZE_T FreeSize, CommitSize, ReserveSize;
     PHEAP_SEGMENT Segment;
     PHEAP_FREE_ENTRY FreeEntry;
@@ -1406,16 +1403,16 @@ RtlpExtendHeap(PHEAP Heap,
     DPRINT("Pages %x, FreeSize %x. Going through segments...\n", Pages, FreeSize);
 
     /* Find an empty segment */
-    EmptyIndex = HEAP_SEGMENTS;
-    for (Index = 0; Index < HEAP_SEGMENTS; Index++)
+    SegmentCount = 0;
+    for (Link = Heap->SegmentList.Flink; Link != &Heap->SegmentList; Link = Link->Flink)
     {
-        Segment = Heap->Segments[Index];
+        Segment = CONTAINING_RECORD(Link, HEAP_SEGMENT, SegmentListEntry);
+        SegmentCount++;
 
-        if (Segment) DPRINT("Segment[%u] %p with NOUCP %x\n", Index, Segment, Segment->NumberOfUnCommittedPages);
+        DPRINT("Segment %p with NOUCP %x\n", Segment, Segment->NumberOfUnCommittedPages);
 
         /* Check if its size suits us */
-        if (Segment &&
-            Pages <= Segment->NumberOfUnCommittedPages)
+        if (Pages <= Segment->NumberOfUnCommittedPages)
         {
             DPRINT("This segment is suitable\n");
 
@@ -1431,24 +1428,14 @@ RtlpExtendHeap(PHEAP Heap,
                 return FreeEntry;
             }
         }
-        else if (!Segment &&
-                 EmptyIndex == HEAP_SEGMENTS)
-        {
-            /* Remember the first unused segment index */
-            EmptyIndex = Index;
-        }
 
-        if (Segment)
-        {
-            FreeEntry = RtlpCommitInteriorPages(Heap, Segment, Size);
-            if (FreeEntry)
-                return FreeEntry;
-        }
+        FreeEntry = RtlpCommitInteriorPages(Heap, Segment, Size);
+        if (FreeEntry)
+            return FreeEntry;
     }
 
     /* No luck, need to grow the heap */
-    if ((Heap->Flags & HEAP_GROWABLE) &&
-        (EmptyIndex != HEAP_SEGMENTS))
+    if (Heap->Flags & HEAP_GROWABLE)
     {
         Segment = NULL;
 
@@ -1507,7 +1494,12 @@ RtlpExtendHeap(PHEAP Heap,
 
             /* Initialize heap segment if commit was successful */
             if (NT_SUCCESS(Status))
-                Status = RtlpInitializeHeapSegment(Heap, Segment, EmptyIndex, 0, ReserveSize, CommitSize);
+                Status = RtlpInitializeHeapSegment(Heap,
+                                                   Segment,
+                                                   (UCHAR)min(SegmentCount, HEAP_SEGMENTS - 1),
+                                                   0,
+                                                   ReserveSize,
+                                                   CommitSize);
 
             /* If everything worked - cool */
             if (NT_SUCCESS(Status)) return (PHEAP_FREE_ENTRY)Segment->FirstEntry;
@@ -1898,7 +1890,6 @@ RtlDestroyHeap(HANDLE HeapPtr) /* [in] Handle of heap */
     PHEAP_VIRTUAL_ALLOC_ENTRY VirtualEntry;
     PVOID BaseAddress;
     SIZE_T Size;
-    LONG i;
     PHEAP_SEGMENT Segment;
 
     if (!HeapPtr) return NULL;
@@ -1970,10 +1961,12 @@ RtlDestroyHeap(HANDLE HeapPtr) /* [in] Handle of heap */
     }
 
     /* Go through segments and destroy them */
-    for (i = HEAP_SEGMENTS - 1; i >= 0; i--)
+    Current = Heap->SegmentList.Blink;
+    while (Current != &Heap->SegmentList)
     {
-        Segment = Heap->Segments[i];
-        if (Segment) RtlpDestroyHeapSegment(Segment);
+        Segment = CONTAINING_RECORD(Current, HEAP_SEGMENT, SegmentListEntry);
+        Current = Current->Blink;
+        RtlpDestroyHeapSegment(Segment);
     }
 
     return NULL;
@@ -2671,7 +2664,7 @@ RtlpGrowBlockInPlace (IN PHEAP Heap,
 
         /* Find and commit those pages */
         FreeEntry = RtlpFindAndCommitPages(Heap,
-                                           Heap->Segments[InUseEntry->SegmentOffset],
+                                           RtlpHeapSegmentFromAddress(Heap, InUseEntry),
                                            &FreeSize,
                                            (PVOID)PAGE_ROUND_UP(InUseEntry + InUseEntry->Size));
 
@@ -3569,7 +3562,7 @@ RtlpValidateHeapEntry(
 {
     BOOLEAN BigAllocation, EntryFound = FALSE;
     PHEAP_SEGMENT Segment;
-    ULONG SegmentOffset;
+    PLIST_ENTRY Link;
 
     /* Perform various consistency checks of this entry */
     if (!HeapEntry) goto invalid_entry;
@@ -3577,7 +3570,7 @@ RtlpValidateHeapEntry(
     if (!(HeapEntry->Flags & HEAP_ENTRY_BUSY)) goto invalid_entry;
 
     BigAllocation = HeapEntry->Flags & HEAP_ENTRY_VIRTUAL_ALLOC;
-    Segment = Heap->Segments[HeapEntry->SegmentOffset];
+    Segment = BigAllocation ? NULL : RtlpHeapSegmentFromAddress(Heap, HeapEntry);
 
     if (BigAllocation &&
         (((ULONG_PTR)HeapEntry & (PAGE_SIZE - 1)) != FIELD_OFFSET(HEAP_VIRTUAL_ALLOC_ENTRY, BusyBlock)))
@@ -3597,10 +3590,9 @@ RtlpValidateHeapEntry(
     if (HeapEntry->Flags & HEAP_ENTRY_VIRTUAL_ALLOC) return TRUE;
 
     /* Go through segments and check if this entry fits into any of them */
-    for (SegmentOffset = 0; SegmentOffset < HEAP_SEGMENTS; SegmentOffset++)
+    for (Link = Heap->SegmentList.Flink; Link != &Heap->SegmentList; Link = Link->Flink)
     {
-        Segment = Heap->Segments[SegmentOffset];
-        if (!Segment) continue;
+        Segment = CONTAINING_RECORD(Link, HEAP_SEGMENT, SegmentListEntry);
 
         if ((HeapEntry >= Segment->FirstEntry) &&
             (HeapEntry < Segment->LastValidEntry))
@@ -3818,9 +3810,8 @@ BOOLEAN NTAPI
 RtlpValidateHeap(PHEAP Heap,
                  BOOLEAN ForceValidation)
 {
-    UCHAR SegmentOffset;
     SIZE_T TotalFreeSize;
-    PLIST_ENTRY ListHead, NextEntry;
+    PLIST_ENTRY ListHead, NextEntry, Link;
     ULONG FreeBlocksCount, FreeListEntriesCount;
     ULONG HintIndex;
 
@@ -3967,16 +3958,13 @@ RtlpValidateHeap(PHEAP Heap,
     FreeBlocksCount = 0;
     TotalFreeSize = 0;
 
-    for (SegmentOffset = 0; SegmentOffset < HEAP_SEGMENTS; SegmentOffset++)
+    for (Link = Heap->SegmentList.Flink; Link != &Heap->SegmentList; Link = Link->Flink)
     {
-        PHEAP_SEGMENT Segment = Heap->Segments[SegmentOffset];
-
-        /* Go to the next one if there is no segment */
-        if (!Segment) continue;
+        PHEAP_SEGMENT Segment = CONTAINING_RECORD(Link, HEAP_SEGMENT, SegmentListEntry);
 
         if (!RtlpValidateHeapSegment(Heap,
                                      Segment,
-                                     SegmentOffset,
+                                     Segment->Entry.SegmentOffset,
                                      &FreeBlocksCount,
                                      &TotalFreeSize,
                                      NULL,
@@ -4478,14 +4466,15 @@ RtlpWalkHeap(PHEAP Heap, PRTL_HEAP_WALK_ENTRY WalkEntry)
 {
     PHEAP_SEGMENT Segment;
     PHEAP_VIRTUAL_ALLOC_ENTRY VirtualEntry;
-    PLIST_ENTRY Link;
-    ULONG Index = 0;
+    PLIST_ENTRY Link, SegmentLink;
+    ULONG Index;
     NTSTATUS Status;
 
     Link = Heap->VirtualAllocdBlocks.Flink;
     if (WalkEntry->DataAddress && (WalkEntry->Flags & RTL_HEAP_ENTRY_REGION) &&
         RtlpLfhIsRegion(Heap, WalkEntry->DataAddress))
         return STATUS_NO_MORE_ENTRIES;
+    SegmentLink = Heap->SegmentList.Flink;
     if (WalkEntry->DataAddress)
     {
         Index = WalkEntry->SegmentIndex;
@@ -4502,27 +4491,26 @@ RtlpWalkHeap(PHEAP Heap, PRTL_HEAP_WALK_ENTRY WalkEntry)
             if (Link == &Heap->VirtualAllocdBlocks)
                 return STATUS_INVALID_PARAMETER;
             Link = Link->Flink;
+            SegmentLink = &Heap->SegmentList;
         }
         else
         {
-            Segment = Heap->Segments[Index];
+            Segment = RtlpHeapSegmentFromAddress(Heap, WalkEntry->DataAddress);
             if (!Segment)
                 return STATUS_INVALID_PARAMETER;
             Status = RtlpWalkHeapSegment(Segment, WalkEntry);
             if (Status != STATUS_NO_MORE_ENTRIES)
                 return Status;
-            ++Index;
+            SegmentLink = Segment->SegmentListEntry.Flink;
         }
     }
-    for (; Index < HEAP_SEGMENTS; ++Index)
+    if (SegmentLink != &Heap->SegmentList)
     {
-        Segment = Heap->Segments[Index];
-        if (!Segment)
-            continue;
+        Segment = CONTAINING_RECORD(SegmentLink, HEAP_SEGMENT, SegmentListEntry);
         WalkEntry->DataAddress = Segment->BaseAddress;
         WalkEntry->DataSize = (PUCHAR)Segment->FirstEntry - (PUCHAR)Segment->BaseAddress;
         WalkEntry->OverheadBytes = 0;
-        WalkEntry->SegmentIndex = Index;
+        WalkEntry->SegmentIndex = Segment->Entry.SegmentOffset;
         WalkEntry->Flags = RTL_HEAP_ENTRY_REGION;
         WalkEntry->Segment.CommittedSize =
             (Segment->NumberOfPages - Segment->NumberOfUnCommittedPages) << PAGE_SHIFT;
