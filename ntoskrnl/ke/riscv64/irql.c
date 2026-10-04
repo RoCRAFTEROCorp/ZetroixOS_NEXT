@@ -20,6 +20,7 @@ KiRiscvUpdateInterruptMask(_In_ PKPCR Pcr)
     if (Irql >= CLOCK_LEVEL) Mask &= ~RISCV_SIE_STIE;
 
     if (Irql >= IPI_LEVEL) Mask &= ~RISCV_SIE_SSIE;
+    if (Irql >= PROFILE_LEVEL) Mask &= ~RISCV_SIE_LCOFIE;
 
     /* APC, DPC and remote IPIs share SSIP. Keep the remote doorbell enabled
      * below IPI_LEVEL, but only raise it locally for an eligible APC/DPC. */
@@ -127,7 +128,7 @@ KiRiscvSetInterruptEnabled(_In_ ULONG_PTR Mask, _In_ BOOLEAN Enable)
     PKPCR Pcr = KeGetPcr();
 
     /* SSIE is also the SBI interprocessor doorbell. */
-    if (Mask & ~(RISCV_SIE_STIE | RISCV_SIE_SEIE | RISCV_SIE_SSIE))
+    if (Mask & ~(RISCV_SIE_STIE | RISCV_SIE_SEIE | RISCV_SIE_SSIE | RISCV_SIE_LCOFIE))
         KeBugCheckEx(HAL_INITIALIZATION_FAILED, Mask, Enable, 0, 0);
 
     if (Enable)

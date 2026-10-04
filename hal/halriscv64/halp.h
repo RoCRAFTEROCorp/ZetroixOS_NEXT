@@ -33,8 +33,10 @@
 #define RISCV_HAL_SIE_STIE             (1UL << 5)   /* RISCV_SIE_STIE */
 #define RISCV_HAL_SIE_SSIE             (1UL << 1)
 #define RISCV_HAL_SIE_SEIE             (1UL << 9)   /* RISCV_SIE_SEIE */
+#define RISCV_HAL_SIE_LCOFIE           (1UL << 13)
 #define RISCV_HAL_EXTERNAL_IRQL        12
 #define RISCV_HAL_FEATURE_SSTC         0x00000100   /* KI_RISCV_FEATURE_SSTC */
+#define RISCV_HAL_FEATURE_SSCOFPMF     0x00008000
 
 typedef struct _RISCV_SBI_RETURN
 {
@@ -83,8 +85,15 @@ VOID FASTCALL KeUpdateSystemTime(_In_ PKTRAP_FRAME TrapFrame, _In_ ULONG Increme
 
 VOID HalpRiscvStartClock(VOID);
 VOID NTAPI HalpRiscvClockInterrupt(_In_ PKTRAP_FRAME TrapFrame);
+VOID NTAPI HalpRiscvProfileInterrupt(_In_ PKTRAP_FRAME TrapFrame);
 VOID NTAPI HalpRiscvSuspendClockTick(VOID);
 ULONG NTAPI HalpRiscvResumeClockTick(VOID);
+VOID HalpRiscvInitializeProfile(VOID);
+VOID HalpRiscvRegisterProfileInformation(VOID);
+VOID HalpRiscvEnableProfileInterrupt(VOID);
+VOID HalpRiscvSyncProfileCounters(VOID);
+BOOLEAN HalpRiscvStartPmuProfile(_In_ KPROFILE_SOURCE Source);
+BOOLEAN HalpRiscvStopPmuProfile(_In_ KPROFILE_SOURCE Source);
 BOOLEAN HalpRiscvInitializeSbi(VOID);
 RISCV_SBI_RETURN HalpRiscvSetTimer(_In_ ULONG64 Deadline);
 BOOLEAN HalpRiscvSystemReset(_In_ ULONG_PTR ResetType);

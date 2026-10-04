@@ -73,6 +73,7 @@ HalInitSystem(
          * queued during phase 0/1) are taken as soon as SIE is set. */
         HalpRiscvStartClock();
         KiRiscvSetInterruptEnabled(RISCV_HAL_SIE_STIE | RISCV_HAL_SIE_SSIE, TRUE);
+        HalpRiscvEnableProfileInterrupt();
         HalpRiscvInitializationPhase = 2;
         __asm__ __volatile__("csrsi sstatus, 2" ::: "memory");
         return TRUE;
@@ -138,6 +139,9 @@ HalInitSystem(
 
     /* Reading time is part of the selected supervisor platform contract. An
      * unavailable CSR traps instead of silently substituting an invented QPC. */
+    HalpRiscvInitializeProfile();
+    HalpRiscvRegisterProfileInformation();
+
     HalpRiscvBootCounter = HalpRiscvReadTime();
     HalpRiscvInitializationFailure = RiscvHalNoFailure;
     HalpRiscvInitializationPhase = 1;

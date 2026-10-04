@@ -38,11 +38,18 @@ VOID NTAPI HalStartProfileInterrupt(KPROFILE_SOURCE Source)
         HalpRiscvClocks[KeGetCurrentProcessorNumber()].ProfileElapsed = 0;
         HalpProfileEnabled = TRUE;
     }
+    else
+    {
+        HalpRiscvStartPmuProfile(Source);
+    }
 }
 
 VOID NTAPI HalStopProfileInterrupt(KPROFILE_SOURCE Source)
 {
-    if (Source == ProfileTime) HalpProfileEnabled = FALSE;
+    if (Source == ProfileTime)
+        HalpProfileEnabled = FALSE;
+    else
+        HalpRiscvStopPmuProfile(Source);
 }
 
 ULONG_PTR NTAPI HalSetProfileInterval(ULONG_PTR Interval)
@@ -156,6 +163,7 @@ HalpRiscvClockInterrupt(
     if ((LONG64)(Clock->Deadline - Now) <= 0)
         Clock->Deadline = Now + Clock->Period;
     HalpRiscvWriteClockDeadline(Clock->Deadline);
+    HalpRiscvSyncProfileCounters();
 
     if (HalpProfileEnabled)
     {

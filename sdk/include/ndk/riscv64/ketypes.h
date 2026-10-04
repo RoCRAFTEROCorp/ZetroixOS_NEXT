@@ -26,6 +26,7 @@
 #define KF_RISCV_SVINVAL     0x00001000
 #define KF_RISCV_V           0x00002000
 #define KF_RISCV_H           0x00004000
+#define KF_RISCV_SSCOFPMF    0x00008000
 
 /* ReactOS-private U-mode ECALL selector, outside the NT service-table space. */
 #define RISCV_DEBUG_SERVICE_CALL 0x10000
