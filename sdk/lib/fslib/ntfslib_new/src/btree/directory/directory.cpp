@@ -613,4 +613,6 @@ Directory::~Directory()
     delete[] IndexAllocationData;
     IndexAllocationData = NULL;
     IndexAllocationLength = 0;
+    delete EnumerationState;
+    EnumerationState = NULL;
 }

@@ -1286,6 +1286,13 @@ private:
         BOOLEAN ChildVisited;
     };
 
+    struct DirectEnumerationState
+    {
+        DirectEnumerationFrame Stack[64];
+        DirectEnumerationFrame SavedStack[64];
+        WCHAR ResumeName[NTFS_MAX_FILE_NAME_LENGTH + 1];
+    };
+
     PVolume DiskVolume;
     PUCHAR IndexAllocationData = NULL;
     ULONG IndexAllocationLength = 0;
@@ -1294,10 +1301,9 @@ private:
     PAttribute EnumerationRoot = NULL;
     PAttribute EnumerationAllocation = NULL;
     PAttribute EnumerationBitmap = NULL;
-    DirectEnumerationFrame EnumerationStack[64] = {};
     /* The name last handed to a caller: index offsets stop meaning anything
      * once the directory is edited, so a continued query resumes from here. */
-    WCHAR ResumeName[NTFS_MAX_FILE_NAME_LENGTH + 1] = {};
+    DirectEnumerationState* EnumerationState = NULL;
     UCHAR ResumeNameLength = 0;
     BOOLEAN HasResumeName = FALSE;
     ULONG EnumerationDepth = 0;
@@ -1361,6 +1367,8 @@ private:
     GetShortNameKey(_In_ PBTreeKey Key);
 
     // ./get.cpp
+    NTSTATUS
+    EnsureEnumerationState();
     NTSTATUS
     ResetDirectEnumeration();
     NTSTATUS

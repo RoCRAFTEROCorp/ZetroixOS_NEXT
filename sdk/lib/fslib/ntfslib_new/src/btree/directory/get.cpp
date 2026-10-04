@@ -182,6 +182,9 @@ Directory::LoadDirectoryForEnumeration(_In_ PFileRecord File)
         goto Failed;
     }
 
+    Status = EnsureEnumerationState();
+    if (!NT_SUCCESS(Status))
+        goto Failed;
     DirectEnumeration = TRUE;
     Status = ResetDirectEnumeration();
     if (!NT_SUCCESS(Status))
@@ -201,18 +204,27 @@ Failed:
 }
 
 NTSTATUS
+Directory::EnsureEnumerationState()
+{
+    if (EnumerationState)
+        return STATUS_SUCCESS;
+    EnumerationState = new(PagedPool, TAG_BTREE) DirectEnumerationState();
+    return EnumerationState ? STATUS_SUCCESS : STATUS_INSUFFICIENT_RESOURCES;
+}
+
+NTSTATUS
 Directory::ResetDirectEnumeration()
 {
     PIndexNodeHeader Header;
     ULONG HeaderBytes;
     NTSTATUS Status;
 
-    if (!DirectEnumeration || !EnumerationFile || !EnumerationRoot)
+    if (!DirectEnumeration || !EnumerationFile || !EnumerationRoot || !EnumerationState)
         return STATUS_INVALID_PARAMETER;
 
-    RtlZeroMemory(EnumerationStack, sizeof(EnumerationStack));
-    EnumerationStack[0].EntryOffset = MAXULONG;
-    EnumerationStack[0].IsRoot = TRUE;
+    RtlZeroMemory(EnumerationState->Stack, sizeof(EnumerationState->Stack));
+    EnumerationState->Stack[0].EntryOffset = MAXULONG;
+    EnumerationState->Stack[0].IsRoot = TRUE;
     EnumerationDepth = 1;
     EnumerationLoadedDepth = -1;
     EnumerationLoadedVCN = ~(ULONGLONG)0;
@@ -235,7 +247,7 @@ Directory::LoadDirectNode(_In_ ULONG Depth,
     if (!Header || !HeaderBytes || Depth >= EnumerationDepth)
         return STATUS_INVALID_PARAMETER;
 
-    Frame = &EnumerationStack[Depth];
+    Frame = &EnumerationState->Stack[Depth];
     if (Frame->IsRoot)
     {
         PIndexRootEx IndexRoot =
@@ -390,7 +402,7 @@ Directory::GetNextDirectEntry(_Out_ PIndexEntry* Entry)
     while (EnumerationDepth != 0)
     {
         DirectEnumerationFrame* Frame =
-            &EnumerationStack[EnumerationDepth - 1];
+            &EnumerationState->Stack[EnumerationDepth - 1];
         PIndexNodeHeader Header;
         PIndexEntry Current;
         ULONG HeaderBytes;
@@ -422,7 +434,7 @@ Directory::GetNextDirectEntry(_Out_ PIndexEntry* Entry)
 
             Frame->ChildVisited = TRUE;
             if (EnumerationDepth ==
-                RTL_NUMBER_OF(EnumerationStack))
+                RTL_NUMBER_OF(EnumerationState->Stack))
             {
                 return STATUS_FILE_CORRUPT_ERROR;
             }
@@ -430,20 +442,20 @@ Directory::GetNextDirectEntry(_Out_ PIndexEntry* Entry)
                  Index < EnumerationDepth;
                  Index++)
             {
-                if (!EnumerationStack[Index].IsRoot &&
-                    EnumerationStack[Index].VCN == ChildVCN)
+                if (!EnumerationState->Stack[Index].IsRoot &&
+                    EnumerationState->Stack[Index].VCN == ChildVCN)
                 {
                     return STATUS_FILE_CORRUPT_ERROR;
                 }
             }
 
-            EnumerationStack[EnumerationDepth].VCN =
+            EnumerationState->Stack[EnumerationDepth].VCN =
                 ChildVCN;
-            EnumerationStack[EnumerationDepth].EntryOffset =
+            EnumerationState->Stack[EnumerationDepth].EntryOffset =
                 MAXULONG;
-            EnumerationStack[EnumerationDepth].IsRoot =
+            EnumerationState->Stack[EnumerationDepth].IsRoot =
                 FALSE;
-            EnumerationStack[EnumerationDepth].ChildVisited =
+            EnumerationState->Stack[EnumerationDepth].ChildVisited =
                 FALSE;
             EnumerationDepth++;
             continue;
@@ -477,8 +489,6 @@ Directory::FindDirectShortName(
     _Out_ PWCHAR ShortName,
     _Out_ PUCHAR ShortNameLength)
 {
-    DirectEnumerationFrame SavedStack[
-        RTL_NUMBER_OF(EnumerationStack)];
     ULONG SavedDepth = EnumerationDepth;
     NTSTATUS Status;
 
@@ -486,9 +496,9 @@ Directory::FindDirectShortName(
         return STATUS_INVALID_PARAMETER;
 
     RtlCopyMemory(
-        SavedStack,
-        EnumerationStack,
-        sizeof(SavedStack));
+        EnumerationState->SavedStack,
+        EnumerationState->Stack,
+        sizeof(EnumerationState->SavedStack));
     *ShortNameLength = 0;
     RtlZeroMemory(
         ShortName,
@@ -533,9 +543,9 @@ Directory::FindDirectShortName(
     }
 
     RtlCopyMemory(
-        EnumerationStack,
-        SavedStack,
-        sizeof(SavedStack));
+        EnumerationState->Stack,
+        EnumerationState->SavedStack,
+        sizeof(EnumerationState->Stack));
     EnumerationDepth = SavedDepth;
     EnumerationLoadedDepth = -1;
     EnumerationLoadedVCN = ~(ULONGLONG)0;
@@ -633,7 +643,7 @@ Directory::GetFileBothDirInfoDirect(
             EntryString.Buffer = EntryName->Name;
             EntryString.Length = (USHORT)(EntryName->NameLength * sizeof(WCHAR));
             EntryString.MaximumLength = EntryString.Length;
-            ResumeString.Buffer = ResumeName;
+            ResumeString.Buffer = EnumerationState->ResumeName;
             ResumeString.Length = (USHORT)(ResumeNameLength * sizeof(WCHAR));
             ResumeString.MaximumLength = ResumeString.Length;
 
@@ -670,7 +680,7 @@ Directory::GetFileBothDirInfoDirect(
                 if (EnumerationDepth == 0)
                     return STATUS_FILE_CORRUPT_ERROR;
                 Frame =
-                    &EnumerationStack[EnumerationDepth - 1];
+                    &EnumerationState->Stack[EnumerationDepth - 1];
                 if (Frame->EntryOffset <
                     IndexEntry->EntryLength)
                 {
@@ -703,7 +713,7 @@ Directory::GetFileBothDirInfoDirect(
             }
 
             ResumeNameLength = (UCHAR)min(EmittedName->NameLength, NTFS_MAX_FILE_NAME_LENGTH);
-            RtlCopyMemory(ResumeName, EmittedName->Name, ResumeNameLength * sizeof(WCHAR));
+            RtlCopyMemory(EnumerationState->ResumeName, EmittedName->Name, ResumeNameLength * sizeof(WCHAR));
             HasResumeName = TRUE;
 
             if (ReturnSingleEntry)
@@ -813,6 +823,10 @@ Directory::GetFileBothDirInfo(_In_    BOOLEAN ReturnSingleEntry,
             BufferLength);
     }
 
+    Status = EnsureEnumerationState();
+    if (!NT_SUCCESS(Status))
+        return Status;
+
     EntrySize = 0;
     PreviousBuffer = NULL;
 
@@ -861,7 +875,7 @@ Directory::GetFileBothDirInfo(_In_    BOOLEAN ReturnSingleEntry,
             EntryString.Buffer = EntryName->Name;
             EntryString.Length = (USHORT)(EntryName->NameLength * sizeof(WCHAR));
             EntryString.MaximumLength = EntryString.Length;
-            ResumeString.Buffer = ResumeName;
+            ResumeString.Buffer = EnumerationState->ResumeName;
             ResumeString.Length = (USHORT)(ResumeNameLength * sizeof(WCHAR));
             ResumeString.MaximumLength = ResumeString.Length;
 
@@ -906,7 +920,7 @@ Directory::GetFileBothDirInfo(_In_    BOOLEAN ReturnSingleEntry,
 
             PFileNameEx EmittedName = (PFileNameEx)CurrentKey->Entry->IndexStream;
             ResumeNameLength = (UCHAR)min(EmittedName->NameLength, NTFS_MAX_FILE_NAME_LENGTH);
-            RtlCopyMemory(ResumeName, EmittedName->Name, ResumeNameLength * sizeof(WCHAR));
+            RtlCopyMemory(EnumerationState->ResumeName, EmittedName->Name, ResumeNameLength * sizeof(WCHAR));
             HasResumeName = TRUE;
 
             if (ReturnSingleEntry)
