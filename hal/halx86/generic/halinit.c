@@ -19,6 +19,7 @@ BOOLEAN HalpOnlyBootProcessor;
 //#endif
 BOOLEAN HalpPciLockSettings;
 BOOLEAN HalBootViaEfi;
+ULONG HalpStallScaleFactor = INITIAL_STALL_COUNT;
 
 /* PRIVATE FUNCTIONS *********************************************************/
 
@@ -62,7 +63,7 @@ HalInitializeProcessor(
     HalpInitProcessor(ProcessorNumber, LoaderBlock);
 
     /* Set default stall count */
-    KeGetPcr()->StallScaleFactor = INITIAL_STALL_COUNT;
+    KeGetPcr()->StallScaleFactor = HalpStallScaleFactor;
 
     /* Update the interrupt affinity and processor mask */
     InterlockedBitTestAndSetAffinity(&HalpActiveProcessors, ProcessorNumber);

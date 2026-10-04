@@ -227,7 +227,8 @@ HalpCalibrateStallExecution(VOID)
 
     HalpInitializeTsc();
 
-    KeGetPcr()->StallScaleFactor = (ULONG)(HalpCpuClockFrequency.QuadPart / 1000000);
+    HalpStallScaleFactor = (ULONG)(HalpCpuClockFrequency.QuadPart / 1000000);
+    KeGetPcr()->StallScaleFactor = HalpStallScaleFactor;
 }
 
 /* PUBLIC FUNCTIONS ***********************************************************/

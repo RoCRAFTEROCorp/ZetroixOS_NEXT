@@ -288,6 +288,8 @@ VOID
 NTAPI
 HalpCalibrateStallExecution(VOID);
 
+extern ULONG HalpStallScaleFactor;
+
 /* pci.c */
 VOID HalpInitPciBus (VOID);
 
