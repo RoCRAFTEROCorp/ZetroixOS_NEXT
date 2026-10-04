@@ -2201,14 +2201,14 @@ ScmLoadService(PSERVICE Service,
         dwError = ScmCreateOrReferenceServiceImage(Service);
         if (dwError == ERROR_SUCCESS)
         {
+            ScmLockDatabaseExclusive();
+            Service->Status.dwCurrentState = SERVICE_START_PENDING;
+            Service->Status.dwControlsAccepted = 0;
+            ScmReferenceService(Service);
+            ScmUnlockDatabase();
+
             dwError = ScmStartUserModeService(Service, argc, argv);
-            if (dwError == ERROR_SUCCESS)
-            {
-                Service->Status.dwCurrentState = SERVICE_START_PENDING;
-                Service->Status.dwControlsAccepted = 0;
-                ScmReferenceService(Service);
-            }
-            else
+            if (dwError != ERROR_SUCCESS)
             {
                 Service->lpImage->dwImageRunCount--;
                 if (Service->lpImage->dwImageRunCount == 0)
@@ -2216,6 +2216,14 @@ ScmLoadService(PSERVICE Service,
                     ScmRemoveServiceImage(Service->lpImage);
                     Service->lpImage = NULL;
                 }
+
+                ScmLockDatabaseExclusive();
+                if (Service->Status.dwCurrentState == SERVICE_START_PENDING)
+                {
+                    Service->Status.dwCurrentState = SERVICE_STOPPED;
+                    ScmDereferenceService(Service);
+                }
+                ScmUnlockDatabase();
             }
         }
     }
