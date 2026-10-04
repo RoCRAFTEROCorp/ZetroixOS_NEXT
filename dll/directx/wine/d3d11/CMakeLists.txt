@@ -16,9 +16,11 @@ list(APPEND SOURCE
 if(REACTOS_USE_WDDM)
     remove_definitions(-DDXGKDDI_INTERFACE_VERSION=0x1052)
     add_definitions(-DDXGKDDI_INTERFACE_VERSION=0x11007)
-    list(APPEND SOURCE native.cpp)
+    list(APPEND SOURCE native.cpp native_on12.cpp)
     set_source_files_properties(native.cpp PROPERTIES
         INCLUDE_DIRECTORIES "${REACTOS_SOURCE_DIR}/sdk/include/ddk;${REACTOS_SOURCE_DIR}/sdk/include/psdk")
+    set_source_files_properties(native_on12.cpp PROPERTIES
+        COMPILE_DEFINITIONS "WIDL_EXPLICIT_AGGREGATE_RETURNS")
 endif()
 
 add_library(d3d11 MODULE

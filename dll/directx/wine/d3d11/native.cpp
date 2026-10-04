@@ -10,6 +10,7 @@
 #include <windows.h>
 #include <winternl.h>
 #include <d3d11_4.h>
+#include <d3d11on12.h>
 #include <dxgi1_4.h>
 #include <d3dkmthk.h>
 #include <d3d10umddi.h>
@@ -190,6 +191,7 @@ class NativeDevice final : public ID3D11Device5, public IDXGIDevice2, public ID3
 public:
     NativeRemovedEvent *removed_events = NULL;
     DWORD removed_cookie = 0;
+    IUnknown *on12 = NULL;
     UINT plane_slice = 0;
     UINT query_context = 1;
     HRESULT (WINAPI *signal_fence)(HANDLE, D3DKMT_HANDLE, UINT64) = NULL;
@@ -2091,9 +2093,13 @@ HRESULT NativeDevice::Initialize(IDXGIAdapter *selected_adapter, UINT creation_f
     return S_OK;
 }
 
+extern "C" void d3d11_native_on12_free(IUnknown *on12);
+
 NativeDevice::~NativeDevice()
 {
     clearing = true;
+    if (on12) d3d11_native_on12_free(on12);
+    on12 = NULL;
     while (removed_events)
     {
         NativeRemovedEvent *entry = removed_events;
@@ -2153,6 +2159,9 @@ NativeDevice::~NativeDevice()
     DeleteCriticalSection(&lock);
 }
 
+static const GUID NativeDevicePrivateGuid =
+    { 0x3d0c8f6a, 0x91e4, 0x4b57, { 0x8c, 0x2d, 0x7e, 0x15, 0xa9, 0x40, 0x6b, 0xd3 } };
+
 HRESULT STDMETHODCALLTYPE NativeDevice::QueryInterface(REFIID iid, void **out)
 {
     if (!out) return E_INVALIDARG;
@@ -2170,9 +2179,29 @@ HRESULT STDMETHODCALLTYPE NativeDevice::QueryInterface(REFIID iid, void **out)
         *out = static_cast<IWineDXGISwapChainFactory *>(this);
     else if (IsEqualGUID(iid, IID_ID3D11Multithread))
         *out = static_cast<ID3D11Multithread *>(this);
+    else if (on12 && (IsEqualGUID(iid, IID_ID3D11On12Device) || IsEqualGUID(iid, IID_ID3D11On12Device1)))
+        *out = on12;
+    else if (IsEqualGUID(iid, NativeDevicePrivateGuid))
+        *out = static_cast<ID3D11Device *>(this);
     else return E_NOINTERFACE;
     AddRef();
     return S_OK;
+}
+
+extern "C" HRESULT d3d11_native_device_attach_on12(ID3D11Device *device, IUnknown *on12)
+{
+    ID3D11Device *found = NULL;
+    if (FAILED(device->QueryInterface(NativeDevicePrivateGuid, reinterpret_cast<void **>(&found))))
+        return E_NOINTERFACE;
+    NativeDevice *native = static_cast<NativeDevice *>(found);
+    HRESULT hr = S_OK;
+    {
+        NativeLock guard(native);
+        if (native->on12) hr = E_FAIL;
+        else native->on12 = on12;
+    }
+    found->Release();
+    return hr;
 }
 
 void NativeDevice::MaybeDestroy()

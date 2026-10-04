@@ -38,6 +38,7 @@
 #include "d3d11_4.h"
 #include "d3d11sdklayers.h"
 #include "d3d12.h"
+#include "d3d11on12.h"
 #include "d3d12sdklayers.h"
 #include "d3d10_1shader.h"
 #include "d3d11shader.h"
