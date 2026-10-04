@@ -29,6 +29,12 @@ typedef struct _EXCEPTION_RECORD {
 #endif
 
 #define EXCEPTION_WINE_STUB     0x80000100
+
+#if defined(_MSC_VER)
+#define SPEC_STUB_TEXT __declspec(code_seg(".stubtxt"))
+#else
+#define SPEC_STUB_TEXT __attribute__((section(".stubtxt")))
+#endif
 #define EH_NONCONTINUABLE       0x01
 
 /* __int128 is not supported on x86, so use a custom type */

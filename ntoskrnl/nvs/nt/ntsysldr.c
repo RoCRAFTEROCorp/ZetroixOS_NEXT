@@ -2757,6 +2757,33 @@ MmResetDriverPaging(IN PVOID AddressWithinSection)
     ASSERT(MmDisablePagingExecutive);
 }
 
+static
+BOOLEAN
+MiIsUnimplementedExport(
+    _In_ PVOID ImageBase,
+    _In_ PVOID Address)
+{
+    PIMAGE_NT_HEADERS NtHeaders = RtlImageNtHeader(ImageBase);
+    PIMAGE_SECTION_HEADER Section;
+    ULONG_PTR Rva = (ULONG_PTR)Address - (ULONG_PTR)ImageBase;
+    ULONG Index;
+
+    if (NtHeaders == NULL)
+        return FALSE;
+
+    Section = IMAGE_FIRST_SECTION(NtHeaders);
+    for (Index = 0; Index < NtHeaders->FileHeader.NumberOfSections; Index++, Section++)
+    {
+        if (Rva >= Section->VirtualAddress &&
+            Rva < (ULONG_PTR)Section->VirtualAddress + max(Section->Misc.VirtualSize, Section->SizeOfRawData))
+        {
+            return RtlCompareMemory(Section->Name, ".stubtxt", IMAGE_SIZEOF_SHORT_NAME) == IMAGE_SIZEOF_SHORT_NAME;
+        }
+    }
+
+    return FALSE;
+}
+
 PVOID
 NTAPI
 MmGetSystemRoutineAddress(IN PUNICODE_STRING SystemRoutineName)
@@ -2801,6 +2828,8 @@ MmGetSystemRoutineAddress(IN PUNICODE_STRING SystemRoutineName)
         {
             ProcAddress = RtlFindExportedRoutineByName(LdrEntry->DllBase,
                                                        AnsiRoutineName.Buffer);
+            if (ProcAddress != NULL && MiIsUnimplementedExport(LdrEntry->DllBase, ProcAddress))
+                ProcAddress = NULL;
 
             if (ProcAddress) break;
             if (Modules == 2) break;

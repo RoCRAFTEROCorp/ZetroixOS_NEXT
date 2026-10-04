@@ -278,6 +278,11 @@ OutputLine_stub(FILE *file, EXPORT *pexp)
 
     do
     {
+        if (!bRelay)
+        {
+            fprintf(file, "SPEC_STUB_TEXT ");
+        }
+
         if (pexp->uFlags & FL_REGISTER)
         {
             /* FIXME: Not sure this is right */
