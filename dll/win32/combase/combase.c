@@ -1428,6 +1428,97 @@ static BOOL guid_from_string(LPCWSTR s, GUID *id)
     return FALSE;
 }
 
+#ifdef __REACTOS__
+static HRESULT clsid_from_string_reg(LPCOLESTR progid, CLSID *clsid)
+{
+    WCHAR buf2[CHARS_IN_GUID];
+    LONG buf2len, len;
+    HKEY xhkey;
+    WCHAR *buf, *name, *next, **visited = NULL, **grown;
+    unsigned int count = 0, i;
+    HRESULT hr = CO_E_CLASSSTRING;
+
+    memset(clsid, 0, sizeof(*clsid));
+    name = malloc((lstrlenW(progid) + 1) * sizeof(WCHAR));
+    if (!name) return E_OUTOFMEMORY;
+    lstrcpyW(name, progid);
+
+    for (;;)
+    {
+        for (i = 0; i < count; i++)
+        {
+            if (!wcsicmp(visited[i], name))
+            {
+                free(name);
+                goto done;
+            }
+        }
+
+        grown = realloc(visited, (count + 1) * sizeof(*visited));
+        if (!grown)
+        {
+            free(name);
+            hr = E_OUTOFMEMORY;
+            goto done;
+        }
+        visited = grown;
+        visited[count++] = name;
+
+        buf = malloc((lstrlenW(name) + 8) * sizeof(WCHAR));
+        if (!buf)
+        {
+            hr = E_OUTOFMEMORY;
+            goto done;
+        }
+
+        lstrcpyW(buf, name);
+        lstrcatW(buf, L"\\CLSID");
+        if (!open_classes_key(HKEY_CLASSES_ROOT, buf, MAXIMUM_ALLOWED, &xhkey))
+        {
+            free(buf);
+            buf2len = sizeof(buf2);
+            if (!RegQueryValueW(xhkey, NULL, buf2, &buf2len))
+                hr = guid_from_string(buf2, clsid) ? S_OK : CO_E_CLASSSTRING;
+            else
+                WARN("couldn't query clsid value for ProgID %s\n", debugstr_w(progid));
+            RegCloseKey(xhkey);
+            goto done;
+        }
+
+        lstrcpyW(buf, name);
+        lstrcatW(buf, L"\\CurVer");
+        if (open_classes_key(HKEY_CLASSES_ROOT, buf, MAXIMUM_ALLOWED, &xhkey))
+        {
+            free(buf);
+            WARN("couldn't open key for ProgID %s\n", debugstr_w(progid));
+            goto done;
+        }
+        free(buf);
+
+        len = 0;
+        if (RegQueryValueW(xhkey, NULL, NULL, &len) || len <= (LONG)sizeof(WCHAR) ||
+            !(next = malloc(len)))
+        {
+            RegCloseKey(xhkey);
+            goto done;
+        }
+        if (RegQueryValueW(xhkey, NULL, next, &len))
+        {
+            free(next);
+            RegCloseKey(xhkey);
+            goto done;
+        }
+        RegCloseKey(xhkey);
+        name = next;
+    }
+
+done:
+    for (i = 0; i < count; i++)
+        free(visited[i]);
+    free(visited);
+    return hr;
+}
+#else
 static HRESULT clsid_from_string_reg(LPCOLESTR progid, CLSID *clsid)
 {
     WCHAR buf2[CHARS_IN_GUID];
@@ -1458,6 +1549,7 @@ static HRESULT clsid_from_string_reg(LPCOLESTR progid, CLSID *clsid)
     RegCloseKey(xhkey);
     return guid_from_string(buf2, clsid) ? S_OK : CO_E_CLASSSTRING;
 }
+#endif
 
 /******************************************************************************
  *                CLSIDFromProgID        (combase.@)
@@ -2025,7 +2117,14 @@ HRESULT WINAPI CoRegisterInitializeSpy(IInitializeSpy *spy, ULARGE_INTEGER *cook
 
     hr = IInitializeSpy_QueryInterface(spy, &IID_IInitializeSpy, (void **)&spy);
     if (FAILED(hr))
+#ifdef __REACTOS__
+    {
+        cookie->QuadPart = ~(ULONGLONG)0;
         return hr;
+    }
+#else
+        return hr;
+#endif
 
     entry = malloc(sizeof(*entry));
     if (!entry)
