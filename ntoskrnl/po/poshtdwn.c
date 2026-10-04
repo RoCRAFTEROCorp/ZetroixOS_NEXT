@@ -222,16 +222,11 @@ PopShutdownSystem(IN POWER_ACTION SystemAction)
             //PopInvokeSystemStateHandler(PowerStateShutdownOff, NULL);
 
             PopSetSystemPowerState(PowerSystemShutdown, SystemAction);
-#if defined(_M_ARM64)
-            /* The ARM64 HAL provides the PSCI power-off fallback. */
             PopDisplayShutdownScreen();
             HalReturnToFirmware(HalPowerDownRoutine);
 
             /* The firmware refused to power us off */
             for (;;) HalHaltSystem();
-#else
-            PopShutdownHandler();
-#endif
             break;
 
         default:
