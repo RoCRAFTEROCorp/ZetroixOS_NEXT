@@ -245,6 +245,9 @@ static HRESULT WINAPI TaskFolder_DeleteFolder(ITaskFolder *iface, BSTR name, LON
     TRACE("%p,%s,%lx\n", iface, debugstr_w(name), flags);
 
     if (!name || !*name) return E_ACCESSDENIED;
+#ifdef __REACTOS__
+    if (wcschr(name, '/')) return HRESULT_FROM_WIN32(ERROR_INVALID_NAME);
+#endif
 
     if (flags)
         FIXME("unsupported flags %lx\n", flags);
@@ -412,9 +415,18 @@ HRESULT TaskFolder_create(const WCHAR *parent, const WCHAR *path, ITaskFolder **
     WCHAR *folder_path;
     HRESULT hr;
 
+#ifdef __REACTOS__
+    if (!path && parent && (wcschr(parent, '/') || !wcscmp(parent, L".")))
+        return HRESULT_FROM_WIN32(ERROR_INVALID_NAME);
+
+#endif
     if (path)
     {
         int len = lstrlenW(path);
+#ifdef __REACTOS__
+        if (create && !wcscmp(path, L"\\")) return E_INVALIDARG;
+        if (wcschr(path, '/')) return HRESULT_FROM_WIN32(ERROR_INVALID_NAME);
+#endif
         if (len && path[len - 1] == '\\') return HRESULT_FROM_WIN32(ERROR_INVALID_NAME);
     }
 
