@@ -13583,6 +13583,24 @@ XHCI_ReopenEndpoint(PVOID MiniPortExtension,
         Endpoint->MaxStreamId = 0;
         Endpoint->StreamsEnabled = FALSE;
 
+        if (!Endpoint->UsesStaticRing && Endpoint->Slot->DeviceContext.VirtualAddress)
+        {
+            PXHCI_ENDPOINT_CONTEXT EpCtx;
+            KIRQL OldIrql;
+
+            EpCtx = XHCI_GetDeviceEndpointContextVa(Extension,
+                                                    Endpoint->Slot->DeviceContext.VirtualAddress,
+                                                    Endpoint->EndpointId - 1);
+            KeAcquireSpinLock(&Endpoint->Lock, &OldIrql);
+            if (EpCtx &&
+                (EpCtx->EpInfo & XHCI_EPCTX_STATE_MASK) == XHCI_EPCTX_STATE_DISABLED &&
+                !XHCI_HasActiveTransfersLocked(Endpoint))
+            {
+                XHCI_ResetEndpointRing(Endpoint);
+            }
+            KeReleaseSpinLock(&Endpoint->Lock, OldIrql);
+        }
+
         return XHCI_ConfigureSlotEndpoint(Extension,
                                           Endpoint->Slot,
                                           Endpoint,
