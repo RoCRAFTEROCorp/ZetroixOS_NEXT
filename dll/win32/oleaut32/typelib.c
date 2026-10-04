@@ -2701,29 +2701,6 @@ static void MSFT_ReadValue( VARIANT * pVar, int offset, TLBContext *pcx )
 #endif
     if(offset <0) { /* data are packed in here */
         V_VT(pVar) = (offset & 0x7c000000 )>> 26;
-#ifdef __REACTOS__
-        switch (V_VT(pVar))
-        {
-        case VT_EMPTY:
-        case VT_NULL:
-        case VT_I1:
-        case VT_UI1:
-        case VT_I2:
-        case VT_UI2:
-        case VT_BOOL:
-        case VT_I4:
-        case VT_UI4:
-        case VT_INT:
-        case VT_UINT:
-        case VT_R4:
-        case VT_ERROR:
-        case VT_HRESULT:
-            break;
-        default:
-            V_VT(pVar) = VT_EMPTY;
-            return TYPE_E_CANTLOADLIBRARY;
-        }
-#endif
         V_I4(pVar) = offset & 0x3ffffff;
 #ifdef __REACTOS__
         return S_OK;
