@@ -6,6 +6,10 @@
  */
 
 #include <math.h>
+#include "libm.h"
+#include "libm_util.h"
+#define USE_RAISE_FPSW_FLAGS
+#include "libm_inlines.h"
 
 int
 __cdecl
@@ -46,6 +50,8 @@ _handle_error(
 {
     double retval = *(double*)&value;
 
+    raise_fpsw_flags(flags);
+
     return __acrt_report_math_error(type, fname, arg1, arg2, retval, error);
 }
 
@@ -65,6 +71,8 @@ _handle_errorf(
     int nargs)
 {
     float retval = *(float*)&value;
+
+    raise_fpsw_flags(flags);
 
     return (float)__acrt_report_math_error(type, fname, arg1, arg2, retval, error);
 }
