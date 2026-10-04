@@ -3174,9 +3174,115 @@ SERIALIZEDPROPERTYVALUE* WINAPI StgConvertVariantToProperty(const PROPVARIANT *p
     USHORT CodePage, SERIALIZEDPROPERTYVALUE *pprop, ULONG *pcb, PROPID pid,
     BOOLEAN fReserved, ULONG *pcIndirect)
 {
+#ifdef __REACTOS__
+    const void *data = NULL;
+    ULONG fixed = 0, count = 0, size;
+    char *mb = NULL;
+    BYTE *out;
+
+    TRACE("%p, %d, %p, %p, %ld, %d, %p.\n", pvar, CodePage, pprop, pcb, pid, fReserved, pcIndirect);
+
+    if (!pvar || !pcb)
+        return NULL;
+
+    switch (pvar->vt)
+    {
+    case VT_EMPTY:
+    case VT_NULL:
+        break;
+    case VT_I1:
+    case VT_UI1:
+        fixed = 1;
+        data = &pvar->bVal;
+        break;
+    case VT_I2:
+    case VT_UI2:
+    case VT_BOOL:
+        fixed = 2;
+        data = &pvar->iVal;
+        break;
+    case VT_I4:
+    case VT_UI4:
+    case VT_INT:
+    case VT_UINT:
+    case VT_ERROR:
+    case VT_R4:
+        fixed = 4;
+        data = &pvar->lVal;
+        break;
+    case VT_I8:
+    case VT_UI8:
+    case VT_R8:
+    case VT_CY:
+    case VT_DATE:
+    case VT_FILETIME:
+        fixed = 8;
+        data = &pvar->hVal;
+        break;
+    case VT_CLSID:
+        if (!pvar->puuid)
+            return NULL;
+        fixed = sizeof(CLSID);
+        data = pvar->puuid;
+        break;
+    case VT_BSTR:
+        if (CodePage == CP_UNICODE)
+        {
+            count = SysStringByteLen(pvar->bstrVal) + sizeof(WCHAR);
+            data = pvar->bstrVal ? (const void *)pvar->bstrVal : L"";
+        }
+        else
+        {
+            count = WideCharToMultiByte(CodePage, 0, pvar->bstrVal ? pvar->bstrVal : L"",
+                                        SysStringLen(pvar->bstrVal) + 1, NULL, 0, NULL, NULL);
+            if (!count || !(mb = malloc(count)))
+                return NULL;
+            WideCharToMultiByte(CodePage, 0, pvar->bstrVal ? pvar->bstrVal : L"",
+                                SysStringLen(pvar->bstrVal) + 1, mb, count, NULL, NULL);
+            data = mb;
+        }
+        break;
+    case VT_LPWSTR:
+        if (!pvar->pwszVal)
+            return NULL;
+        count = (lstrlenW(pvar->pwszVal) + 1) * sizeof(WCHAR);
+        data = pvar->pwszVal;
+        break;
+    default:
+        FIXME("Unsupported type %d.\n", pvar->vt);
+        return NULL;
+    }
+
+    size = sizeof(DWORD) + fixed;
+    if (pvar->vt == VT_BSTR || pvar->vt == VT_LPWSTR)
+        size += sizeof(DWORD) + count;
+    size = (size + 3) & ~3;
+
+    if (!pprop || *pcb < size)
+    {
+        *pcb = size;
+        free(mb);
+        return NULL;
+    }
+
+    out = (BYTE *)pprop;
+    memset(out, 0, size);
+    StorageUtl_WriteDWord(out, 0, pvar->vt);
+    if (fixed)
+        memcpy(out + sizeof(DWORD), data, fixed);
+    else if (pvar->vt == VT_BSTR || pvar->vt == VT_LPWSTR)
+    {
+        StorageUtl_WriteDWord(out, sizeof(DWORD), pvar->vt == VT_LPWSTR ? count / sizeof(WCHAR) : count);
+        memcpy(out + 2 * sizeof(DWORD), data, count);
+    }
+    free(mb);
+    *pcb = size;
+    return pprop;
+#else
     FIXME("%p, %d, %p, %p, %ld, %d, %p.\n", pvar, CodePage, pprop, pcb, pid, fReserved, pcIndirect);
 
     return NULL;
+#endif
 }
 
 HRESULT WINAPI StgCreatePropStg(IUnknown *unk, REFFMTID fmt, const CLSID *clsid,
