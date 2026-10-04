@@ -391,9 +391,50 @@ HalpRiscvFdtRequirements(_In_ ULONG Node, _In_ ULONG Bus, _Out_ PULONG_PTR Infor
     return STATUS_SUCCESS;
 }
 
+static ULONG
+HalpRiscvFdtFindPhandle(_In_ ULONG Phandle)
+{
+    const RISCV_FDT *Fdt = &HalpRiscvPlatformFdt;
+    ULONG Offset = RiscvFdtRootNode(Fdt), Value;
+
+    if (!Phandle || Phandle == MAXULONG)
+        return RISCV_FDT_NO_NODE;
+    while (Offset != RISCV_FDT_NO_NODE)
+    {
+        if (RiscvFdtToken(Fdt, Offset) == RISCV_FDT_BEGIN_NODE &&
+            RiscvFdtReadU32(Fdt, Offset, "phandle", &Value) && Value == Phandle)
+        {
+            return Offset;
+        }
+        Offset = RiscvFdtSkipToken(Fdt, Offset);
+    }
+    return RISCV_FDT_NO_NODE;
+}
+
+static VOID
+HalpRiscvFdtWriteNode(_In_ HANDLE Key, _In_ ULONG Node, _In_ ULONG Depth);
+
+static VOID
+HalpRiscvFdtWriteSupply(_In_ HANDLE Key, _In_ PUNICODE_STRING Name, _In_ ULONG Phandle)
+{
+    ULONG Node = HalpRiscvFdtFindPhandle(Phandle);
+    OBJECT_ATTRIBUTES Attributes;
+    HANDLE SupplyKey;
+
+    if (Node == RISCV_FDT_NO_NODE)
+        return;
+    InitializeObjectAttributes(&Attributes, Name, OBJ_KERNEL_HANDLE | OBJ_CASE_INSENSITIVE, Key, NULL);
+    if (!NT_SUCCESS(ZwCreateKey(&SupplyKey, KEY_SET_VALUE | KEY_CREATE_SUB_KEY, &Attributes, 0, NULL,
+                                REG_OPTION_VOLATILE, NULL)))
+        return;
+    HalpRiscvFdtWriteNode(SupplyKey, Node, 0);
+    ZwClose(SupplyKey);
+}
+
 static VOID
 HalpRiscvFdtWriteNode(_In_ HANDLE Key, _In_ ULONG Node, _In_ ULONG Depth)
 {
+    static const CHAR Supply[] = "-supply";
     const RISCV_FDT *Fdt = &HalpRiscvPlatformFdt;
     ULONG Offset = RiscvFdtSkipToken(Fdt, Node), Child;
 
@@ -425,6 +466,11 @@ HalpRiscvFdtWriteNode(_In_ HANDLE Key, _In_ ULONG Node, _In_ ULONG Depth)
             {
                 RtlInitUnicodeString(&ValueName, Name);
                 ZwSetValueKey(Key, &ValueName, 0, REG_BINARY, (PVOID)(Header + 2 * sizeof(ULONG)), ValueLength);
+                if (Depth && ValueLength == sizeof(ULONG) && Index > sizeof(Supply) - 1 &&
+                    RtlEqualMemory(Source + Index - (sizeof(Supply) - 1), Supply, sizeof(Supply) - 1))
+                {
+                    HalpRiscvFdtWriteSupply(Key, &ValueName, RiscvFdtReadBigEndian32(Header + 2 * sizeof(ULONG)));
+                }
             }
         }
         else if (Token != RISCV_FDT_NOP)

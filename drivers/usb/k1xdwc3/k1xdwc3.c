@@ -177,9 +177,87 @@ K1FindCore(_In_ PK1XDWC3_EXTENSION Extension)
     return Status;
 }
 
+static VOID
+K1ReadGpioList(_In_ HANDLE Key, _In_z_ PCWSTR Gpios, _In_z_ PCWSTR ActiveLow, _In_z_ PCWSTR InterDelay,
+               _Out_ PK1XDWC3_GPIO_LIST List)
+{
+    UCHAR Value[K1X_HUB_MAX_GPIOS * 3 * sizeof(ULONG)];
+    BOOLEAN Inverted;
+    ULONG Length, Index;
+
+    RtlZeroMemory(List, sizeof(*List));
+    Inverted = NT_SUCCESS(K1QueryBinary(Key, ActiveLow, Value, sizeof(Value), &Length));
+    if (NT_SUCCESS(K1QueryBinary(Key, InterDelay, Value, sizeof(Value), &Length)) && Length == sizeof(ULONG))
+        List->InterDelay = K1ReadBigEndian(Value);
+    if (!NT_SUCCESS(K1QueryBinary(Key, Gpios, Value, sizeof(Value), &Length)))
+        return;
+    for (Index = 0; Index < Length / (3 * sizeof(ULONG)); ++Index)
+    {
+        ULONG Number = K1ReadBigEndian(Value + (Index * 3 + 1) * sizeof(ULONG));
+        ULONG Flags = K1ReadBigEndian(Value + (Index * 3 + 2) * sizeof(ULONG));
+
+        if (Number >= K1X_GPIO_COUNT)
+        {
+            List->Count = 0;
+            return;
+        }
+        List->Number[List->Count] = Number;
+        List->ActiveLow[List->Count] = ((Flags & 1) != 0) != Inverted;
+        List->Count++;
+    }
+}
+
+static VOID
+K1ReadHubPower(_In_ PK1XDWC3_EXTENSION Extension, _Out_ PK1XDWC3_HUB_POWER Power)
+{
+    UNICODE_STRING Name = RTL_CONSTANT_STRING(L"vbus-supply");
+    OBJECT_ATTRIBUTES Attributes;
+    HANDLE Parameters, Supply;
+    UCHAR Value[16];
+    ULONG Length;
+
+    RtlZeroMemory(Power, sizeof(*Power));
+    Power->VbusDelay = K1X_HUB_VBUS_DELAY_MS;
+    if (!NT_SUCCESS(IoOpenDeviceRegistryKey(Extension->PhysicalDevice, PLUGPLAY_REGKEY_DEVICE, KEY_READ, &Parameters)))
+        return;
+    InitializeObjectAttributes(&Attributes, &Name, OBJ_KERNEL_HANDLE | OBJ_CASE_INSENSITIVE, Parameters, NULL);
+    if (NT_SUCCESS(ZwOpenKey(&Supply, KEY_READ, &Attributes)))
+    {
+        if (!NT_SUCCESS(K1QueryBinary(Supply, L"status", Value, sizeof(Value), &Length)) ||
+            K1StringListContains(Value, Length, "okay"))
+        {
+            K1ReadGpioList(Supply, L"hub-gpios", L"hub_gpio_active_low", L"hub_inter_delay_ms", &Power->Hub);
+            K1ReadGpioList(Supply, L"vbus-gpios", L"vbus_gpio_active_low", L"vbus_inter_delay_ms", &Power->Vbus);
+            if (NT_SUCCESS(K1QueryBinary(Supply, L"vbus_delay_ms", Value, sizeof(Value), &Length)) &&
+                Length == sizeof(ULONG))
+            {
+                Power->VbusDelay = K1ReadBigEndian(Value);
+            }
+        }
+        ZwClose(Supply);
+    }
+    ZwClose(Parameters);
+}
+
+static VOID
+K1GpioListSet(_In_ PUCHAR Gpio, _In_ const K1XDWC3_GPIO_LIST *List, _In_ BOOLEAN On)
+{
+    ULONG Index;
+
+    for (Index = 0; Index < List->Count; ++Index)
+    {
+        ULONG Entry = On ? Index : List->Count - 1 - Index;
+
+        K1GpioOutput(Gpio, List->Number[Entry], On != List->ActiveLow[Entry]);
+        if (List->InterDelay)
+            K1Sleep(List->InterDelay);
+    }
+}
+
 static NTSTATUS
 K1PowerUp(_In_ PK1XDWC3_EXTENSION Extension)
 {
+    K1XDWC3_HUB_POWER HubPower;
     PUCHAR Apmu = K1Map(K1X_APMU_BASE, K1X_APMU_SIZE);
     PUCHAR Usb2 = K1Map(K1X_USB2PHY_BASE, K1X_USB2PHY_SIZE);
     PUCHAR Combo = K1Map(K1X_COMBPHY_BASE, K1X_COMBPHY_SIZE);
@@ -191,10 +269,10 @@ K1PowerUp(_In_ PK1XDWC3_EXTENSION Extension)
     if (!Apmu || !Usb2 || !Combo || !Gpio || !Core)
         goto Done;
 
-    K1GpioOutput(Gpio, K1X_GPIO_HUB_VBUS, FALSE);
-    K1GpioOutput(Gpio, K1X_GPIO_HUB_RESET, FALSE);
-    K1GpioOutput(Gpio, K1X_GPIO_HUB_ENABLE, FALSE);
-    K1Sleep(K1X_HUB_VBUS_DELAY_MS);
+    K1ReadHubPower(Extension, &HubPower);
+    K1GpioListSet(Gpio, &HubPower.Vbus, FALSE);
+    K1GpioListSet(Gpio, &HubPower.Hub, FALSE);
+    K1Sleep(K1X_HUB_POWER_OFF_MS);
 
     K1Update(Apmu, K1X_APMU_USB, K1X_APMU_USB_USB30_CLOCK, K1X_APMU_USB_USB30_CLOCK);
     K1Update(Apmu, K1X_APMU_USB, K1X_APMU_USB_USB30_RESET, 0);
@@ -243,10 +321,10 @@ K1PowerUp(_In_ PK1XDWC3_EXTENSION Extension)
     K1Update(Core, DWC3_GUCTL1, DWC3_GUCTL1_PARKMODE_SS | DWC3_GUCTL1_IPGAP_CHECK,
              DWC3_GUCTL1_PARKMODE_SS | DWC3_GUCTL1_IPGAP_CHECK);
 
-    K1GpioOutput(Gpio, K1X_GPIO_HUB_ENABLE, TRUE);
-    K1GpioOutput(Gpio, K1X_GPIO_HUB_RESET, TRUE);
-    K1Sleep(K1X_HUB_VBUS_DELAY_MS);
-    K1GpioOutput(Gpio, K1X_GPIO_HUB_VBUS, TRUE);
+    K1GpioListSet(Gpio, &HubPower.Hub, TRUE);
+    if (HubPower.Vbus.Count)
+        K1Sleep(HubPower.VbusDelay);
+    K1GpioListSet(Gpio, &HubPower.Vbus, TRUE);
     DPRINT("K1XDWC3: core 0x%08lx at 0x%I64x interrupt %lu ready\n",
            Identifier, Extension->CoreBase, Extension->CoreInterrupt);
     Status = STATUS_SUCCESS;
