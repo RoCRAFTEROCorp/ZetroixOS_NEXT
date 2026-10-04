@@ -435,6 +435,8 @@ GpuVaCloneRange(
         Clone->ReservationBase = Source->ReservationBase;
         Clone->ReservationSize = Source->ReservationSize;
         Clone->MapAllocated = Source->MapAllocated;
+        Clone->OrphanOwner = Source->OrphanOwner;
+        Clone->OrphanTime = Source->OrphanTime;
     }
 
     return Clone;
@@ -4031,11 +4033,15 @@ DxgkGpuVaUnmapFencePage(
     return DxgkGpuVaFlushPageTableUpdates(Process);
 }
 
+#define GPUVA_ORPHAN_GRACE (10ULL * 1000 * 1000)
+
 static VOID
 GpuVaReleaseMapReservations(
-    _Inout_ PDXGKRNL_PROCESS Process)
+    _Inout_ PDXGKRNL_PROCESS Process,
+    _In_opt_ PVOID Owner)
 {
     PLIST_ENTRY Entry = Process->GpuVaRangeList.Flink;
+    ULONGLONG Now = KeQueryInterruptTime();
 
     while (Entry != &Process->GpuVaRangeList)
     {
@@ -4052,7 +4058,8 @@ GpuVaReleaseMapReservations(
 
             if (Range->ReservationBase != Base || Range->ReservationSize != Size || Range->MapAllocated != First->MapAllocated)
                 break;
-            if (Range->GpuVirtualAddress != Cursor || Range->State == GpuVaStateMapped || Range->Protection.SystemUseOnly)
+            if (Range->GpuVirtualAddress != Cursor || Range->State == GpuVaStateMapped || Range->Protection.SystemUseOnly
+                || Range->OrphanOwner == NULL || (Range->OrphanOwner != Owner && Now - Range->OrphanTime < GPUVA_ORPHAN_GRACE))
                 Releasable = FALSE;
             Cursor = Range->GpuVirtualAddress + Range->SizeInBytes;
             End = End->Flink;
@@ -4100,6 +4107,11 @@ DxgkGpuVaInvalidateAllocation(
         GpuVaClearPteSpan(Process, Range->GpuVirtualAddress, Range->SizeInBytes);
         Process->GpuVaTotalMapped -= min(Range->SizeInBytes, Process->GpuVaTotalMapped);
         ReleaseMapRanges |= Range->MapAllocated;
+        if (Range->MapAllocated)
+        {
+            Range->OrphanOwner = LogicalAllocation->Device != NULL ? (PVOID)LogicalAllocation->Device : (PVOID)Process;
+            Range->OrphanTime = KeQueryInterruptTime();
+        }
         Range->State = GpuVaStateReserved;
         Range->hAllocation = NULL;
         GpuVaDereferenceBinding(Range->Binding);
@@ -4110,7 +4122,22 @@ DxgkGpuVaInvalidateAllocation(
         Range->DriverProtection = 0;
     }
     if (ReleaseMapRanges)
-        GpuVaReleaseMapReservations(Process);
+        GpuVaReleaseMapReservations(Process, NULL);
+    KeMemoryBarrier();
+    ExReleaseFastMutex(&Process->GpuVaLock);
+}
+
+VOID
+DxgkGpuVaReleaseOrphans(
+    _In_ PDXGKRNL_PROCESS Process,
+    _In_ PVOID Owner)
+{
+    PAGED_CODE();
+
+    if (Process == NULL)
+        return;
+    ExAcquireFastMutex(&Process->GpuVaLock);
+    GpuVaReleaseMapReservations(Process, Owner);
     KeMemoryBarrier();
     ExReleaseFastMutex(&Process->GpuVaLock);
 }

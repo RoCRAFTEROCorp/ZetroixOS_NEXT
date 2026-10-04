@@ -1645,6 +1645,8 @@ typedef struct _DXGKRNL_GPUVA_RANGE
     BOOLEAN                     DriverReserved;
     BOOLEAN                     AllowUserModeMapping;
     BOOLEAN                     MapAllocated;
+    PVOID                       OrphanOwner;
+    ULONGLONG                   OrphanTime;
 
     /*
      * Linkage in DXGKRNL_PROCESS->GpuVaRangeList (ascending VA order).
@@ -2696,6 +2698,11 @@ DxgkGpuVaInvalidateAllocation(
     _In_ PDXGKRNL_ADAPTER Adapter,
     _In_ PDXGKRNL_PROCESS Process,
     _In_ PDXGKVMM_ALLOCATION LogicalAllocation);
+
+VOID
+DxgkGpuVaReleaseOrphans(
+    _In_ struct _DXGKRNL_PROCESS *Process,
+    _In_ PVOID Owner);
 
 /*
  * GPU VA residency management (WDDM 2.0).

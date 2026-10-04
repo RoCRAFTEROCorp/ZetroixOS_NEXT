@@ -2393,6 +2393,8 @@ DxgkpDestroyDetachedDevice(
     if (NT_SUCCESS(Status))
         Status = DxgkVidMmCleanupDeviceAllocations(Device);
     if (NT_SUCCESS(Status))
+        DxgkGpuVaReleaseOrphans(Device->ProcessRecord, Device);
+    if (NT_SUCCESS(Status))
         Status = DxgkpDestroyMiniportDevice(Adapter, Device->hMiniportDevice);
     if (!NT_SUCCESS(Status))
     {
