@@ -15,8 +15,9 @@ if(USE_DUMMY_PSEH)
     message(FATAL_ERROR "RISC-V requires native SEH; configure with -DUSE_DUMMY_PSEH=OFF")
 endif()
 # As for Clang amd64/arm64: native SEH must also cover loads and stores, not
-# only calls. Keep it C-only, like there.
+# only calls.
 add_compile_options("$<$<COMPILE_LANGUAGE:C>:SHELL:-Xclang -fasync-exceptions>")
+add_compile_options("$<$<AND:$<COMPILE_LANGUAGE:CXX>,$<NOT:$<BOOL:$<TARGET_PROPERTY:WITH_CXX_EXCEPTIONS>>>>:SHELL:-Xclang -fasync-exceptions>")
 add_compile_definitions(_USE_NATIVE_SEH=1
     "$<$<NOT:$<BOOL:$<TARGET_PROPERTY:WITH_CXX_EXCEPTIONS>>>:_ATL_NO_EXCEPTIONS=1>")
 

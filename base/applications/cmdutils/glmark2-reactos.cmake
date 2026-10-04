@@ -175,10 +175,9 @@ if(CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")
     target_compile_options(glmark2 PRIVATE
         -DWIN32
         -include ${CMAKE_CURRENT_SOURCE_DIR}/glmark2-reactos-compat.h
-        -fexceptions
-        "$<$<COMPILE_LANGUAGE:CXX>:-frtti>"
         -O2)
 endif()
+set_target_cpp_properties(glmark2 WITH_EXCEPTIONS WITH_RTTI)
 if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU" AND CMAKE_CXX_COMPILER_VERSION VERSION_GREATER_EQUAL 16)
     target_compile_options(glmark2 PRIVATE "$<$<COMPILE_LANGUAGE:CXX>:-Wno-template-body>")
 endif()

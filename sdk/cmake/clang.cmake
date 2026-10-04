@@ -64,9 +64,12 @@ endif()
 if((ARCH STREQUAL "amd64" OR ARCH STREQUAL "arm64") AND NOT USE_DUMMY_PSEH)
     add_definitions(-D_USE_NATIVE_SEH=1)
     # Native SEH must also cover loads and stores, not only calls. The MinGW
-    # driver ignores -fasync-exceptions, so pass it directly to cc1. Keep this
-    # C-only: Clang 23 crashes on some C++ units with asynchronous EH enabled.
+    # driver ignores -fasync-exceptions, so pass it directly to cc1.
     add_compile_options("$<$<COMPILE_LANGUAGE:C>:SHELL:-Xclang -fasync-exceptions>")
+    add_compile_options("$<$<AND:$<COMPILE_LANGUAGE:CXX>,$<NOT:$<BOOL:$<TARGET_PROPERTY:WITH_CXX_EXCEPTIONS>>>>:SHELL:-Xclang -fasync-exceptions>")
+    if(ARCH STREQUAL "arm64")
+        add_compile_options("$<$<COMPILE_LANGUAGE:C,CXX>:SHELL:-mllvm -aarch64-enable-compress-jump-tables=false>")
+    endif()
 endif()
 
 if(STACK_PROTECTOR)
