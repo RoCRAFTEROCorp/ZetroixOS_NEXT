@@ -9,7 +9,14 @@
  * unistd.h maps (roughly) to io.h
  */
 
-#ifndef __STRICT_ANSI__
+#ifndef _SSIZE_T_DEFINED
+#define _SSIZE_T_DEFINED
+#ifdef _WIN64
+typedef __int64 ssize_t;
+#else
+typedef int ssize_t;
+#endif
+#endif
 
 #include <io.h>
 #include <process.h>
@@ -17,6 +24,8 @@
 #define __UNISTD_GETOPT__
 #include <getopt.h>
 #undef __UNISTD_GETOPT__
+
+#ifndef __STRICT_ANSI__
 
 #ifdef __cplusplus
 extern "C" {

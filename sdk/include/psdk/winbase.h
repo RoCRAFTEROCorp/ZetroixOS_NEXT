@@ -2021,6 +2021,12 @@ BOOL WINAPI GetCurrentHwProfileA(_Out_ LPHW_PROFILE_INFOA);
 BOOL WINAPI GetCurrentHwProfileW(_Out_ LPHW_PROFILE_INFOW);
 HANDLE WINAPI GetCurrentProcess(void);
 DWORD WINAPI GetCurrentProcessId(void);
+#if (_WIN32_WINNT >= 0x0502)
+DWORD WINAPI GetCurrentProcessorNumber(VOID);
+#endif
+#if (_WIN32_WINNT >= 0x0601)
+VOID WINAPI GetCurrentProcessorNumberEx(_Out_ PPROCESSOR_NUMBER);
+#endif
 HANDLE WINAPI GetCurrentThread(void);
 DWORD WINAPI GetCurrentThreadId(void);
 #if (_WIN32_WINNT >= 0x0602)
