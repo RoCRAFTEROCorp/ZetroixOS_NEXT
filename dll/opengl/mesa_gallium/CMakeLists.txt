@@ -11,6 +11,129 @@ if(NOT EXISTS "${MESA_SOURCE_DIR}/CMakeLists.txt")
 endif()
 # Parallelism is inherited at build time; discard the old fixed job limit.
 unset(MESA_BUILD_JOBS CACHE)
+
+if(ARCH STREQUAL "riscv64")
+    if(NOT SPACEMIT_K1_SUPPORT)
+        return()
+    endif()
+    find_program(MESA_NINJA NAMES ninja REQUIRED)
+    find_program(MESA_PYTHON NAMES python3 python REQUIRED)
+    find_program(MESA_BISON NAMES bison REQUIRED)
+    find_program(MESA_FLEX NAMES flex REQUIRED)
+    include("${REACTOS_SOURCE_DIR}/sdk/cmake/nested-build.cmake")
+    include(ExternalProject)
+
+    set(MESA_WORK_DIR "${CMAKE_CURRENT_BINARY_DIR}/mesa-source")
+    set(MESA_BINARY_DIR "${MESA_WORK_DIR}/cmake-build")
+    set(MESA_SDK_LIBDIR "${MESA_WORK_DIR}/reactos-sdk-lib")
+    set(MESA_PVR_DLL "${MESA_BINARY_DIR}/src/imagination/vulkan/vulkan_powervr_mesa.dll")
+    set(MESA_PVR_MANIFEST "${MESA_BINARY_DIR}/src/imagination/vulkan/powervr_mesa_icd.json")
+    set(MESA_PVR_STAGE_DIR "${CMAKE_CURRENT_BINARY_DIR}/mesa-vulkan")
+    set(MESA_PVR_STAGE "${MESA_PVR_STAGE_DIR}/vulkan_powervr_mesa.dll")
+    set(MESA_WGL_ZINK_DLL "${MESA_BINARY_DIR}/src/gallium/targets/wgl/mesa_gallium.dll")
+    set(MESA_WGL_ZINK_STAGE "${CMAKE_CURRENT_BINARY_DIR}/mesa-icd/mesa_gallium.dll")
+    set(MESA_D3D_ZINK_DLL "${MESA_BINARY_DIR}/src/gallium/targets/d3d10umd/d3d10zink.dll")
+    set(MESA_D3D_ZINK_STAGE "${CMAKE_CURRENT_BINARY_DIR}/mesa-d3d/d3d10zink.dll")
+
+    set(_mesa_sdk_targets
+        msvcrtex libucrtbase libmsvcrt libkernel32 libntdll ucrtoldnames libuser32 libgdi32
+        libadvapi32 libole32 liboleaut32 libshell32 uuid libpsapi libws2_32 libversion libsetupapi libkernelbase libwinspool libcomdlg32)
+    set(_mesa_sdk_copy)
+    foreach(_mesa_sdk_target IN LISTS _mesa_sdk_targets)
+        list(APPEND _mesa_sdk_copy COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "$<TARGET_FILE:${_mesa_sdk_target}>" "${MESA_SDK_LIBDIR}/")
+    endforeach()
+    add_custom_target(mesa_reactos_sdk_libs
+        COMMAND ${CMAKE_COMMAND} -E make_directory "${MESA_SDK_LIBDIR}"
+        ${_mesa_sdk_copy}
+        DEPENDS ${_mesa_sdk_targets} ucrtoldnames_target pvrkmt
+        VERBATIM)
+
+    if(CMAKE_BUILD_TYPE STREQUAL "Release")
+        set(_mesa_assertions OFF)
+    else()
+        set(_mesa_assertions ON)
+    endif()
+    ExternalProject_Add(mesa_gallium_build
+        EXCLUDE_FROM_ALL TRUE
+        PREFIX "${MESA_WORK_DIR}/cmake-prefix"
+        SOURCE_DIR "${MESA_SOURCE_DIR}"
+        BINARY_DIR "${MESA_BINARY_DIR}"
+        DOWNLOAD_COMMAND ""
+        UPDATE_COMMAND ""
+        PATCH_COMMAND ""
+        CMAKE_GENERATOR Ninja
+        CMAKE_ARGS
+            -DCMAKE_TOOLCHAIN_FILE:FILEPATH=${REACTOS_SOURCE_DIR}/submodules/mesa-reactos-sdk.cmake
+            -DCMAKE_MAKE_PROGRAM:FILEPATH=${MESA_NINJA}
+            -DCMAKE_BUILD_TYPE:STRING=Release
+            -DREACTOS_CLANG_LLVM_MINGW_ROOT:PATH=${REACTOS_CLANG_LLVM_MINGW_ROOT}
+            -DMESA_REACTOS_ARCH:STRING=riscv64
+            -DMESA_REACTOS_TRIPLE:STRING=riscv64-w64-windows-gnu
+            "-DMESA_REACTOS_ARCH_FLAGS:STRING=-march=${RISCV64_MARCH} -mabi=lp64 -mcmodel=medany -mno-relax"
+            -DMESA_REACTOS_SOURCE_DIR:PATH=${REACTOS_SOURCE_DIR}
+            -DMESA_REACTOS_BUILD_DIR:PATH=${REACTOS_BINARY_DIR}
+            -DMESA_REACTOS_LIBDIR:PATH=${MESA_SDK_LIBDIR}
+            -DMESA_REACTOS_CXX_RUNTIME:PATH=${REACTOS_RISCV64_LIBCXX_ROOT}
+            -DMESA_REACTOS_SDK:BOOL=ON
+            -DMESA_ARCH:STRING=riscv64
+            -DMESA_IMAGINATION:BOOL=ON
+            -DMESA_ZINK:BOOL=ON
+            -DMESA_ASSERTIONS:BOOL=${_mesa_assertions}
+            -DMESA_WGL_DLL_NAME:STRING=mesa_gallium
+            -DPython3_EXECUTABLE:FILEPATH=${MESA_PYTHON}
+            -DBISON_EXECUTABLE:FILEPATH=${MESA_BISON}
+            -DFLEX_EXECUTABLE:FILEPATH=${MESA_FLEX}
+        BUILD_COMMAND ${CMAKE_COMMAND} -E env CCACHE_DISABLE=1 SCCACHE_DISABLE=1
+            ${REACTOS_NESTED_BUILD} <BINARY_DIR> --target vulkan_powervr_mesa powervr_icd mesa_gallium d3d10zink
+        BUILD_ALWAYS TRUE
+        INSTALL_COMMAND ""
+        BUILD_BYPRODUCTS "${MESA_PVR_DLL}" "${MESA_PVR_MANIFEST}" "${MESA_WGL_ZINK_DLL}" "${MESA_D3D_ZINK_DLL}"
+        USES_TERMINAL_BUILD TRUE)
+    ExternalProject_Add_StepDependencies(mesa_gallium_build configure mesa_reactos_sdk_libs)
+
+    add_custom_command(
+        OUTPUT "${MESA_PVR_STAGE}" "${MESA_PVR_STAGE_DIR}/powervr_mesa_icd.json"
+        COMMAND ${CMAKE_COMMAND} -E make_directory "${MESA_PVR_STAGE_DIR}"
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different "${MESA_PVR_DLL}" "${MESA_PVR_STAGE}"
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different "${MESA_PVR_MANIFEST}" "${MESA_PVR_STAGE_DIR}/powervr_mesa_icd.json"
+        COMMAND "${REACTOS_CLANG_LLVM_MINGW_ROOT}/bin/llvm-strip" --strip-debug "${MESA_PVR_STAGE}"
+        DEPENDS mesa_gallium_build "${MESA_PVR_DLL}" "${MESA_PVR_MANIFEST}"
+        VERBATIM)
+    add_custom_target(mesa_vulkan_powervr DEPENDS "${MESA_PVR_STAGE}" "${MESA_PVR_STAGE_DIR}/powervr_mesa_icd.json")
+    add_cd_file(FILE "${MESA_PVR_STAGE}" TARGET mesa_vulkan_powervr DESTINATION reactos/system32 OPTIONAL FOR all)
+    add_cd_file(FILE "${MESA_PVR_STAGE_DIR}/powervr_mesa_icd.json" TARGET mesa_vulkan_powervr
+        DESTINATION reactos/system32 OPTIONAL FOR all)
+    add_optional_registry_inf(INF powervr-vulkan.inf REQUIRES "${MESA_PVR_STAGE}")
+    add_dependencies(submodules mesa_vulkan_powervr)
+
+    add_custom_command(
+        OUTPUT "${MESA_WGL_ZINK_STAGE}"
+        COMMAND ${CMAKE_COMMAND} -E make_directory "${CMAKE_CURRENT_BINARY_DIR}/mesa-icd"
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different "${MESA_WGL_ZINK_DLL}" "${MESA_WGL_ZINK_STAGE}"
+        COMMAND "${REACTOS_CLANG_LLVM_MINGW_ROOT}/bin/llvm-strip" --strip-debug "${MESA_WGL_ZINK_STAGE}"
+        DEPENDS mesa_gallium_build "${MESA_WGL_ZINK_DLL}"
+        VERBATIM)
+    add_custom_target(mesa_gallium_zink DEPENDS "${MESA_WGL_ZINK_STAGE}")
+    add_cd_file(FILE "${MESA_WGL_ZINK_STAGE}" TARGET mesa_gallium_zink DESTINATION reactos/system32 OPTIONAL FOR all)
+    add_dependencies(submodules mesa_gallium_zink)
+    set_property(GLOBAL APPEND PROPERTY CI_SYSTEM_OPTIONAL_FILES "${MESA_WGL_ZINK_STAGE}")
+
+    add_custom_command(
+        OUTPUT "${MESA_D3D_ZINK_STAGE}"
+        COMMAND ${CMAKE_COMMAND} -E make_directory "${CMAKE_CURRENT_BINARY_DIR}/mesa-d3d"
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different "${MESA_D3D_ZINK_DLL}" "${MESA_D3D_ZINK_STAGE}"
+        COMMAND "${REACTOS_CLANG_LLVM_MINGW_ROOT}/bin/llvm-strip" --strip-debug "${MESA_D3D_ZINK_STAGE}"
+        DEPENDS mesa_gallium_build "${MESA_D3D_ZINK_DLL}"
+        VERBATIM)
+    add_custom_target(mesa_d3d10_zink DEPENDS "${MESA_D3D_ZINK_STAGE}")
+    add_cd_file(FILE "${MESA_D3D_ZINK_STAGE}" TARGET mesa_d3d10_zink DESTINATION reactos/system32 OPTIONAL FOR all)
+    add_dependencies(submodules mesa_d3d10_zink)
+    set_property(GLOBAL APPEND PROPERTY CI_SYSTEM_OPTIONAL_FILES "${MESA_D3D_ZINK_STAGE}")
+    set_property(GLOBAL APPEND PROPERTY CI_SYSTEM_OPTIONAL_FILES "${MESA_PVR_STAGE}")
+    message(STATUS "Mesa PowerVR Vulkan ICD (riscv64): ReactOS SDK build from ${MESA_SOURCE_DIR}")
+    return()
+endif()
 set(MESA_LLVM_MINGW_ROOT "${REACTOS_CLANG_LLVM_MINGW_ROOT}" CACHE PATH "llvm-mingw toolchain used by modern Mesa")
 if(ARCH STREQUAL "arm64")
     set(MESA_CPU aarch64)
