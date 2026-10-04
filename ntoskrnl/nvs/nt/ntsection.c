@@ -10,6 +10,8 @@
 #include <nvs/nt/mint.h>
 
 #define MI_HEADER_BUFFER_SIZE (64 * 1024)
+#define MI_IMAGE64_RELOCATION_WINDOW 0x800000000ULL
+#define MI_IMAGE64_RELOCATION_TOP_ALIGN 0x40000000ULL
 
 POBJECT_TYPE MmSectionObjectType;
 
@@ -550,6 +552,7 @@ MiRelocateImageControlArea(
     ULONG PageCount = (ULONG)(Control->ImageSize >> PAGE_SHIFT);
     ULONG64 OldBase = (ULONG64)(ULONG_PTR)Control->BasedAddress;
     ULONG64 Highest = (ULONG64)(ULONG_PTR)MM_HIGHEST_VAD_ADDRESS;
+    ULONG64 Lowest = 0;
     ULONG64 Slots, Base, Delta;
     ULONG Seed, Page, Position = 0;
     PUCHAR Relocations = NULL;
@@ -563,14 +566,20 @@ MiRelocateImageControlArea(
         return STATUS_SUCCESS;
     if (!Control->Image64)
         Highest = min(Highest, (Information->ImageCharacteristics & IMAGE_FILE_LARGE_ADDRESS_AWARE) ? MAXULONG : MAXLONG);
-    if (Control->ImageSize >= Highest - MI_ALLOCATION_GRANULARITY)
+    else if (Highest >= MI_IMAGE64_RELOCATION_WINDOW + MI_IMAGE64_RELOCATION_TOP_ALIGN &&
+             Control->ImageSize < MI_IMAGE64_RELOCATION_WINDOW - MI_ALLOCATION_GRANULARITY)
+    {
+        Highest = ((Highest + 1) & ~(MI_IMAGE64_RELOCATION_TOP_ALIGN - 1)) - 1;
+        Lowest = Highest + 1 - MI_IMAGE64_RELOCATION_WINDOW;
+    }
+    if (Control->ImageSize >= Highest - Lowest - MI_ALLOCATION_GRANULARITY)
         return STATUS_NO_MEMORY;
 
-    Slots = (Highest - Control->ImageSize) / MI_ALLOCATION_GRANULARITY;
+    Slots = (Highest - Lowest - Control->ImageSize) / MI_ALLOCATION_GRANULARITY;
     Seed = KeQueryPerformanceCounter(NULL).LowPart ^ (ULONG)KeQueryInterruptTime() ^ (ULONG)(ULONG_PTR)Control;
-    Base = ((ULONG64)RtlRandomEx(&Seed) % Slots + 1) * MI_ALLOCATION_GRANULARITY;
+    Base = Lowest + ((ULONG64)RtlRandomEx(&Seed) % Slots + 1) * MI_ALLOCATION_GRANULARITY;
     if (Base == OldBase)
-        Base = (Base / MI_ALLOCATION_GRANULARITY % Slots + 1) * MI_ALLOCATION_GRANULARITY;
+        Base = Lowest + ((Base - Lowest) / MI_ALLOCATION_GRANULARITY % Slots + 1) * MI_ALLOCATION_GRANULARITY;
     Delta = Base - OldBase;
 
     if (Length != 0)
