@@ -2646,6 +2646,7 @@ DxgkpQueryAdapterInfoMinimumLevel(
             *MinimumLevel = DXGK_CAPS_CORE_LEVEL_WDDM_2_2;
             return TRUE;
 
+        case KMTQAITYPE_QUERYREGISTRY:
         case KMTQAITYPE_ADAPTERREGISTRYINFO_RENDER:
         case KMTQAITYPE_WDDM_1_2_CAPS_RENDER:
         case KMTQAITYPE_WDDM_1_3_CAPS_RENDER:
@@ -2896,6 +2897,263 @@ DxgkpQueryAdapterPerfDataClass(
     return STATUS_SUCCESS;
 }
 
+static SIZE_T
+DxgkpWideLength(
+    _In_reads_(MaxChars) PCWSTR String,
+    _In_ SIZE_T MaxChars)
+{
+    SIZE_T Length = 0;
+
+    while (Length < MaxChars && String[Length] != UNICODE_NULL)
+        ++Length;
+    return Length;
+}
+
+static NTSTATUS
+DxgkpQueryRegistryImagePath(
+    _In_ PDXGKRNL_ADAPTER Adapter,
+    _In_ BOOLEAN Directory,
+    _Outptr_ PWSTR *Path,
+    _Out_ PULONG PathBytes)
+{
+    static const WCHAR SystemRootPrefix[] = L"\\SystemRoot\\";
+    static const WCHAR DosPrefix[] = L"\\??\\";
+    static const WCHAR StoreMarker[] = L"\\DriverStore\\FileRepository\\";
+    static const WCHAR System32[] = L"System32";
+    PKEY_VALUE_PARTIAL_INFORMATION ValueInfo = NULL;
+    HANDLE KeyHandle = NULL;
+    PCWSTR Image;
+    PCWSTR Root = NULL;
+    PWSTR Buffer;
+    SIZE_T ImageChars;
+    SIZE_T RootChars = 0;
+    SIZE_T Index;
+    SIZE_T TotalChars;
+    BOOLEAN InStore = FALSE;
+    NTSTATUS Status;
+
+    *Path = NULL;
+    *PathBytes = 0;
+    Status = DxgkpOpenMiniportServiceKey(Adapter, &KeyHandle);
+    if (!NT_SUCCESS(Status))
+        return Status;
+    Status = DxgkpQueryRegistryValue(KeyHandle, L"ImagePath", &ValueInfo);
+    ZwClose(KeyHandle);
+    if (!NT_SUCCESS(Status))
+        return Status;
+    if ((ValueInfo->Type != REG_SZ && ValueInfo->Type != REG_EXPAND_SZ) ||
+        ValueInfo->DataLength < sizeof(WCHAR))
+    {
+        ExFreePoolWithTag(ValueInfo, TAG_DXGK_REGISTRY);
+        return STATUS_OBJECT_TYPE_MISMATCH;
+    }
+
+    Image = (PCWSTR)ValueInfo->Data;
+    ImageChars = DxgkpWideLength(Image, ValueInfo->DataLength / sizeof(WCHAR));
+    if (ImageChars >= RTL_NUMBER_OF(SystemRootPrefix) - 1 &&
+        _wcsnicmp(Image, SystemRootPrefix, RTL_NUMBER_OF(SystemRootPrefix) - 1) == 0)
+    {
+        Image += RTL_NUMBER_OF(SystemRootPrefix) - 1;
+        ImageChars -= RTL_NUMBER_OF(SystemRootPrefix) - 1;
+        Root = SharedUserData->NtSystemRoot;
+    }
+    else if (ImageChars >= RTL_NUMBER_OF(DosPrefix) - 1 &&
+             wcsncmp(Image, DosPrefix, RTL_NUMBER_OF(DosPrefix) - 1) == 0)
+    {
+        Image += RTL_NUMBER_OF(DosPrefix) - 1;
+        ImageChars -= RTL_NUMBER_OF(DosPrefix) - 1;
+    }
+    else if (ImageChars < 2 || Image[1] != L':')
+    {
+        Root = SharedUserData->NtSystemRoot;
+    }
+    if (Root != NULL)
+        RootChars = DxgkpWideLength(Root, RTL_NUMBER_OF(SharedUserData->NtSystemRoot));
+
+    for (Index = 0; Index + RTL_NUMBER_OF(StoreMarker) - 1 <= ImageChars; ++Index)
+    {
+        if (_wcsnicmp(Image + Index, StoreMarker, RTL_NUMBER_OF(StoreMarker) - 1) == 0)
+        {
+            InStore = TRUE;
+            break;
+        }
+    }
+    if (Directory)
+    {
+        if (InStore)
+        {
+            while (ImageChars > 0 && Image[ImageChars - 1] != L'\\')
+                --ImageChars;
+            if (ImageChars > 0)
+                --ImageChars;
+        }
+        else
+        {
+            Image = System32;
+            ImageChars = RTL_NUMBER_OF(System32) - 1;
+            Root = SharedUserData->NtSystemRoot;
+            RootChars = DxgkpWideLength(Root, RTL_NUMBER_OF(SharedUserData->NtSystemRoot));
+        }
+    }
+
+    TotalChars = (Root != NULL ? RootChars + 1 : 0) + ImageChars + 1;
+    Buffer = ExAllocatePoolWithTag(PagedPool, TotalChars * sizeof(WCHAR), TAG_DXGK_REGISTRY);
+    if (Buffer == NULL)
+    {
+        ExFreePoolWithTag(ValueInfo, TAG_DXGK_REGISTRY);
+        return STATUS_INSUFFICIENT_RESOURCES;
+    }
+    Index = 0;
+    if (Root != NULL)
+    {
+        RtlCopyMemory(Buffer, Root, RootChars * sizeof(WCHAR));
+        Index = RootChars;
+        Buffer[Index++] = L'\\';
+    }
+    RtlCopyMemory(Buffer + Index, Image, ImageChars * sizeof(WCHAR));
+    Buffer[Index + ImageChars] = UNICODE_NULL;
+    ExFreePoolWithTag(ValueInfo, TAG_DXGK_REGISTRY);
+    *Path = Buffer;
+    *PathBytes = (ULONG)(TotalChars * sizeof(WCHAR));
+    return STATUS_SUCCESS;
+}
+
+static NTSTATUS
+DxgkpQueryRegistryInfo(
+    _In_ PDXGKRNL_ADAPTER Adapter,
+    _Inout_updates_bytes_(Size) D3DDDI_QUERYREGISTRY_INFO *Info,
+    _In_ UINT Size)
+{
+    D3DDDI_QUERYREGISTRY_INFO Request;
+    PKEY_VALUE_PARTIAL_INFORMATION ValueInfo = NULL;
+    OBJECT_ATTRIBUTES ObjectAttributes;
+    UNICODE_STRING SubKey;
+    HANDLE RootKey = NULL;
+    HANDLE ValueKey = NULL;
+    PWSTR PathBuffer = NULL;
+    PWSTR ValueName;
+    PWSTR Separator;
+    const VOID *Data = NULL;
+    ULONG DataBytes = 0;
+    ULONG Capacity;
+    NTSTATUS Status;
+
+    if (Info == NULL || Size < sizeof(D3DDDI_QUERYREGISTRY_INFO))
+        return STATUS_INVALID_PARAMETER;
+    _SEH2_TRY
+    {
+        RtlCopyMemory(&Request, Info, FIELD_OFFSET(D3DDDI_QUERYREGISTRY_INFO, OutputDword));
+    }
+    _SEH2_EXCEPT(EXCEPTION_EXECUTE_HANDLER)
+    {
+        _SEH2_YIELD(return _SEH2_GetExceptionCode());
+    }
+    _SEH2_END;
+    Request.ValueName[RTL_NUMBER_OF(Request.ValueName) - 1] = UNICODE_NULL;
+    Capacity = Size - FIELD_OFFSET(D3DDDI_QUERYREGISTRY_INFO, OutputDword);
+
+    if (Request.QueryFlags.MutableValue || Request.QueryFlags.Reserved || Request.PhysicalAdapterIndex != 0)
+    {
+        Status = STATUS_INVALID_PARAMETER;
+    }
+    else if (Request.QueryType == D3DDDI_QUERYREGISTRY_SERVICEKEY ||
+             Request.QueryType == D3DDDI_QUERYREGISTRY_ADAPTERKEY)
+    {
+        if (Request.ValueType != REG_SZ && Request.ValueType != REG_MULTI_SZ &&
+            Request.ValueType != REG_EXPAND_SZ && Request.ValueType != REG_BINARY &&
+            Request.ValueType != REG_QWORD && Request.ValueType != REG_DWORD)
+        {
+            Status = STATUS_INVALID_PARAMETER;
+        }
+        else
+        {
+            Status = Request.QueryType == D3DDDI_QUERYREGISTRY_ADAPTERKEY ?
+                     DxgkpOpenAdapterDriverKey(Adapter, &RootKey) :
+                     DxgkpOpenMiniportServiceKey(Adapter, &RootKey);
+        }
+        if (NT_SUCCESS(Status))
+        {
+            ValueName = Request.ValueName;
+            Separator = wcsrchr(Request.ValueName, L'\\');
+            ValueKey = RootKey;
+            if (Separator != NULL)
+            {
+                *Separator = UNICODE_NULL;
+                ValueName = Separator + 1;
+                RtlInitUnicodeString(&SubKey, Request.ValueName);
+                InitializeObjectAttributes(&ObjectAttributes, &SubKey, OBJ_CASE_INSENSITIVE | OBJ_KERNEL_HANDLE,
+                                           RootKey, NULL);
+                Status = ZwOpenKey(&ValueKey, KEY_READ, &ObjectAttributes);
+            }
+            if (NT_SUCCESS(Status))
+            {
+                Status = DxgkpQueryRegistryValue(ValueKey, ValueName, &ValueInfo);
+                if (ValueKey != RootKey)
+                    ZwClose(ValueKey);
+            }
+            ZwClose(RootKey);
+        }
+        if (NT_SUCCESS(Status))
+        {
+            if (ValueInfo->Type != Request.ValueType)
+            {
+                Status = STATUS_OBJECT_TYPE_MISMATCH;
+            }
+            else
+            {
+                Data = ValueInfo->Data;
+                DataBytes = ValueInfo->DataLength;
+            }
+        }
+    }
+    else if (Request.QueryType == D3DDDI_QUERYREGISTRY_DRIVERSTOREPATH ||
+             Request.QueryType == D3DDDI_QUERYREGISTRY_DRIVERIMAGEPATH)
+    {
+        if (Request.ValueType != 0)
+            Status = STATUS_INVALID_PARAMETER;
+        else
+            Status = DxgkpQueryRegistryImagePath(Adapter,
+                                                 Request.QueryType == D3DDDI_QUERYREGISTRY_DRIVERSTOREPATH,
+                                                 &PathBuffer,
+                                                 &DataBytes);
+        Data = PathBuffer;
+    }
+    else
+    {
+        Status = STATUS_INVALID_PARAMETER;
+    }
+
+    _SEH2_TRY
+    {
+        if (!NT_SUCCESS(Status))
+        {
+            Info->Status = D3DDDI_QUERYREGISTRY_STATUS_FAIL;
+        }
+        else if (DataBytes > Capacity)
+        {
+            Info->OutputValueSize = DataBytes;
+            Info->Status = D3DDDI_QUERYREGISTRY_STATUS_BUFFER_OVERFLOW;
+        }
+        else
+        {
+            RtlCopyMemory(Info->OutputBinary, Data, DataBytes);
+            Info->OutputValueSize = DataBytes;
+            Info->Status = D3DDDI_QUERYREGISTRY_STATUS_SUCCESS;
+        }
+    }
+    _SEH2_EXCEPT(EXCEPTION_EXECUTE_HANDLER)
+    {
+        Status = _SEH2_GetExceptionCode();
+    }
+    _SEH2_END;
+
+    if (ValueInfo != NULL)
+        ExFreePoolWithTag(ValueInfo, TAG_DXGK_REGISTRY);
+    if (PathBuffer != NULL)
+        ExFreePoolWithTag(PathBuffer, TAG_DXGK_REGISTRY);
+    return Status;
+}
+
 static NTSTATUS
 NTAPI
 DxgkpQueryAdapterInfoCaptured(
@@ -3002,6 +3260,13 @@ DxgkpQueryAdapterInfoCaptured(
 
             DXGKRNL_TRACE("DxgkQueryAdapterInfo: DRIVERVERSION -> %d\n", Version);
             DXGKP_QUERY_RETURN(STATUS_SUCCESS);
+        }
+
+        case KMTQAITYPE_QUERYREGISTRY:
+        {
+            DXGKP_QUERY_RETURN(DxgkpQueryRegistryInfo(Adapter,
+                                                      (D3DDDI_QUERYREGISTRY_INFO *)pQueryAdapterInfo->pPrivateDriverData,
+                                                      pQueryAdapterInfo->PrivateDriverDataSize));
         }
 
         case KMTQAITYPE_UMDRIVERNAME:

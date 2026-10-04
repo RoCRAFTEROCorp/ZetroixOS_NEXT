@@ -822,7 +822,8 @@ D3DKMTQueryAdapterInfo(
     if (!NT_SUCCESS(Status) &&
         !(Status == STATUS_OBJECT_NAME_NOT_FOUND &&
           (Captured.Type == KMTQAITYPE_UMOPENGLINFO ||
-           Captured.Type == KMTQAITYPE_UMDRIVERNAME)) &&
+           Captured.Type == KMTQAITYPE_UMDRIVERNAME ||
+           Captured.Type == KMTQAITYPE_QUERYREGISTRY)) &&
         !(Status == STATUS_INVALID_PARAMETER &&
           (Captured.Type == KMTQAITYPE_ADAPTERADDRESS ||
            Captured.Type == KMTQAITYPE_PHYSICALADAPTERDEVICEIDS ||
