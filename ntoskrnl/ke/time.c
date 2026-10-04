@@ -16,6 +16,7 @@
 /* GLOBALS ********************************************************************/
 
 LONG KiTickOffset;
+static ULONGLONG KiLastClockInterruptTime;
 ULONG KeTimeAdjustment;
 BOOLEAN KiTimeAdjustmentEnabled = FALSE;
 
@@ -84,6 +85,7 @@ KeUpdateSystemTime(IN PKTRAP_FRAME TrapFrame,
 {
     PKPRCB Prcb = KeGetCurrentPrcb();
     LARGE_INTEGER CurrentTime, InterruptTime;
+    ULONGLONG Elapsed;
     LONG OldTickOffset;
     ULONG Ticks;
 
@@ -106,6 +108,14 @@ KeUpdateSystemTime(IN PKTRAP_FRAME TrapFrame,
 
     /* Add the increment time to the shared data */
     InterruptTime.QuadPart = KiUpdateSharedTime(Increment, FALSE);
+
+    if (KiLastClockInterruptTime)
+    {
+        Elapsed = ((ULONGLONG)InterruptTime.QuadPart > KiLastClockInterruptTime) ?
+                  (ULONGLONG)InterruptTime.QuadPart - KiLastClockInterruptTime : 0;
+        Increment = (Elapsed > MAXULONG) ? MAXULONG : (ULONG)Elapsed;
+    }
+    KiLastClockInterruptTime = InterruptTime.QuadPart;
 #if DBG && defined(KDBG)
     KdpLogWatchdogCheck(InterruptTime.QuadPart);
 #endif
