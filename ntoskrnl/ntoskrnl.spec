@@ -1960,7 +1960,7 @@
 @ stdcall -arch=win64 ZwGetWriteWatch()
 @ stdcall -arch=win64 ZwImpersonateAnonymousToken()
 @ stdcall -arch=win64 ZwLoadKeyEx()
-@ stdcall -arch=win64 ZwLockFile()
+@ stdcall ZwLockFile(ptr ptr ptr ptr ptr ptr ptr long long long)
 @ stdcall -arch=win64 ZwLockProductActivationKeys()
 @ stdcall -arch=win64 ZwLockVirtualMemory()
 @ stdcall -arch=win64 ZwNotifyChangeDirectoryFile()
@@ -2167,7 +2167,7 @@
 @ stub -arch=win64 ExAllocateCacheAwarePushLock
 @ stdcall -arch=win64 ExAllocateFromLookasideListEx(ptr) ExiAllocateFromLookasideListEx
 @ stdcall -arch=win64 ExAllocateFromNPagedLookasideList(ptr) ExiAllocateFromNPagedLookasideList
-@ stdcall -arch=win64 ExAllocatePool2(int64 int64 long)
+@ stdcall ExAllocatePool2(int64 ptr long)
 @ stdcall -arch=win64 ExAllocatePool3(int64 long long ptr long)
 @ stdcall -version=0x603+ -arch=i386,win64 ExAllocateTimer(ptr ptr long)
 @ fastcall -arch=win64 ExBlockOnAddressPushLock(ptr ptr ptr int64 ptr)
