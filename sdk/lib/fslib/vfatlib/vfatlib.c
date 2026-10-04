@@ -73,7 +73,6 @@ VfatFormat(
     DPRINT("VfatFormat(DriveRoot '%wZ')\n", DriveRoot);
 
     // FIXME:
-    UNREFERENCED_PARAMETER(BackwardCompatible);
     UNREFERENCED_PARAMETER(MediaType);
 
     Context.TotalSectorCount = 0;
@@ -266,6 +265,12 @@ VfatFormat(
         DPRINT("PartitionLength %I64d\n", PartitionInfo.PartitionLength.QuadPart);
         DPRINT("PartitionNumber %d\n", PartitionInfo.PartitionNumber);
         DPRINT("RewritePartition %d\n", PartitionInfo.RewritePartition);
+    }
+
+    if (!BackwardCompatible && FatType != FAT_32 &&
+        PartitionInfo.PartitionLength.QuadPart >= 33LL * 1024LL * 1024LL)
+    {
+        FatType = FAT_32;
     }
 
     if (Callback != NULL)

@@ -403,7 +403,19 @@ Fat32Format(IN HANDLE FileHandle,
     /* Calculate cluster size */
     if (ClusterSize == 0)
     {
-        if (PartitionInfo->PartitionLength.QuadPart < 8LL * 1024LL * 1024LL * 1024LL)
+        if (PartitionInfo->PartitionLength.QuadPart <= 64LL * 1024LL * 1024LL)
+        {
+            ClusterSize = 512;
+        }
+        else if (PartitionInfo->PartitionLength.QuadPart <= 128LL * 1024LL * 1024LL)
+        {
+            ClusterSize = 1024;
+        }
+        else if (PartitionInfo->PartitionLength.QuadPart <= 256LL * 1024LL * 1024LL)
+        {
+            ClusterSize = 2048;
+        }
+        else if (PartitionInfo->PartitionLength.QuadPart < 8LL * 1024LL * 1024LL * 1024LL)
         {
             /* Partition < 8GB ==> 4KB Cluster */
             ClusterSize = 4096;
@@ -423,6 +435,8 @@ Fat32Format(IN HANDLE FileHandle,
             /* Partition >= 32GB ==> 32KB Cluster */
             ClusterSize = 32768;
         }
+        if (ClusterSize < DiskGeometry->BytesPerSector)
+            ClusterSize = DiskGeometry->BytesPerSector;
     }
 
     RtlZeroMemory(&BootSector, sizeof(FAT32_BOOT_SECTOR));
