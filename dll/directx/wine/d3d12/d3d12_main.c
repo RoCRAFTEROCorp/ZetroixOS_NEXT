@@ -17,7 +17,27 @@
  */
 
 #include <windef.h>
+#include <winbase.h>
+#include <winerror.h>
 #include <d3d12.h>
+#include <vkd3d_utils.h>
+
+#ifdef REACTOS_D3D12_NATIVE_UMD
+HRESULT d3d12_native_create_device(IUnknown *adapter, D3D_FEATURE_LEVEL minimum_feature_level, REFIID iid,
+        void **device);
+#endif
+
+HRESULT WINAPI
+d3d12_create_device(IUnknown *adapter, D3D_FEATURE_LEVEL minimum_feature_level, REFIID iid, void **device)
+{
+#ifdef REACTOS_D3D12_NATIVE_UMD
+    HRESULT hr = d3d12_native_create_device(adapter, minimum_feature_level, iid, device);
+
+    if (hr != DXGI_ERROR_UNSUPPORTED)
+        return hr;
+#endif
+    return D3D12CreateDeviceVKD3D(adapter, minimum_feature_level, iid, device, VKD3D_API_VERSION_1_0);
+}
 
 HRESULT WINAPI
 D3D12EnableExperimentalFeatures(UINT FeatureCount, const IID *Iids, void *Configurations, UINT *ConfigurationSizes)

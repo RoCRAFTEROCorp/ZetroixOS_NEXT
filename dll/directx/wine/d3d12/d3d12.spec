@@ -1,5 +1,5 @@
 100 stub GetBehaviorValue
-101 stdcall D3D12CreateDevice(ptr long ptr ptr)
+101 stdcall D3D12CreateDevice(ptr long ptr ptr) d3d12_create_device
 102 stdcall D3D12GetDebugInterface(ptr ptr)
 @ stub D3D12CoreCreateLayeredDevice
 @ stub D3D12CoreGetLayeredDeviceSize
