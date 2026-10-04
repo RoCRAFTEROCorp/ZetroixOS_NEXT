@@ -1644,6 +1644,7 @@ typedef struct _DXGKRNL_GPUVA_RANGE
      */
     BOOLEAN                     DriverReserved;
     BOOLEAN                     AllowUserModeMapping;
+    BOOLEAN                     MapAllocated;
 
     /*
      * Linkage in DXGKRNL_PROCESS->GpuVaRangeList (ascending VA order).

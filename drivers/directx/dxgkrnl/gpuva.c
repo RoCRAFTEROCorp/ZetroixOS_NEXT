@@ -434,6 +434,7 @@ GpuVaCloneRange(
         Clone->DriverProtection = Source->DriverProtection;
         Clone->ReservationBase = Source->ReservationBase;
         Clone->ReservationSize = Source->ReservationSize;
+        Clone->MapAllocated = Source->MapAllocated;
     }
 
     return Clone;
@@ -3749,6 +3750,7 @@ DxgkGpuVaMap(
                 RemoveHeadList(&Ranges), DXGKRNL_GPUVA_RANGE, RangeListEntry);
 
             InitializeListHead(&Range->RangeListEntry);
+            Range->MapAllocated = Allocation != NULL;
             GpuVaInsertRange(Process, Range);
         }
         Process->GpuVaRangeCount += RangeCount;
@@ -3786,6 +3788,13 @@ DxgkGpuVaMap(
                                        DriverProtection, &ReplacementCount);
         if (Binding != NULL)
             GpuVaDereferenceBinding(Binding);
+        if (NT_SUCCESS(Status))
+        {
+            PDXGKRNL_GPUVA_RANGE Owner = GpuVaFindOverlapping(Process, ActualAddress, SizeInBytes);
+
+            for (Entry = ReplacementHead.Flink; Entry != &ReplacementHead; Entry = Entry->Flink)
+                CONTAINING_RECORD(Entry, DXGKRNL_GPUVA_RANGE, RangeListEntry)->MapAllocated = Owner != NULL && Owner->MapAllocated;
+        }
         if (NT_SUCCESS(Status))
             Status = GpuVaCloneList(&Process->GpuVaRangeList, &WorkingHead);
         if (!NT_SUCCESS(Status))
@@ -4009,12 +4018,58 @@ DxgkGpuVaUnmapFencePage(
     return DxgkGpuVaFlushPageTableUpdates(Process);
 }
 
+static VOID
+GpuVaReleaseMapReservations(
+    _Inout_ PDXGKRNL_PROCESS Process)
+{
+    PLIST_ENTRY Entry = Process->GpuVaRangeList.Flink;
+
+    while (Entry != &Process->GpuVaRangeList)
+    {
+        PDXGKRNL_GPUVA_RANGE First = CONTAINING_RECORD(Entry, DXGKRNL_GPUVA_RANGE, RangeListEntry);
+        D3DGPU_VIRTUAL_ADDRESS Base = First->ReservationBase;
+        ULONGLONG Size = First->ReservationSize;
+        D3DGPU_VIRTUAL_ADDRESS Cursor = Base;
+        BOOLEAN Releasable = First->MapAllocated && Size != 0;
+        PLIST_ENTRY End = Entry;
+
+        while (End != &Process->GpuVaRangeList)
+        {
+            PDXGKRNL_GPUVA_RANGE Range = CONTAINING_RECORD(End, DXGKRNL_GPUVA_RANGE, RangeListEntry);
+
+            if (Range->ReservationBase != Base || Range->ReservationSize != Size || Range->MapAllocated != First->MapAllocated)
+                break;
+            if (Range->GpuVirtualAddress != Cursor || Range->State == GpuVaStateMapped || Range->Protection.SystemUseOnly)
+                Releasable = FALSE;
+            Cursor = Range->GpuVirtualAddress + Range->SizeInBytes;
+            End = End->Flink;
+        }
+        if (Releasable && Cursor - Base == Size && !GpuVaRangeIsPinned(Process, Base, Size))
+        {
+            while (Entry != End)
+            {
+                PDXGKRNL_GPUVA_RANGE Range = CONTAINING_RECORD(Entry, DXGKRNL_GPUVA_RANGE, RangeListEntry);
+
+                Entry = Entry->Flink;
+                RemoveEntryList(&Range->RangeListEntry);
+                Process->GpuVaRangeCount--;
+                Process->GpuVaTotalReserved -= min(Range->SizeInBytes, Process->GpuVaTotalReserved);
+                GpuVaFreeRange(Range);
+            }
+            GpuVaClearPteSpan(Process, Base, Size);
+            DxgkGpuVaRecordEvent('F', Base, Size, 0);
+        }
+        Entry = End;
+    }
+}
+
 VOID
 DxgkGpuVaInvalidateAllocation(
     _In_ PDXGKRNL_ADAPTER Adapter,
     _In_ PDXGKRNL_PROCESS Process,
     _In_ PDXGKVMM_ALLOCATION LogicalAllocation)
 {
+    BOOLEAN ReleaseMapRanges = FALSE;
     PLIST_ENTRY Entry;
 
     PAGED_CODE();
@@ -4031,6 +4086,7 @@ DxgkGpuVaInvalidateAllocation(
             continue;
         GpuVaClearPteSpan(Process, Range->GpuVirtualAddress, Range->SizeInBytes);
         Process->GpuVaTotalMapped -= min(Range->SizeInBytes, Process->GpuVaTotalMapped);
+        ReleaseMapRanges |= Range->MapAllocated;
         Range->State = GpuVaStateReserved;
         Range->hAllocation = NULL;
         GpuVaDereferenceBinding(Range->Binding);
@@ -4040,6 +4096,8 @@ DxgkGpuVaInvalidateAllocation(
         Range->Protection.NoAccess = 1;
         Range->DriverProtection = 0;
     }
+    if (ReleaseMapRanges)
+        GpuVaReleaseMapReservations(Process);
     KeMemoryBarrier();
     ExReleaseFastMutex(&Process->GpuVaLock);
 }
