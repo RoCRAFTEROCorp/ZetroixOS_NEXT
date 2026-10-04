@@ -987,6 +987,20 @@ SdBusReadExtCsd(
                                     NULL);
 }
 
+static BOOLEAN
+SdBusEmmcExtCsdMatches(
+    _In_reads_bytes_(512) const UCHAR *Reference,
+    _In_reads_bytes_(512) const UCHAR *ExtCsd)
+{
+    return RtlEqualMemory(&Reference[EMMC_EXT_CSD_SEC_COUNT],
+                          &ExtCsd[EMMC_EXT_CSD_SEC_COUNT],
+                          4) &&
+           Reference[EMMC_EXT_CSD_DEVICE_TYPE] == ExtCsd[EMMC_EXT_CSD_DEVICE_TYPE] &&
+           Reference[EMMC_EXT_CSD_REV] == ExtCsd[EMMC_EXT_CSD_REV] &&
+           Reference[EMMC_EXT_CSD_BOOT_SIZE_MULT] == ExtCsd[EMMC_EXT_CSD_BOOT_SIZE_MULT] &&
+           Reference[EMMC_EXT_CSD_RPMB_SIZE_MULT] == ExtCsd[EMMC_EXT_CSD_RPMB_SIZE_MULT];
+}
+
 static NTSTATUS
 SdBusSetEmmcBusWidth(
     _In_ PFDO_EXTENSION FdoExtension,
@@ -1033,7 +1047,8 @@ SdBusSetEmmcBusWidth(
 
         Status = SdBusReadExtCsd(FdoExtension, VerifyExtCsd);
         if (NT_SUCCESS(Status) &&
-            VerifyExtCsd[EMMC_EXT_CSD_BUS_WIDTH] == BusWidth)
+            (BusWidth == EMMC_BUS_WIDTH_1 ||
+             SdBusEmmcExtCsdMatches(PdoExtension->ExtCsd, VerifyExtCsd)))
         {
             RtlCopyMemory(PdoExtension->ExtCsd,
                           VerifyExtCsd,
@@ -1043,11 +1058,9 @@ SdBusSetEmmcBusWidth(
             return STATUS_SUCCESS;
         }
 
-        DPRINT1("SdBusSetEmmcBusWidth: width %lu-bit verify failed "
-                "(status 0x%08lx, ext_csd width 0x%02x)\n",
+        DPRINT1("SdBusSetEmmcBusWidth: width %lu-bit verify failed (status 0x%08lx)\n",
                 SdBusEmmcHostWidthFromExtCsd(BusWidth),
-                Status,
-                NT_SUCCESS(Status) ? VerifyExtCsd[EMMC_EXT_CSD_BUS_WIDTH] : 0xff);
+                Status);
         LastStatus = NT_SUCCESS(Status) ? STATUS_DEVICE_PROTOCOL_ERROR : Status;
     }
 
@@ -1627,7 +1640,7 @@ SdBusEnumerateCard(
                                       &Response[0]);
             if (NT_SUCCESS(Status))
             {
-                Status = SdBusR1Status(Response[0]);
+                Status = SdBusR1Status(Response[0] & ~(SD_STATUS_ILLEGAL_COMMAND | SD_STATUS_COM_CRC_ERROR));
             }
         }
         else
