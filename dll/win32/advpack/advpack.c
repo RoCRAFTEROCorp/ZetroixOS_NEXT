@@ -537,6 +537,17 @@ HRESULT WINAPI SetPerUserSecValuesA(PERUSERSECTIONA* pPerUser)
  *   Success: S_OK.
  *   Failure: E_FAIL.
  */
+#ifdef __REACTOS__
+static void save_rollback_value(HKEY key, const WCHAR *from, const WCHAR *to)
+{
+    WCHAR value[MAX_PATH];
+    DWORD size = sizeof(value), type;
+
+    if (!RegQueryValueExW(key, from, NULL, &type, (BYTE *)value, &size) && type == REG_SZ)
+        RegSetValueExW(key, to, 0, REG_SZ, (BYTE *)value, size);
+}
+
+#endif
 HRESULT WINAPI SetPerUserSecValuesW(PERUSERSECTIONW* pPerUser)
 {
     HKEY setup, guid;
@@ -559,7 +570,29 @@ HRESULT WINAPI SetPerUserSecValuesW(PERUSERSECTIONW* pPerUser)
         return E_FAIL;
     }
 
+#ifdef __REACTOS__
+    if (pPerUser->bRollback)
+    {
+        save_rollback_value(guid, NULL, L"OldDisplayName");
+        save_rollback_value(guid, L"Locale", L"OldLocale");
+        save_rollback_value(guid, L"StubPath", L"OldStubPath");
+        save_rollback_value(guid, L"Version", L"OldVersion");
+    }
+
+    if (*pPerUser->szStub && pPerUser->bRollback)
+    {
+        WCHAR wrapper[MAX_PATH + 64];
+
+        RegSetValueExW(guid, L"RealStubPath", 0, REG_SZ, (BYTE *)pPerUser->szStub,
+                       (lstrlenW(pPerUser->szStub) + 1) * sizeof(WCHAR));
+        swprintf(wrapper, ARRAY_SIZE(wrapper), L"rundll32.exe advpack.dll,UserInstStubWrapper %s", pPerUser->szGUID);
+        RegSetValueExW(guid, L"StubPath", 0, REG_SZ, (BYTE *)wrapper,
+                       (lstrlenW(wrapper) + 1) * sizeof(WCHAR));
+    }
+    else if (*pPerUser->szStub)
+#else
     if (*pPerUser->szStub)
+#endif
     {
         RegSetValueExW(guid, L"StubPath", 0, REG_SZ, (BYTE *)pPerUser->szStub,
                        (lstrlenW(pPerUser->szStub) + 1) * sizeof(WCHAR));
