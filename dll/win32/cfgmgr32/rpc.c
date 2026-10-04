@@ -18,10 +18,9 @@
  * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301, USA
  */
 
-#include "setupapi_private.h"
+#include "rpc_private.h"
 
 static RPC_BINDING_HANDLE LocalBindingHandle = NULL;
-static HSTRING_TABLE LocalStringTable = NULL;
 
 
 RPC_STATUS
@@ -49,62 +48,24 @@ PnpBindRpc(LPCWSTR pszMachine,
 }
 
 
-RPC_STATUS
-PnpUnbindRpc(RPC_BINDING_HANDLE *BindingHandle)
-{
-    if (BindingHandle != NULL)
-    {
-        RpcBindingFree(*BindingHandle);
-        *BindingHandle = NULL;
-    }
-
-    return RPC_S_OK;
-}
-
-
 BOOL
-PnpGetLocalHandles(RPC_BINDING_HANDLE *BindingHandle,
-                   HSTRING_TABLE *StringTable)
+PnpGetLocalHandles(RPC_BINDING_HANDLE *BindingHandle)
 {
-    if (LocalBindingHandle != NULL)
+    RPC_BINDING_HANDLE NewBindingHandle = NULL;
+
+    if (LocalBindingHandle == NULL)
     {
-        if (BindingHandle != NULL)
-            *BindingHandle = LocalBindingHandle;
+        if (PnpBindRpc(NULL, &NewBindingHandle) != RPC_S_OK)
+            return FALSE;
 
-        if (StringTable != NULL)
-            *StringTable = LocalStringTable;
-
-        return TRUE;
+        if (InterlockedCompareExchangePointer(&LocalBindingHandle, NewBindingHandle, NULL) != NULL)
+            RpcBindingFree(&NewBindingHandle);
     }
-
-    LocalStringTable = pSetupStringTableInitialize();
-    if (LocalStringTable == NULL)
-        return FALSE;
-
-    if (PnpBindRpc(NULL, &LocalBindingHandle) != RPC_S_OK)
-    {
-        pSetupStringTableDestroy(LocalStringTable);
-        return FALSE;
-    }
-
-    pSetupStringTableAddString(LocalStringTable, L"PLT", 1);
 
     if (BindingHandle != NULL)
         *BindingHandle = LocalBindingHandle;
 
-    if (StringTable != NULL)
-        *StringTable = LocalStringTable;
-
     return TRUE;
-}
-
-
-RPC_STATUS
-PnpUnbindLocalBindingHandle(VOID)
-{
-    pSetupStringTableDestroy(LocalStringTable);
-    LocalStringTable = NULL;
-    return PnpUnbindRpc(&LocalBindingHandle);
 }
 
 

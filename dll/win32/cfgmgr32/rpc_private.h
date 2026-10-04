@@ -19,13 +19,42 @@
 #ifndef __RPC_PRIVATE_H
 #define __RPC_PRIVATE_H
 
+#undef __WINESRC__
+
+#ifndef UNICODE
+#define UNICODE
+#endif
+#ifndef _UNICODE
+#define _UNICODE
+#endif
+
+#include <wchar.h>
+
+#ifndef WIN32_NO_STATUS
+#define WIN32_NO_STATUS
+#endif
+
+#include <windows.h>
+#include <winternl.h>
+#include <cfgmgr32.h>
+#include <regstr.h>
+#include <sddl.h>
+#include <setupapi.h>
+
+#include <wine/debug.h>
+
+#define CMP_MAGIC 0x01234567
+
 RPC_STATUS PnpBindRpc(LPCWSTR pszMachine,
                       RPC_BINDING_HANDLE* BindingHandle);
-RPC_STATUS PnpUnbindRpc(RPC_BINDING_HANDLE *BindingHandle);
 
 BOOL
-PnpGetLocalHandles(RPC_BINDING_HANDLE *BindingHandle,
-                   HSTRING_TABLE *StringTable);
-RPC_STATUS PnpUnbindLocalHandles(VOID);
+PnpGetLocalHandles(RPC_BINDING_HANDLE *BindingHandle);
+
+DEVINST CfgmgrDevInstFromId(const WCHAR *id);
+BOOL CfgmgrIdFromDevInst(DEVINST node, WCHAR *id, ULONG len);
+BOOL CfgmgrIsKernelDevNodeProperty(ULONG ulProperty);
+CONFIGRET CfgmgrGetDevNodeRegistryPropertyA(DEVINST dnDevInst, ULONG ulProperty, PULONG pulRegDataType, PVOID Buffer, PULONG pulLength, ULONG ulFlags, HMACHINE hMachine);
+CONFIGRET CfgmgrGetDevNodeRegistryPropertyW(DEVINST dnDevInst, ULONG ulProperty, PULONG pulRegDataType, PVOID Buffer, PULONG pulLength, ULONG ulFlags, HMACHINE hMachine);
 
 #endif /* __RPC_PRIVATE_H */

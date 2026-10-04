@@ -748,34 +748,13 @@ static const struct property_desc device_properties[] =
 };
 
 #ifdef __REACTOS__
-static HMODULE kernel_device_property_provider(void)
-{
-    static HMODULE provider;
-    HMODULE module = InterlockedCompareExchangePointer( (void **)&provider, NULL, NULL );
-
-    if (!module && (module = LoadLibraryW( L"setupapi.dll" )) &&
-        InterlockedCompareExchangePointer( (void **)&provider, module, NULL ))
-    {
-        FreeLibrary( module );
-        module = provider;
-    }
-    return module;
-}
-
 static LSTATUS query_kernel_device_property( const struct device *dev, ULONG property, struct property *prop )
 {
-    CONFIGRET (WINAPI *locate)( DEVINST *, DEVINSTID_W, ULONG );
-    CONFIGRET (WINAPI *get_property)( DEVINST, ULONG, ULONG *, void *, ULONG *, ULONG );
     WCHAR instance_id[3 * MAX_PATH];
     ULONG value, size = sizeof(value);
     LSTATUS err = ERROR_NOT_FOUND;
-    HMODULE setupapi;
     DEVINST node;
     UINT len;
-
-    if (!(setupapi = kernel_device_property_provider())) return ERROR_NOT_FOUND;
-    locate = (void *)GetProcAddress( setupapi, "CM_Locate_DevNodeW" );
-    get_property = (void *)GetProcAddress( setupapi, "CM_Get_DevNode_Registry_PropertyW" );
 
     len = swprintf( instance_id, ARRAY_SIZE(instance_id), L"%s", dev->enumerator );
     if (*dev->device)
@@ -783,8 +762,8 @@ static LSTATUS query_kernel_device_property( const struct device *dev, ULONG pro
     if (*dev->instance)
         swprintf( instance_id + len, ARRAY_SIZE(instance_id) - len, L"\\%s", dev->instance );
 
-    if (locate && get_property && !locate( &node, instance_id, CM_LOCATE_DEVNODE_NORMAL ) &&
-        !get_property( node, property, NULL, &value, &size, 0 ) && size == sizeof(value))
+    if ((node = CfgmgrDevInstFromId( instance_id )) &&
+        !CfgmgrGetDevNodeRegistryPropertyW( node, property, NULL, &value, &size, 0, NULL ) && size == sizeof(value))
     {
         err = *prop->size >= sizeof(value) ? ERROR_SUCCESS : ERROR_MORE_DATA;
         if (!err && prop->buffer) memcpy( prop->buffer, &value, sizeof(value) );
@@ -923,7 +902,11 @@ static LSTATUS matches_device_property( HKEY hkey, struct device *dev, const DEV
 
     if (!key) return ERROR_SUCCESS;
     if ((err = init_property( &prop, key, &type, (BYTE *)buffer, &size, FALSE ))) return err;
+#ifdef __REACTOS__
+    if ((err = query_device_property( hkey, dev, &prop ))) return (err == ERROR_FILE_NOT_FOUND || err == ERROR_NOT_FOUND) ? ERROR_NO_MATCH : err;
+#else
     if ((err = query_device_property( hkey, dev, &prop ))) return err == ERROR_FILE_NOT_FOUND ? ERROR_NO_MATCH : err;
+#endif
     return wcsicmp( buffer, value ) ? ERROR_NO_MATCH : ERROR_SUCCESS;
 }
 
@@ -1059,6 +1042,36 @@ static LSTATUS devnode_get_device( DEVINST node, struct device *dev )
     return err;
 }
 
+#ifdef __REACTOS__
+DEVINST CfgmgrDevInstFromId( const WCHAR *id )
+{
+    struct device dev;
+    DEVINST node;
+
+    if (!id || init_device( &dev, id )) return 0;
+
+    EnterCriticalSection( &devnode_cs );
+    if (!(node = devnodes_lookup( &dev )) && devnodes_append( &dev, &node )) node = 0;
+    LeaveCriticalSection( &devnode_cs );
+
+    return node;
+}
+
+BOOL CfgmgrIdFromDevInst( DEVINST node, WCHAR *id, ULONG len )
+{
+    struct device dev;
+    UINT path_len;
+
+    if (devnode_get_device( node, &dev )) return FALSE;
+
+    path_len = swprintf( id, len, L"%s", dev.enumerator );
+    if (*dev.device) path_len += swprintf( id + path_len, len - path_len, L"\\%s", dev.device );
+    if (*dev.instance) swprintf( id + path_len, len - path_len, L"\\%s", dev.instance );
+
+    return TRUE;
+}
+
+#endif
 static CONFIGRET map_error( LSTATUS err )
 {
     switch (err)
@@ -1075,6 +1088,7 @@ static CONFIGRET map_error( LSTATUS err )
     }
 }
 
+#ifndef __REACTOS__
 static CONFIGRET map_error_node( LSTATUS err )
 {
     switch (err)
@@ -1085,6 +1099,7 @@ static CONFIGRET map_error_node( LSTATUS err )
     default: return map_error( err );
     }
 }
+#endif
 
 /***********************************************************************
  *           CM_MapCrToWin32Err (cfgmgr32.@)
@@ -1122,6 +1137,7 @@ DWORD WINAPI CM_MapCrToWin32Err( CONFIGRET code, DWORD default_error )
     return default_error;
 }
 
+#ifndef __REACTOS__
 /***********************************************************************
  *      CM_Connect_MachineW  (cfgmgr32.@)
  */
@@ -1148,6 +1164,7 @@ CONFIGRET WINAPI CM_Disconnect_Machine( HMACHINE machine )
     FIXME( "machine %p stub!\n", machine );
     return CR_SUCCESS;
 }
+#endif
 
 /***********************************************************************
  *           CM_Enumerate_Classes_Ex (cfgmgr32.@)
@@ -1376,6 +1393,7 @@ CONFIGRET WINAPI CM_Get_Class_Registry_PropertyA( GUID *class, ULONG property, U
     return map_error( get_class_property( class, &prop ) );
 }
 
+#ifndef __REACTOS__
 /***********************************************************************
  *      CM_Set_Class_Registry_PropertyW (cfgmgr32.@)
  */
@@ -1397,6 +1415,7 @@ CONFIGRET WINAPI CM_Set_Class_Registry_PropertyA( GUID *class, ULONG property, c
            debugstr_guid( class ), property, buffer, len, flags, machine );
     return CR_FAILURE;
 }
+#endif
 
 /***********************************************************************
  *           CM_Get_Class_Property_ExW (cfgmgr32.@)
@@ -1672,6 +1691,7 @@ CONFIGRET WINAPI CM_Get_Device_Interface_Property_KeysW( const WCHAR *iface, DEV
     return CM_Get_Device_Interface_Property_Keys_ExW( iface, keys, count, flags, NULL );
 }
 
+#ifndef __REACTOS__
 /***********************************************************************
  *      CM_Get_Device_Interface_AliasW (cfgmgr32.@)
  */
@@ -1689,6 +1709,7 @@ CONFIGRET WINAPI CM_Get_Device_Interface_AliasA( const char *iface, GUID *class,
     FIXME( "iface %s, class %p, name %p, len %p, flags %#lx stub!\n", debugstr_a(iface), class, name, len, flags );
     return CR_FAILURE;
 }
+#endif
 
 /***********************************************************************
  *           CM_Get_Device_ID_List_Size_ExW (cfgmgr32.@)
@@ -1832,6 +1853,7 @@ CONFIGRET WINAPI CM_Get_Device_ID_ListA( const char *filter, char *buffer, ULONG
     return CM_Get_Device_ID_List_ExA( filter, buffer, len, flags, NULL );
 }
 
+#ifndef __REACTOS__
 /***********************************************************************
  *           CM_Locate_DevNode_ExW (cfgmgr32.@)
  */
@@ -1929,6 +1951,7 @@ CONFIGRET WINAPI CM_Get_Parent_Ex( DEVINST *parent, DEVINST node, ULONG flags, H
 
     return CM_Locate_DevNodeW( parent, parent_id, 0 );
 }
+#endif
 
 /***********************************************************************
  *           CM_Get_Device_ID_Size_Ex (cfgmgr32.@)
@@ -2084,6 +2107,10 @@ CONFIGRET WINAPI CM_Get_DevNode_Registry_Property_ExW( DEVINST node, ULONG prope
     if (machine) FIXME( "machine %p not implemented!\n", machine );
     if (flags) FIXME( "flags %#lx not implemented!\n", flags );
 
+#ifdef __REACTOS__
+    if (CfgmgrIsKernelDevNodeProperty( property ))
+        return CfgmgrGetDevNodeRegistryPropertyW( node, property, type, buffer, len, flags, machine );
+#endif
     if (devnode_get_device( node, &dev )) return CR_INVALID_DEVNODE;
     if ((err = init_registry_property( &prop, &DEVPKEY_Device_DeviceDesc, property, type, buffer, len, FALSE ))) return map_error( err );
 
@@ -2103,6 +2130,10 @@ CONFIGRET WINAPI CM_Get_DevNode_Registry_Property_ExA( DEVINST node, ULONG prope
     if (machine) FIXME( "machine %p not implemented!\n", machine );
     if (flags) FIXME( "flags %#lx not implemented!\n", flags );
 
+#ifdef __REACTOS__
+    if (CfgmgrIsKernelDevNodeProperty( property ))
+        return CfgmgrGetDevNodeRegistryPropertyA( node, property, type, buffer, len, flags, machine );
+#endif
     if (devnode_get_device( node, &dev )) return CR_INVALID_DEVNODE;
     if ((err = init_registry_property( &prop, &DEVPKEY_Device_DeviceDesc, property, type, buffer, len, TRUE ))) return map_error( err );
 
@@ -2182,6 +2213,7 @@ CONFIGRET WINAPI CM_Get_DevNode_Property_Keys( DEVINST node, DEVPROPKEY *keys, U
     return CM_Get_DevNode_Property_Keys_Ex( node, keys, count, flags, NULL );
 }
 
+#ifndef __REACTOS__
 /***********************************************************************
  *             CM_Get_Child_Ex  (cfgmgr32.@)
  */
@@ -2286,6 +2318,7 @@ CONFIGRET WINAPI CM_Request_Device_EjectW( DEVINST node, PNP_VETO_TYPE *type, WC
     FIXME( "node %#lx, type %p, name %p, length %#lx, flags %#lx stub!\n", node, type, name, length, flags );
     return CR_SUCCESS;
 }
+#endif
 
 /***********************************************************************
  *      CMP_WaitNoPendingInstallEvents  (cfgmgr32.@)
@@ -2313,8 +2346,10 @@ WORD WINAPI CM_Get_Version( void )
     return 0x0400;
 }
 
+#ifndef __REACTOS__
 CONFIGRET WINAPI CM_Request_Eject_PC( void )
 {
     FIXME( "stub\n" );
     return CR_FAILURE;
 }
+#endif

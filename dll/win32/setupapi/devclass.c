@@ -133,6 +133,16 @@ SETUP_CreateDevicesList(
     GUID ClassGuid;
     DEVINST dnDevInst;
     CONFIGRET cr;
+    WCHAR ClassFilter[MAX_GUID_STRING_LEN];
+    PCWSTR Filter = Enumerator;
+    ULONG ulFilterFlags = Enumerator ? CM_GETIDLIST_FILTER_ENUMERATOR : CM_GETIDLIST_FILTER_NONE;
+
+    if (Class && !Enumerator &&
+        pSetupStringFromGuid((LPGUID)Class, ClassFilter, ARRAYSIZE(ClassFilter)) == ERROR_SUCCESS)
+    {
+        Filter = ClassFilter;
+        ulFilterFlags = CM_GETIDLIST_FILTER_CLASS;
+    }
 
     Buffer = HeapAlloc(GetProcessHeap(), 0, BufferLength);
     if (!Buffer)
@@ -140,10 +150,10 @@ SETUP_CreateDevicesList(
 
     do
     {
-        cr = CM_Get_Device_ID_List_ExW(Enumerator,
+        cr = CM_Get_Device_ID_List_ExW(Filter,
                                        Buffer,
                                        BufferLength / sizeof(WCHAR),
-                                       Enumerator ? CM_GETIDLIST_FILTER_ENUMERATOR : CM_GETIDLIST_FILTER_NONE,
+                                       ulFilterFlags,
                                        list->hMachine);
         if (cr == CR_BUFFER_SMALL)
         {

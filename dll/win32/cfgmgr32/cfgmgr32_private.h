@@ -72,6 +72,14 @@ struct property
 
 extern LSTATUS init_property( struct property *prop, const DEVPROPKEY *key, DEVPROPTYPE *type, void *buffer, DWORD *size, BOOL binary );
 
+#ifdef __REACTOS__
+extern DEVINST CfgmgrDevInstFromId( const WCHAR *id );
+extern BOOL CfgmgrIdFromDevInst( DEVINST node, WCHAR *id, ULONG len );
+extern BOOL CfgmgrIsKernelDevNodeProperty( ULONG property );
+extern CONFIGRET CfgmgrGetDevNodeRegistryPropertyW( DEVINST node, ULONG property, ULONG *type, void *buffer, ULONG *len, ULONG flags, HMACHINE machine );
+extern CONFIGRET CfgmgrGetDevNodeRegistryPropertyA( DEVINST node, ULONG property, ULONG *type, void *buffer, ULONG *len, ULONG flags, HMACHINE machine );
+
+#endif
 struct device_interface
 {
     GUID class_guid;

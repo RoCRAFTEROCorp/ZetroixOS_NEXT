@@ -1,34 +1,34 @@
-@ stub CMP_GetBlockedDriverInfo
-@ stub CMP_GetServerSideDeviceInstallFlags
-@ stub CMP_Init_Detection
+@ stdcall CMP_GetBlockedDriverInfo(wstr ptr long ptr)
+@ stdcall CMP_GetServerSideDeviceInstallFlags(ptr long ptr)
+@ stdcall CMP_Init_Detection(long)
 @ stub CMP_RegisterServiceNotification
 @ stub CMP_Register_Notification
-@ stub CMP_Report_LogOn
+@ stdcall CMP_Report_LogOn(long long)
 @ stdcall CMP_WaitNoPendingInstallEvents(long)
-@ stub CMP_WaitServicesAvailable
+@ stdcall CMP_WaitServicesAvailable(ptr)
 @ stub CM_Add_Driver_PackageW
 @ stub CM_Add_Driver_Package_ExW
-@ stub CM_Add_Empty_Log_Conf
-@ stub CM_Add_Empty_Log_Conf_Ex
-@ stub CM_Add_IDA
-@ stub CM_Add_IDW
-@ stub CM_Add_ID_ExA
-@ stub CM_Add_ID_ExW
-@ stub CM_Add_Range
-@ stub CM_Add_Res_Des
-@ stub CM_Add_Res_Des_Ex
+@ stdcall CM_Add_Empty_Log_Conf(ptr ptr long long)
+@ stdcall CM_Add_Empty_Log_Conf_Ex(ptr ptr long long ptr)
+@ stdcall CM_Add_IDA(ptr str long)
+@ stdcall CM_Add_IDW(ptr wstr long)
+@ stdcall CM_Add_ID_ExA(ptr str long ptr)
+@ stdcall CM_Add_ID_ExW(ptr wstr long ptr)
+@ stdcall CM_Add_Range(int64 int64 ptr long)
+@ stdcall CM_Add_Res_Des(ptr ptr long ptr long long)
+@ stdcall CM_Add_Res_Des_Ex(ptr ptr long ptr long long ptr)
 @ stub CM_Apply_PowerScheme
 @ stdcall CM_Connect_MachineA(str ptr)
 @ stdcall CM_Connect_MachineW(wstr ptr)
 @ stdcall CM_Create_DevNodeA(ptr str long long)
 @ stdcall CM_Create_DevNodeW(ptr wstr long long)
-@ stub CM_Create_DevNode_ExA
-@ stub CM_Create_DevNode_ExW
-@ stub CM_Create_Range_List
-@ stub CM_Delete_Class_Key
-@ stub CM_Delete_Class_Key_Ex
-@ stub CM_Delete_DevNode_Key
-@ stub CM_Delete_DevNode_Key_Ex
+@ stdcall CM_Create_DevNode_ExA(ptr str long long ptr)
+@ stdcall CM_Create_DevNode_ExW(ptr wstr long long ptr)
+@ stdcall CM_Create_Range_List(ptr long)
+@ stdcall CM_Delete_Class_Key(ptr long)
+@ stdcall CM_Delete_Class_Key_Ex(ptr long ptr)
+@ stdcall CM_Delete_DevNode_Key(long long long)
+@ stdcall CM_Delete_DevNode_Key_Ex(long long long ptr)
 @ stub CM_Delete_Device_Interface_KeyA
 @ stub CM_Delete_Device_Interface_KeyW
 @ stub CM_Delete_Device_Interface_Key_ExA
@@ -36,54 +36,54 @@
 @ stub CM_Delete_Driver_PackageW
 @ stub CM_Delete_Driver_Package_ExW
 @ stub CM_Delete_PowerScheme
-@ stub CM_Delete_Range
-@ stub CM_Detect_Resource_Conflict
-@ stub CM_Detect_Resource_Conflict_Ex
-@ stub CM_Disable_DevNode
-@ stub CM_Disable_DevNode_Ex
-@ stdcall CM_Disconnect_Machine(long)
-@ stub CM_Dup_Range_List
+@ stdcall CM_Delete_Range(int64 int64 ptr long)
+@ stdcall CM_Detect_Resource_Conflict(long long ptr long ptr long)
+@ stdcall CM_Detect_Resource_Conflict_Ex(long long ptr long ptr long ptr)
+@ stdcall CM_Disable_DevNode(long long)
+@ stdcall CM_Disable_DevNode_Ex(long long ptr)
+@ stdcall CM_Disconnect_Machine(ptr)
+@ stdcall CM_Dup_Range_List(ptr ptr long)
 @ stub CM_Duplicate_PowerScheme
-@ stub CM_Enable_DevNode
-@ stub CM_Enable_DevNode_Ex
+@ stdcall CM_Enable_DevNode(long long)
+@ stdcall CM_Enable_DevNode_Ex(long long ptr)
 @ stdcall CM_Enumerate_Classes(long ptr long)
 @ stdcall CM_Enumerate_Classes_Ex(long ptr long ptr)
 @ stdcall CM_Enumerate_EnumeratorsA(long ptr ptr long)
 @ stdcall CM_Enumerate_EnumeratorsW(long ptr ptr long)
 @ stdcall CM_Enumerate_Enumerators_ExA(long ptr ptr long ptr)
 @ stdcall CM_Enumerate_Enumerators_ExW(long ptr ptr long ptr)
-@ stub CM_Find_Range
-@ stub CM_First_Range
-@ stub CM_Free_Log_Conf
-@ stub CM_Free_Log_Conf_Ex
-@ stub CM_Free_Log_Conf_Handle
-@ stub CM_Free_Range_List
-@ stub CM_Free_Res_Des
-@ stub CM_Free_Res_Des_Ex
-@ stub CM_Free_Res_Des_Handle
-@ stub CM_Free_Resource_Conflict_Handle
+@ stdcall CM_Find_Range(ptr int64 long int64 int64 ptr long)
+@ stdcall CM_First_Range(ptr ptr ptr ptr long)
+@ stdcall CM_Free_Log_Conf(ptr long)
+@ stdcall CM_Free_Log_Conf_Ex(ptr long ptr)
+@ stdcall CM_Free_Log_Conf_Handle(ptr)
+@ stdcall CM_Free_Range_List(ptr long)
+@ stdcall CM_Free_Res_Des(ptr ptr long)
+@ stdcall CM_Free_Res_Des_Ex(ptr ptr long ptr)
+@ stdcall CM_Free_Res_Des_Handle(ptr)
+@ stdcall CM_Free_Resource_Conflict_Handle(ptr)
 @ stdcall CM_Get_Child(ptr long long)
 @ stdcall CM_Get_Child_Ex(ptr long long ptr)
 @ stdcall CM_Get_Class_Key_NameA(ptr ptr ptr long)
 @ stdcall CM_Get_Class_Key_NameW(ptr ptr ptr long)
 @ stdcall CM_Get_Class_Key_Name_ExA(ptr ptr ptr long ptr)
 @ stdcall CM_Get_Class_Key_Name_ExW(ptr ptr ptr long ptr)
-@ stub CM_Get_Class_NameA
-@ stub CM_Get_Class_NameW
-@ stub CM_Get_Class_Name_ExA
-@ stub CM_Get_Class_Name_ExW
+@ stdcall CM_Get_Class_NameA(ptr str ptr long)
+@ stdcall CM_Get_Class_NameW(ptr wstr ptr long)
+@ stdcall CM_Get_Class_Name_ExA(ptr str ptr long ptr)
+@ stdcall CM_Get_Class_Name_ExW(ptr wstr ptr long ptr)
 @ stdcall CM_Get_Class_PropertyW(ptr ptr ptr ptr long long)
 @ stdcall CM_Get_Class_Property_ExW(ptr ptr ptr ptr long long ptr)
 @ stdcall CM_Get_Class_Property_Keys(ptr ptr ptr long)
 @ stdcall CM_Get_Class_Property_Keys_Ex(ptr ptr ptr long ptr)
 @ stdcall CM_Get_Class_Registry_PropertyA(ptr long ptr ptr long long ptr)
 @ stdcall CM_Get_Class_Registry_PropertyW(ptr long ptr ptr long long ptr)
-@ stub CM_Get_Depth
-@ stub CM_Get_Depth_Ex
-@ stub CM_Get_DevNode_Custom_PropertyA
-@ stub CM_Get_DevNode_Custom_PropertyW
-@ stub CM_Get_DevNode_Custom_Property_ExA
-@ stub CM_Get_DevNode_Custom_Property_ExW
+@ stdcall CM_Get_Depth(ptr long long)
+@ stdcall CM_Get_Depth_Ex(ptr long long ptr)
+@ stdcall CM_Get_DevNode_Custom_PropertyA(long str ptr ptr ptr long)
+@ stdcall CM_Get_DevNode_Custom_PropertyW(long wstr ptr ptr ptr long)
+@ stdcall CM_Get_DevNode_Custom_Property_ExA(long str ptr ptr ptr long ptr)
+@ stdcall CM_Get_DevNode_Custom_Property_ExW(long wstr ptr ptr ptr long ptr)
 @ stdcall CM_Get_DevNode_PropertyW(long ptr ptr ptr ptr long)
 @ stdcall CM_Get_DevNode_Property_ExW(long ptr ptr ptr ptr long ptr)
 @ stdcall CM_Get_DevNode_Property_Keys(long ptr ptr long)
@@ -108,10 +108,10 @@
 @ stdcall CM_Get_Device_ID_List_Size_ExW(ptr wstr long ptr)
 @ stdcall CM_Get_Device_ID_Size(ptr ptr long)
 @ stdcall CM_Get_Device_ID_Size_Ex(ptr ptr long ptr)
-@ stdcall CM_Get_Device_Interface_AliasA(str ptr ptr ptr long)
-@ stdcall CM_Get_Device_Interface_AliasW(wstr ptr ptr ptr long)
-@ stub CM_Get_Device_Interface_Alias_ExA
-@ stub CM_Get_Device_Interface_Alias_ExW
+@ stdcall CM_Get_Device_Interface_AliasA(str ptr str ptr long)
+@ stdcall CM_Get_Device_Interface_AliasW(wstr ptr wstr ptr long)
+@ stdcall CM_Get_Device_Interface_Alias_ExA(str ptr str ptr long ptr)
+@ stdcall CM_Get_Device_Interface_Alias_ExW(wstr ptr wstr ptr long ptr)
 @ stdcall CM_Get_Device_Interface_ListA(ptr ptr ptr long long)
 @ stdcall CM_Get_Device_Interface_ListW(ptr ptr ptr long long)
 @ stdcall CM_Get_Device_Interface_List_ExA(ptr ptr ptr long long ptr)
@@ -124,58 +124,58 @@
 @ stdcall CM_Get_Device_Interface_Property_ExW(wstr ptr ptr ptr ptr long ptr)
 @ stdcall CM_Get_Device_Interface_Property_KeysW(wstr ptr ptr long)
 @ stdcall CM_Get_Device_Interface_Property_Keys_ExW(wstr ptr ptr long ptr)
-@ stub CM_Get_First_Log_Conf
-@ stub CM_Get_First_Log_Conf_Ex
-@ stub CM_Get_Global_State
-@ stub CM_Get_Global_State_Ex
-@ stub CM_Get_HW_Prof_FlagsA
-@ stub CM_Get_HW_Prof_FlagsW
-@ stub CM_Get_HW_Prof_Flags_ExA
-@ stub CM_Get_HW_Prof_Flags_ExW
-@ stub CM_Get_Hardware_Profile_InfoA
-@ stub CM_Get_Hardware_Profile_InfoW
-@ stub CM_Get_Hardware_Profile_Info_ExA
-@ stub CM_Get_Hardware_Profile_Info_ExW
-@ stub CM_Get_Log_Conf_Priority
-@ stub CM_Get_Log_Conf_Priority_Ex
-@ stub CM_Get_Next_Log_Conf
-@ stub CM_Get_Next_Log_Conf_Ex
-@ stub CM_Get_Next_Res_Des
-@ stub CM_Get_Next_Res_Des_Ex
+@ stdcall CM_Get_First_Log_Conf(ptr long long)
+@ stdcall CM_Get_First_Log_Conf_Ex(ptr long long long)
+@ stdcall CM_Get_Global_State(ptr long)
+@ stdcall CM_Get_Global_State_Ex(ptr long long)
+@ stdcall CM_Get_HW_Prof_FlagsA(str long ptr long)
+@ stdcall CM_Get_HW_Prof_FlagsW(wstr long ptr long)
+@ stdcall CM_Get_HW_Prof_Flags_ExA(str long ptr long ptr)
+@ stdcall CM_Get_HW_Prof_Flags_ExW(wstr long ptr long ptr)
+@ stdcall CM_Get_Hardware_Profile_InfoA(long ptr long)
+@ stdcall CM_Get_Hardware_Profile_InfoW(long ptr long)
+@ stdcall CM_Get_Hardware_Profile_Info_ExA(long ptr long ptr)
+@ stdcall CM_Get_Hardware_Profile_Info_ExW(long ptr long ptr)
+@ stdcall CM_Get_Log_Conf_Priority(ptr ptr long)
+@ stdcall CM_Get_Log_Conf_Priority_Ex(ptr ptr long ptr)
+@ stdcall CM_Get_Next_Log_Conf(ptr ptr long)
+@ stdcall CM_Get_Next_Log_Conf_Ex(ptr ptr long ptr)
+@ stdcall CM_Get_Next_Res_Des(ptr ptr long ptr long)
+@ stdcall CM_Get_Next_Res_Des_Ex(ptr ptr long ptr long ptr)
 @ stdcall CM_Get_Parent(ptr long long)
 @ stdcall CM_Get_Parent_Ex(ptr long long ptr)
-@ stub CM_Get_Res_Des_Data
-@ stub CM_Get_Res_Des_Data_Ex
-@ stub CM_Get_Res_Des_Data_Size
-@ stub CM_Get_Res_Des_Data_Size_Ex
-@ stub CM_Get_Resource_Conflict_Count
-@ stub CM_Get_Resource_Conflict_DetailsA
-@ stub CM_Get_Resource_Conflict_DetailsW
+@ stdcall CM_Get_Res_Des_Data(ptr ptr long long)
+@ stdcall CM_Get_Res_Des_Data_Ex(ptr ptr long long ptr)
+@ stdcall CM_Get_Res_Des_Data_Size(ptr ptr long)
+@ stdcall CM_Get_Res_Des_Data_Size_Ex(ptr ptr long ptr)
+@ stdcall CM_Get_Resource_Conflict_Count(ptr ptr)
+@ stdcall CM_Get_Resource_Conflict_DetailsA(ptr long ptr)
+@ stdcall CM_Get_Resource_Conflict_DetailsW(ptr long ptr)
 @ stdcall CM_Get_Sibling(ptr long long)
 @ stdcall CM_Get_Sibling_Ex(ptr long long ptr)
 @ stdcall CM_Get_Version()
-@ stub CM_Get_Version_Ex
+@ stdcall CM_Get_Version_Ex(ptr)
 @ stub CM_Import_PowerScheme
 @ stub CM_Install_DevNodeW
 @ stub CM_Install_DevNode_ExW
-@ stub CM_Intersect_Range_List
-@ stub CM_Invert_Range_List
-@ stub CM_Is_Dock_Station_Present
-@ stub CM_Is_Dock_Station_Present_Ex
-@ stub CM_Is_Version_Available
-@ stub CM_Is_Version_Available_Ex
+@ stdcall CM_Intersect_Range_List(ptr ptr ptr long)
+@ stdcall CM_Invert_Range_List(ptr ptr int64 long)
+@ stdcall CM_Is_Dock_Station_Present(ptr)
+@ stdcall CM_Is_Dock_Station_Present_Ex(ptr ptr)
+@ stdcall CM_Is_Version_Available(long)
+@ stdcall CM_Is_Version_Available_Ex(long ptr)
 @ stdcall CM_Locate_DevNodeA(ptr str long)
 @ stdcall CM_Locate_DevNodeW(ptr wstr long)
-@ stdcall CM_Locate_DevNode_ExA(ptr str long long)
-@ stdcall CM_Locate_DevNode_ExW(ptr wstr long long)
+@ stdcall CM_Locate_DevNode_ExA(ptr str long ptr)
+@ stdcall CM_Locate_DevNode_ExW(ptr wstr long ptr)
 @ stub CM_MapCrToSpErr
 @ stdcall CM_MapCrToWin32Err(long long)
-@ stub CM_Merge_Range_List
-@ stub CM_Modify_Res_Des
-@ stub CM_Modify_Res_Des_Ex
-@ stub CM_Move_DevNode
-@ stub CM_Move_DevNode_Ex
-@ stub CM_Next_Range
+@ stdcall CM_Merge_Range_List(ptr ptr ptr long)
+@ stdcall CM_Modify_Res_Des(ptr ptr long ptr long long)
+@ stdcall CM_Modify_Res_Des_Ex(ptr ptr long ptr long long ptr)
+@ stdcall CM_Move_DevNode(long long long)
+@ stdcall CM_Move_DevNode_Ex(long long long ptr)
+@ stdcall CM_Next_Range(ptr ptr ptr long)
 @ stdcall CM_Open_Class_KeyA(ptr str long long ptr long)
 @ stdcall CM_Open_Class_KeyW(ptr wstr long long ptr long)
 @ stdcall CM_Open_Class_Key_ExA(ptr str long long ptr long ptr)
@@ -186,68 +186,68 @@
 @ stdcall CM_Open_Device_Interface_KeyW(wstr long long ptr long)
 @ stdcall CM_Open_Device_Interface_Key_ExA(str long long ptr long ptr)
 @ stdcall CM_Open_Device_Interface_Key_ExW(wstr long long ptr long ptr)
-@ stub CM_Query_And_Remove_SubTreeA
-@ stub CM_Query_And_Remove_SubTreeW
-@ stub CM_Query_And_Remove_SubTree_ExA
-@ stub CM_Query_And_Remove_SubTree_ExW
-@ stub CM_Query_Arbitrator_Free_Data
-@ stub CM_Query_Arbitrator_Free_Data_Ex
-@ stub CM_Query_Arbitrator_Free_Size
-@ stub CM_Query_Arbitrator_Free_Size_Ex
-@ stub CM_Query_Remove_SubTree
-@ stub CM_Query_Remove_SubTree_Ex
-@ stub CM_Query_Resource_Conflict_List
-@ stdcall CM_Reenumerate_DevNode(ptr long)
-@ stdcall CM_Reenumerate_DevNode_Ex(ptr long ptr)
-@ stub CM_Register_Device_Driver
-@ stub CM_Register_Device_Driver_Ex
-@ stub CM_Register_Device_InterfaceA
-@ stub CM_Register_Device_InterfaceW
-@ stub CM_Register_Device_Interface_ExA
-@ stub CM_Register_Device_Interface_ExW
+@ stdcall CM_Query_And_Remove_SubTreeA(long ptr str long long)
+@ stdcall CM_Query_And_Remove_SubTreeW(long ptr wstr long long)
+@ stdcall CM_Query_And_Remove_SubTree_ExA(long ptr str long long ptr)
+@ stdcall CM_Query_And_Remove_SubTree_ExW(long ptr wstr long long ptr)
+@ stdcall CM_Query_Arbitrator_Free_Data(ptr long long long long)
+@ stdcall CM_Query_Arbitrator_Free_Data_Ex(ptr long long long long ptr)
+@ stdcall CM_Query_Arbitrator_Free_Size(ptr long long long)
+@ stdcall CM_Query_Arbitrator_Free_Size_Ex(ptr long long long ptr)
+@ stdcall CM_Query_Remove_SubTree(long long)
+@ stdcall CM_Query_Remove_SubTree_Ex(long long ptr)
+@ stdcall CM_Query_Resource_Conflict_List(ptr long long ptr long long ptr)
+@ stdcall CM_Reenumerate_DevNode(long long)
+@ stdcall CM_Reenumerate_DevNode_Ex(long long ptr)
+@ stdcall CM_Register_Device_Driver(long long)
+@ stdcall CM_Register_Device_Driver_Ex(long long ptr)
+@ stdcall CM_Register_Device_InterfaceA(long ptr str str ptr long)
+@ stdcall CM_Register_Device_InterfaceW(long ptr wstr wstr ptr long)
+@ stdcall CM_Register_Device_Interface_ExA(long ptr str str ptr long ptr)
+@ stdcall CM_Register_Device_Interface_ExW(long ptr wstr wstr ptr long ptr)
 @ stdcall CM_Register_Notification(ptr ptr ptr ptr)
-@ stub CM_Remove_SubTree
-@ stub CM_Remove_SubTree_Ex
-@ stdcall CM_Request_Device_EjectA(long ptr ptr long long)
-@ stdcall CM_Request_Device_EjectW(long ptr ptr long long)
-@ stub CM_Request_Device_Eject_ExA
-@ stub CM_Request_Device_Eject_ExW
+@ stdcall CM_Remove_SubTree(long long)
+@ stdcall CM_Remove_SubTree_Ex(long long ptr)
+@ stdcall CM_Request_Device_EjectA(long ptr str long long)
+@ stdcall CM_Request_Device_EjectW(long ptr wstr long long)
+@ stdcall CM_Request_Device_Eject_ExA(long ptr str long long ptr)
+@ stdcall CM_Request_Device_Eject_ExW(long ptr wstr long long ptr)
 @ stdcall CM_Request_Eject_PC()
-@ stub CM_Request_Eject_PC_Ex
+@ stdcall CM_Request_Eject_PC_Ex(ptr)
 @ stub CM_RestoreAll_DefaultPowerSchemes
 @ stub CM_Restore_DefaultPowerScheme
-@ stub CM_Run_Detection
-@ stub CM_Run_Detection_Ex
+@ stdcall CM_Run_Detection(long)
+@ stdcall CM_Run_Detection_Ex(long ptr)
 @ stub CM_Set_ActiveScheme
 @ stub CM_Set_Class_PropertyW
 @ stub CM_Set_Class_Property_ExW
 @ stdcall CM_Set_Class_Registry_PropertyA(ptr long ptr long long ptr)
 @ stdcall CM_Set_Class_Registry_PropertyW(ptr long ptr long long ptr)
-@ stub CM_Set_DevNode_Problem
-@ stub CM_Set_DevNode_Problem_Ex
+@ stdcall CM_Set_DevNode_Problem(long long long)
+@ stdcall CM_Set_DevNode_Problem_Ex(long long long ptr)
 @ stub CM_Set_DevNode_PropertyW
 @ stub CM_Set_DevNode_Property_ExW
-@ stub CM_Set_DevNode_Registry_PropertyA
-@ stub CM_Set_DevNode_Registry_PropertyW
-@ stub CM_Set_DevNode_Registry_Property_ExA
-@ stub CM_Set_DevNode_Registry_Property_ExW
+@ stdcall CM_Set_DevNode_Registry_PropertyA(long long ptr long long)
+@ stdcall CM_Set_DevNode_Registry_PropertyW(long long ptr long long)
+@ stdcall CM_Set_DevNode_Registry_Property_ExA(long long ptr long long ptr)
+@ stdcall CM_Set_DevNode_Registry_Property_ExW(long long ptr long long ptr)
 @ stub CM_Set_Device_Interface_PropertyW
 @ stub CM_Set_Device_Interface_Property_ExW
-@ stub CM_Set_HW_Prof
-@ stub CM_Set_HW_Prof_Ex
-@ stub CM_Set_HW_Prof_FlagsA
-@ stub CM_Set_HW_Prof_FlagsW
-@ stub CM_Set_HW_Prof_Flags_ExA
-@ stub CM_Set_HW_Prof_Flags_ExW
-@ stub CM_Setup_DevNode
-@ stub CM_Setup_DevNode_Ex
-@ stub CM_Test_Range_Available
-@ stub CM_Uninstall_DevNode
-@ stub CM_Uninstall_DevNode_Ex
-@ stub CM_Unregister_Device_InterfaceA
-@ stub CM_Unregister_Device_InterfaceW
-@ stub CM_Unregister_Device_Interface_ExA
-@ stub CM_Unregister_Device_Interface_ExW
+@ stdcall CM_Set_HW_Prof(long long)
+@ stdcall CM_Set_HW_Prof_Ex(long long ptr)
+@ stdcall CM_Set_HW_Prof_FlagsA(str long long long)
+@ stdcall CM_Set_HW_Prof_FlagsW(wstr long long long)
+@ stdcall CM_Set_HW_Prof_Flags_ExA(str long long long ptr)
+@ stdcall CM_Set_HW_Prof_Flags_ExW(wstr long long long ptr)
+@ stdcall CM_Setup_DevNode(long long)
+@ stdcall CM_Setup_DevNode_Ex(long long ptr)
+@ stdcall CM_Test_Range_Available(int64 int64 ptr long)
+@ stdcall CM_Uninstall_DevNode(long long)
+@ stdcall CM_Uninstall_DevNode_Ex(long long ptr)
+@ stdcall CM_Unregister_Device_InterfaceA(str long)
+@ stdcall CM_Unregister_Device_InterfaceW(wstr long)
+@ stdcall CM_Unregister_Device_Interface_ExA(str long ptr)
+@ stdcall CM_Unregister_Device_Interface_ExW(wstr long ptr)
 @ stdcall CM_Unregister_Notification(ptr)
 @ stub CM_Write_UserPowerKey
 @ stdcall DevCloseObjectQuery(ptr)
@@ -276,8 +276,8 @@
 @ stub SwMemFree
 
 # ReactOS retains legacy Configuration Manager exports that Wine no longer exposes.
-@ stdcall CMP_RegisterNotification(ptr ptr long ptr) setupapi.CMP_RegisterNotification
-@ stdcall CMP_UnregisterNotification(ptr) setupapi.CMP_UnregisterNotification
+@ stdcall CMP_RegisterNotification(ptr ptr long ptr)
+@ stdcall CMP_UnregisterNotification(ptr)
 @ stub CM_Remove_Unmarked_Children
 @ stub CM_Remove_Unmarked_Children_Ex
 @ stub CM_Reset_Children_Marks
