@@ -1625,6 +1625,11 @@ static void dump_DispParms(const DISPPARAMS * pdp)
 {
     unsigned int index;
 
+#ifdef __REACTOS__
+    if (!TRACE_ON(ole))
+        return;
+
+#endif
     TRACE("args=%u named args=%u\n", pdp->cArgs, pdp->cNamedArgs);
 
     if (pdp->cNamedArgs && pdp->rgdispidNamedArgs)
