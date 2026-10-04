@@ -568,7 +568,7 @@ MiRelocateImageControlArea(
 
     Slots = (Highest - Control->ImageSize) / MI_ALLOCATION_GRANULARITY;
     Seed = KeQueryPerformanceCounter(NULL).LowPart ^ (ULONG)KeQueryInterruptTime() ^ (ULONG)(ULONG_PTR)Control;
-    Base = ((((ULONG64)RtlRandomEx(&Seed) << 32) | RtlRandomEx(&Seed)) % Slots + 1) * MI_ALLOCATION_GRANULARITY;
+    Base = ((ULONG64)RtlRandomEx(&Seed) % Slots + 1) * MI_ALLOCATION_GRANULARITY;
     if (Base == OldBase)
         Base = (Base / MI_ALLOCATION_GRANULARITY % Slots + 1) * MI_ALLOCATION_GRANULARITY;
     Delta = Base - OldBase;
