@@ -1262,7 +1262,16 @@ PUBLIC KiServiceExit3
 PUBLIC KiSystemCallEntry32
 KiSystemCallEntry32:
     swapgs
-    int 3
+    mov gs:[PcUserRsp], rsp
+    mov rsp, gs:[PcRspBase]
+    push (KGDT64_R3_DATA OR RPL_MASK)
+    push qword ptr gs:[PcUserRsp]
+    push r11
+    push (KGDT64_R3_CMCODE OR RPL_MASK)
+    lea rcx, [rcx - 2]
+    push rcx
+    swapgs
+    jmp KiInvalidOpcodeFault
 
 
 PUBLIC KiZwSystemService
