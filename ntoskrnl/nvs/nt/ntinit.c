@@ -49,11 +49,15 @@ MiMemoryTypeIsInvisible(
 static
 PMEMORY_ALLOCATION_DESCRIPTOR
 MiScanMemoryDescriptors(
-    _In_ PLOADER_PARAMETER_BLOCK LoaderBlock)
+    _In_ PLOADER_PARAMETER_BLOCK LoaderBlock,
+    _Out_ PULONG64 LargestEnd)
 {
     PMEMORY_ALLOCATION_DESCRIPTOR Largest = NULL;
     ULONG64 Direct = MiArchDescribe()->DirectFrameCount;
+    ULONG64 LargestPages = 0;
     PLIST_ENTRY Entry;
+
+    *LargestEnd = 0;
 
     MmNumberOfPhysicalPages = 0;
     MmLowestPhysicalPage = (PFN_NUMBER)-1;
@@ -77,11 +81,18 @@ MiScanMemoryDescriptors(
         if (Descriptor->BasePage + Descriptor->PageCount - 1 > MmHighestPhysicalPage)
             MmHighestPhysicalPage = Descriptor->BasePage + Descriptor->PageCount - 1;
 
-        if (Descriptor->MemoryType == LoaderFree &&
-            (Direct == 0 || (ULONG64)Descriptor->BasePage + Descriptor->PageCount <= Direct) &&
-            (Largest == NULL || Descriptor->PageCount > Largest->PageCount))
+        if (Descriptor->MemoryType == LoaderFree && (Direct == 0 || Descriptor->BasePage < Direct))
         {
-            Largest = Descriptor;
+            ULONG64 End = (ULONG64)Descriptor->BasePage + Descriptor->PageCount;
+
+            if (Direct != 0 && End > Direct)
+                End = Direct;
+            if (End - Descriptor->BasePage > LargestPages)
+            {
+                LargestPages = End - Descriptor->BasePage;
+                Largest = Descriptor;
+                *LargestEnd = End;
+            }
         }
     }
 
@@ -264,6 +275,7 @@ MiInitializePhase0(
     _In_ PLOADER_PARAMETER_BLOCK LoaderBlock)
 {
     PMEMORY_ALLOCATION_DESCRIPTOR Largest;
+    ULONG64 LargestEnd;
     ULONG64 PhysicalBytes;
     ULONG64 NonPagedBytes, PagedBytes, SystemPteBytes, ExecutableBytes;
     ULONG64 SharedPhysical;
@@ -280,17 +292,17 @@ MiInitializePhase0(
     KeInitializeMutant(&MmSystemLoadLock, FALSE);
 
     DbgPrint("MM: phase 0 start\n");
-    Largest = MiScanMemoryDescriptors(LoaderBlock);
+    Largest = MiScanMemoryDescriptors(LoaderBlock, &LargestEnd);
     if (Largest == NULL || MmNumberOfPhysicalPages < MI_MINIMUM_PHYSICAL_PAGES)
         KeBugCheckEx(INSTALL_MORE_MEMORY, MmNumberOfPhysicalPages, MmLowestPhysicalPage, MmHighestPhysicalPage, 0);
 
     FrameCount = (ULONG)(MmHighestPhysicalPage + 1);
     PfnPages = (ULONG)BYTES_TO_PAGES((ULONG64)FrameCount * sizeof(MI_PFN));
 
-    if (Largest->PageCount < PfnPages + 1024)
-        KeBugCheckEx(INSTALL_MORE_MEMORY, MmNumberOfPhysicalPages, PfnPages, Largest->PageCount, 1);
+    if (LargestEnd - Largest->BasePage < PfnPages + 1024)
+        KeBugCheckEx(INSTALL_MORE_MEMORY, MmNumberOfPhysicalPages, PfnPages, (ULONG_PTR)(LargestEnd - Largest->BasePage), 1);
 
-    PfnFirst = (ULONG)(Largest->BasePage + Largest->PageCount - PfnPages);
+    PfnFirst = (ULONG)(LargestEnd - PfnPages);
     PfnArray = MiArchMapFrame(PfnFirst);
 
     Status = MiSystemInitialize(&MiSystem, PfnArray, FrameCount, MI_PFN_CPU_CACHES,
