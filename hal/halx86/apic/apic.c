@@ -812,7 +812,7 @@ HalEnableSystemInterrupt(
      * with the sentinel 0xFE. */
     if (Index == APIC_RESERVED_VECTOR)
     {
-        DPRINT1("HalEnableSystemInterrupt: Vector=%lu is reserved (MSI/MSI-X)\n",
+        DPRINT("HalEnableSystemInterrupt: Vector=%lu is reserved (MSI/MSI-X)\n",
                 Vector);
         return TRUE;
     }
@@ -867,7 +867,7 @@ HalEnableSystemInterrupt(
     /* Write back the entry */
     ApicWriteIORedirectionEntry(Index, ReDirReg);
 
-    DPRINT1("HalEnableSystemInterrupt: RTE[%u] vector 0x%lx -> phys APIC 0x%x (%s)\n", Index, Vector, ReDirReg.Destination, ReDirReg.TriggerMode ? "level" : "edge");
+    DPRINT("HalEnableSystemInterrupt: RTE[%u] vector 0x%lx -> phys APIC 0x%x (%s)\n", Index, Vector, ReDirReg.Destination, ReDirReg.TriggerMode ? "level" : "edge");
 
     return TRUE;
 }

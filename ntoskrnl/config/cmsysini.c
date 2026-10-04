@@ -1246,7 +1246,7 @@ CmpGetRegistryPath(VOID)
         ConfigPath = L"\\SystemRoot\\";
     }
 
-    DPRINT1("CmpGetRegistryPath: ConfigPath = '%S'\n", ConfigPath);
+    DPRINT("CmpGetRegistryPath: ConfigPath = '%S'\n", ConfigPath);
 
     return ConfigPath;
 }

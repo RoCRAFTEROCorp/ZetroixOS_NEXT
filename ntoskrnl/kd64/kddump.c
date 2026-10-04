@@ -619,7 +619,7 @@ BOOLEAN NTAPI KdpInitializeCrashDumpCore(_In_opt_ PLOADER_PARAMETER_BLOCK Loader
 
     KdpCrashDumpInitializationStage = "dump core ready; waiting for storage target";
     KdpCrashDumpInitializationStatus = STATUS_DEVICE_NOT_READY;
-    DPRINT1("KD: Crash dump core initialized before boot drivers (%s%s dump, %lu-byte crash log reserve)\n",
+    DPRINT("KD: Crash dump core initialized before boot drivers (%s%s dump, %lu-byte crash log reserve)\n",
             KdpCrashDumpState.DumpType == DUMP_TYPE_FULL ? "full" : "summary",
             KdpCrashDumpState.IncludeUserPages ? "+user" : "",
             KdpCrashDumpState.CrashLogBufferSize);

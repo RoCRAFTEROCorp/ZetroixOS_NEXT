@@ -400,7 +400,7 @@ IopTryUnloadDriver(IN PDRIVER_OBJECT DriverObject)
 
     if (!DriverObject->DriverUnload)
     {
-        DPRINT1("No DriverUnload function on PnP driver! '%wZ' will not be unloaded!\n", &DriverObject->DriverName);
+        DPRINT("No DriverUnload function on PnP driver! '%wZ' will not be unloaded!\n", &DriverObject->DriverName);
         return;
     }
 
@@ -414,7 +414,7 @@ IopTryUnloadDriver(IN PDRIVER_OBJECT DriverObject)
     if (OldFlags & DRVO_UNLOAD_INVOKED)
         return;
 
-    DPRINT1("Unloading driver '%wZ' (automatic)\n", &DriverObject->DriverName);
+    DPRINT("Unloading driver '%wZ' (automatic)\n", &DriverObject->DriverName);
     DriverObject->DriverUnload(DriverObject);
     ObMakeTemporaryObject(DriverObject);
 }

@@ -341,7 +341,7 @@ IopDeleteDriver(IN PVOID ObjectBody)
     PIO_CLIENT_EXTENSION DriverExtension, NextDriverExtension;
     PAGED_CODE();
 
-    DPRINT1("Deleting driver object '%wZ'\n", &DriverObject->DriverName);
+    DPRINT("Deleting driver object '%wZ'\n", &DriverObject->DriverName);
 
     /* There must be no device objects remaining at this point */
     ASSERT(!DriverObject->DeviceObject);

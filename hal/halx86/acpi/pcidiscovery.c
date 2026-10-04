@@ -273,7 +273,7 @@ HalppDumpInterruptRouting(
         Gsi = InterruptLine;
     }
 
-    DbgPrint("    Interrupt: line %lu -> GSI %lu from firmware"
+    DPRINT("    Interrupt: line %lu -> GSI %lu from firmware"
              " (seg 0 bus %lu dev 255 fn 255 pin IN?)\n",
              InterruptLine, Gsi, Bus);
 }
@@ -326,7 +326,7 @@ HalppDumpBars(
             Size64 = PciBar & ~(ULONG)0x3;
             Size64 = (~Size64 + 1) & 0xFFFF;
             HalppFormatSize(SizeStr, sizeof(SizeStr), Size64);
-            DbgPrint("    I/O ports at %04lx%s\n",
+            DPRINT("    I/O ports at %04lx%s\n",
                      Mem & PCI_ADDRESS_IO_ADDRESS_MASK, SizeStr);
         }
         else
@@ -361,7 +361,7 @@ HalppDumpBars(
                 Size64 = ~Size64 + 1;
 
                 HalppFormatSize(SizeStr, sizeof(SizeStr), Size64);
-                DbgPrint("    Memory at %llx (64-bit, %sprefetchable)%s\n",
+                DPRINT("    Memory at %llx (64-bit, %sprefetchable)%s\n",
                          Address64,
                          Prefetchable ? "" : "non-",
                          SizeStr);
@@ -376,7 +376,7 @@ HalppDumpBars(
                 Size32 = ~Size32 + 1;
 
                 HalppFormatSize(SizeStr, sizeof(SizeStr), (ULONGLONG)Size32);
-                DbgPrint("    Memory at %08lx (32-bit, %sprefetchable)%s\n",
+                DPRINT("    Memory at %08lx (32-bit, %sprefetchable)%s\n",
                          Mem & PCI_ADDRESS_MEMORY_ADDRESS_MASK,
                          Prefetchable ? "" : "non-",
                          SizeStr);
@@ -439,7 +439,7 @@ HalppDumpExpansionRom(
     {
         CHAR SizeStr[32];
         HalppFormatSize(SizeStr, sizeof(SizeStr), (ULONGLONG)RomSize);
-        DbgPrint("    Expansion ROM at %08lx [%s]%s\n",
+        DPRINT("    Expansion ROM at %08lx [%s]%s\n",
                  RomAddress,
                  Enabled ? "enabled" : "disabled",
                  SizeStr);
@@ -516,7 +516,7 @@ HalppDumpCapabilities(
             case 0x01: /* Power Management */
                 HalpReadPCIConfig(BusHandler, PciSlot, &PmCaps,
                                   CapPtr + 2, sizeof(USHORT));
-                DbgPrint("    Capabilities: [%02x] Power Management version %d\n",
+                DPRINT("    Capabilities: [%02x] Power Management version %d\n",
                          CapPtr, PmCaps & 0x7);
                 break;
 
@@ -525,7 +525,7 @@ HalppDumpCapabilities(
                                   CapPtr + 2, sizeof(USHORT));
                 Mmc = 1 << ((MsgCtrl >> 1) & 0x7);
                 Mme = 1 << ((MsgCtrl >> 4) & 0x7);
-                DbgPrint("    Capabilities: [%02x] MSI: Enable%c Count=%ld/%ld"
+                DPRINT("    Capabilities: [%02x] MSI: Enable%c Count=%ld/%ld"
                          " Maskable%c 64bit%c\n",
                          CapPtr,
                          (MsgCtrl & 0x0001) ? '+' : '-',
@@ -535,14 +535,14 @@ HalppDumpCapabilities(
                 break;
 
             case 0x09: /* Vendor Specific / Debug (VPD often shows as 09) */
-                DbgPrint("    Capabilities: [%02x] Capability ID 09\n", CapPtr);
+                DPRINT("    Capabilities: [%02x] Capability ID 09\n", CapPtr);
                 break;
 
             case 0x10: /* PCI Express */
                 HalpReadPCIConfig(BusHandler, PciSlot, &ExpCaps,
                                   CapPtr + 2, sizeof(USHORT));
                 PortType = (ExpCaps >> 4) & 0xF;
-                DbgPrint("    Capabilities: [%02x] Express %s, MSI %02x\n",
+                DPRINT("    Capabilities: [%02x] Express %s, MSI %02x\n",
                          CapPtr,
                          HalppGetExpressPortType(PortType),
                          ExpCaps & 0xFF);
@@ -551,7 +551,7 @@ HalppDumpCapabilities(
             case 0x11: /* MSI-X */
                 HalpReadPCIConfig(BusHandler, PciSlot, &MsgCtrl,
                                   CapPtr + 2, sizeof(USHORT));
-                DbgPrint("    Capabilities: [%02x] MSI-X: Enable%c Count=%d"
+                DPRINT("    Capabilities: [%02x] MSI-X: Enable%c Count=%d"
                          " Masked%c\n",
                          CapPtr,
                          (MsgCtrl & 0x8000) ? '+' : '-',
@@ -560,11 +560,11 @@ HalppDumpCapabilities(
                 break;
 
             case 0x12: /* Vendor Specific */
-                DbgPrint("    Capabilities: [%02x] Capability ID 12\n", CapPtr);
+                DPRINT("    Capabilities: [%02x] Capability ID 12\n", CapPtr);
                 break;
 
             default:
-                DbgPrint("    Capabilities: [%02x] Capability ID %02x\n",
+                DPRINT("    Capabilities: [%02x] Capability ID %02x\n",
                          CapPtr, CapId);
                 break;
         }
@@ -616,14 +616,14 @@ HalppDumpExtendedCapabilities(
         switch (CapId)
         {
             case 0x0001: /* Advanced Error Reporting */
-                DbgPrint("    Capabilities: [%03x] Advanced Error Reporting\n",
+                DPRINT("    Capabilities: [%03x] Advanced Error Reporting\n",
                          Offset);
                 break;
 
             case 0x0003: /* Device Serial Number */
                 SerialNumber = *(volatile ULONGLONG *)(DeviceBase + Offset + 4);
                 Sn = (PUCHAR)&SerialNumber;
-                DbgPrint("    Capabilities: [%03x] Device Serial Number"
+                DPRINT("    Capabilities: [%03x] Device Serial Number"
                          " %02x-%02x-%02x-%02x-%02x-%02x-%02x-%02x\n",
                          Offset,
                          Sn[7], Sn[6], Sn[5], Sn[4],
@@ -631,7 +631,7 @@ HalppDumpExtendedCapabilities(
                 break;
 
             default:
-                DbgPrint("    Capabilities: [%03x] Extended Capability ID %04x\n",
+                DPRINT("    Capabilities: [%03x] Extended Capability ID %04x\n",
                          Offset, CapId);
                 break;
         }
@@ -671,7 +671,7 @@ HalppDumpDevice(
                              bProductName, sizeof(bProductName));
 
     /* Print device header line */
-    DbgPrint("%02x:%02x.%x %s [%02x%02x]: %s %s [%04x:%04x] (rev %02x)\n",
+    DPRINT("%02x:%02x.%x %s [%02x%02x]: %s %s [%04x:%04x] (rev %02x)\n",
              Bus, Device, Function,
              bSubClassName,
              PciData->BaseClass, PciData->SubClass,
@@ -686,7 +686,7 @@ HalppDumpDevice(
                              PciData->u.type0.SubVendorID,
                              PciData->u.type0.SubSystemID,
                              bSubVendorName, sizeof(bSubVendorName));
-        DbgPrint("    Subsystem: %s [%04x:%04x]\n",
+        DPRINT("    Subsystem: %s [%04x:%04x]\n",
                  bSubVendorName,
                  PciData->u.type0.SubVendorID,
                  PciData->u.type0.SubSystemID);
@@ -716,7 +716,7 @@ HalppDumpDevice(
         {
             p += sprintf(p, ", IRQ %d", PciData->u.type0.InterruptLine);
         }
-        DbgPrint("%s\n", FlagsLine);
+        DPRINT("%s\n", FlagsLine);
     }
 
     /* Print interrupt routing for devices with valid interrupt lines */
@@ -725,7 +725,7 @@ HalppDumpDevice(
     /* Print bridge info */
     if (HeaderType == PCI_BRIDGE_TYPE)
     {
-        DbgPrint("    Bridge: primary bus %d, secondary bus %d,"
+        DPRINT("    Bridge: primary bus %d, secondary bus %d,"
                  " subordinate bus %d, secondary latency %d\n",
                  PciData->u.type1.PrimaryBus,
                  PciData->u.type1.SecondaryBus,
@@ -777,7 +777,7 @@ HalpAcpiPcieInitializeExtendedConfig(VOID)
     /* Verify PCI configuration is ready */
     if (!HalpPCIConfigInitialized)
     {
-        DbgPrint("HAL: PCI config not initialized, skipping PCIe extended config.\n");
+        DPRINT("HAL: PCI config not initialized, skipping PCIe extended config.\n");
         return;
     }
 
@@ -812,14 +812,14 @@ HalpAcpiPcieInitializeExtendedConfig(VOID)
             EcamBase = (PUCHAR)HalpMapPhysicalMemory64(PhysAddr, EcamPages);
             if (!EcamBase)
             {
-                DbgPrint("HAL: Failed to map ECAM region at %llx\n",
+                DPRINT1("HAL: Failed to map ECAM region at %llx\n",
                          EcamPhysBase);
             }
         }
     }
 
     /* Print banner */
-    DbgPrint("\n====== PCIe EXTENDED CONFIG INIT (ACPI HAL, amd64) =======\n\n");
+    DPRINT("\n====== PCIe EXTENDED CONFIG INIT (ACPI HAL, amd64) =======\n\n");
 
     /* Enumerate all buses, devices, and functions */
     PciSlot.u.AsULONG = 0;
@@ -881,7 +881,7 @@ HalpAcpiPcieInitializeExtendedConfig(VOID)
 
     if (VendorWord == PCI_INVALID_VENDORID)
     {
-        DbgPrint("HAL: Legacy config probe failed for bus %lu"
+        DPRINT("HAL: Legacy config probe failed for bus %lu"
                 " (DWORD vendor=0x%08lx, WORD vendor=0x%04x)\n",
                 HalpMaxPciBus + 1,
                 VendorDword,
@@ -891,10 +891,10 @@ HalpAcpiPcieInitializeExtendedConfig(VOID)
     /* Print ECAM status if MCFG was found */
     if (McfgHeader)
     {
-        DbgPrint("HAL: PCI Express MMCONFIG (ECAM) active for configuration space.\n");
+        DPRINT("HAL: PCI Express MMCONFIG (ECAM) active for configuration space.\n");
         if (WildcardSegment)
         {
-            DbgPrint("HAL:   ECAM note: callers used wildcard segment selection.\n");
+            DPRINT("HAL:   ECAM note: callers used wildcard segment selection.\n");
         }
     }
 
@@ -905,7 +905,7 @@ HalpAcpiPcieInitializeExtendedConfig(VOID)
     }
 
     /* Print footer */
-    DbgPrint("\n====== END PCIe EXTENDED CONFIG INIT =======\n\n");
+    DPRINT("\n====== END PCIe EXTENDED CONFIG INIT =======\n\n");
 }
 
 #else /* !DBG */

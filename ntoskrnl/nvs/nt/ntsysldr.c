@@ -406,7 +406,7 @@ MiDereferenceImports(IN PLOAD_IMPORTS ImportList)
     for (i = 0; (i < ImportList->Count) && (ImportList->Entry[i]); i++)
     {
         LdrEntry = ImportList->Entry[i];
-        DPRINT1("%wZ <%wZ>\n", &LdrEntry->FullDllName, &LdrEntry->BaseDllName);
+        DPRINT("%wZ <%wZ>\n", &LdrEntry->FullDllName, &LdrEntry->BaseDllName);
 
         if (LdrEntry->LoadedImports == MM_SYSLDR_BOOT_LOADED) continue;
 

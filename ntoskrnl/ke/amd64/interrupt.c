@@ -95,7 +95,7 @@ KeConnectInterrupt(IN PKINTERRUPT Interrupt)
     PKINTERRUPT ConnectedInterrupt;
     KIRQL OldIrql;
 
-    DbgPrint("KeConnectInterrupt vec=0x%x irql=%u shareVector=%d mode=%d\n",
+    DPRINT("KeConnectInterrupt vec=0x%x irql=%u shareVector=%d mode=%d\n",
              Interrupt->Vector, Interrupt->Irql,
              Interrupt->ShareVector, Interrupt->Mode);
 
@@ -136,7 +136,7 @@ KeConnectInterrupt(IN PKINTERRUPT Interrupt)
         KeRegisterInterruptHandler(Interrupt->Vector,
                                    Interrupt->DispatchCode);
 
-        DbgPrint("KeConnectInterrupt: registered IDT[0x%x] -> %p\n",
+        DPRINT("KeConnectInterrupt: registered IDT[0x%x] -> %p\n",
                  Interrupt->Vector, Interrupt->DispatchCode);
 
         /* Enable the interrupt */
@@ -149,12 +149,12 @@ KeConnectInterrupt(IN PKINTERRUPT Interrupt)
             KeRegisterInterruptHandler(Interrupt->Vector, CurrentHandler);
             goto Cleanup;
         }
-        DbgPrint("KeConnectInterrupt: HalEnableSystemInterrupt OK for vec=0x%x\n",
+        DPRINT("KeConnectInterrupt: HalEnableSystemInterrupt OK for vec=0x%x\n",
                  Interrupt->Vector);
     }
     else
     {
-        DbgPrint("KeConnectInterrupt: vector 0x%x already has handler %p (chained)\n",
+        DPRINT("KeConnectInterrupt: vector 0x%x already has handler %p (chained)\n",
                  Interrupt->Vector, CurrentHandler);
 
         /* Get the connected interrupt */

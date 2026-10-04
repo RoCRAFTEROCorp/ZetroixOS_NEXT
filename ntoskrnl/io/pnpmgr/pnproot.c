@@ -566,7 +566,7 @@ CreateDeviceFromRegistry(
                                            NULL)))
     {
         /* Non-fatal error */
-        DPRINT1("Failed to read the LogConf key for %wZ\\%S\n", &Device->DeviceID, InstanceId);
+        DPRINT("Failed to read the LogConf key for %wZ\\%S\n", &Device->DeviceID, InstanceId);
     }
 
     /* Insert the newly created device into the list */
@@ -1284,7 +1284,7 @@ PdoQueryId(
 
         default:
         {
-            DPRINT1("IRP_MJ_PNP / IRP_MN_QUERY_ID / unknown query id type 0x%lx\n", IdType);
+            DPRINT("IRP_MJ_PNP / IRP_MN_QUERY_ID / unknown query id type 0x%lx\n", IdType);
         }
     }
 
@@ -1406,7 +1406,7 @@ PnpRootPdoPnpControl(
             break;
 
         default:
-            DPRINT1("IRP_MJ_PNP / Unknown minor function 0x%lx\n", IrpSp->MinorFunction);
+            DPRINT("IRP_MJ_PNP / Unknown minor function 0x%lx\n", IrpSp->MinorFunction);
             break;
     }
 

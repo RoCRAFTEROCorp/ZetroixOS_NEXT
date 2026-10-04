@@ -880,7 +880,7 @@ HalpDispatchPnpPdo(
     {
         case IRP_MN_START_DEVICE:
 
-            DPRINT1("Start device received\n");
+            DPRINT("Start device received\n");
             ExAcquireFastMutex(&PdoExtension->PnpStateLock);
             PdoExtension->PreviousPnpState = PdoExtension->PnpState;
             PdoExtension->PnpState = HalpPnpStateStarted;

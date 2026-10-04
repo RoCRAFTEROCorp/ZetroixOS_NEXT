@@ -1462,7 +1462,7 @@ HalpConfigurePciRootBridge(
     Bus = HalHandlerForBus(PCIBus, Info->Bus);
     if (!Bus || !Bus->BusData)
     {
-        DPRINT1("HAL: No PCI bus handler for ACPI root segment %lu bus %lu\n",
+        DPRINT("HAL: No PCI bus handler for ACPI root segment %lu bus %lu\n",
                 Info->Segment,
                 Info->Bus);
         return;

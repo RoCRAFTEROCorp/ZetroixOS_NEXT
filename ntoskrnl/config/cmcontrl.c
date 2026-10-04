@@ -264,6 +264,6 @@ NTSTATUS
 NTAPI
 CmpSaveBootControlSet(IN USHORT ControlSet)
 {
-    DPRINT1("CmpSaveBootControlSet(%lu)\n", ControlSet);
+    DPRINT("CmpSaveBootControlSet(%lu)\n", ControlSet);
     return STATUS_SUCCESS;
 }

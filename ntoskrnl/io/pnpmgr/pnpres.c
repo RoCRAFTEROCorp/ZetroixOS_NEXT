@@ -123,7 +123,7 @@ IopConsolidateInterruptDescriptors(
 #endif
                 if (!Drop && HasMessageInterrupt)
                 {
-                    DPRINT1("IopConsolidateInterruptDescriptors: dropping obsolete "
+                    DPRINT("IopConsolidateInterruptDescriptors: dropping obsolete "
                             "legacy interrupt vec=0x%x level=%lu "
                             "(MSI/MSI-X is active, INTx disconnected)\n",
                             Desc->u.Interrupt.Vector, Desc->u.Interrupt.Level);
@@ -559,7 +559,7 @@ IopFindInterruptResource(
         CmDesc->u.Interrupt.Affinity = RoutingInfo.TargetProcessors;
         if (MessageCountOut)
             *MessageCountOut = MessageCount;
-        DPRINT1("MSI: allocated vector 0x%lx count %lu at irql %u\n",
+        DPRINT("MSI: allocated vector 0x%lx count %lu at irql %u\n",
                 RoutingInfo.Vector, MessageCount, RoutingInfo.Irql);
         return TRUE;
     }
