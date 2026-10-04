@@ -192,7 +192,7 @@ KiRiscvRestoreTrapFrame:
     .irp n,0,1,3,4,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31
     sd x\n, PcPanicFrame + CxX + 8 * \n(sp)
     .endr
-    csrr t0, sscratch
+    ld t0, PcTrapStack(sp)
     sd t0, PcPanicFrame + CxX + 8 * 2(sp)
     ld t0, PcTrapScratch(sp)
     sd t0, PcPanicFrame + CxX + 8 * 5(sp)
