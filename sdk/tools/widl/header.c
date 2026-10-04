@@ -1506,6 +1506,7 @@ static void write_com_interface_end(FILE *header, type_t *iface)
   int dispinterface = is_attr(iface->attrs, ATTR_DISPINTERFACE);
   const struct uuid *uuid = get_attrp(iface->attrs, ATTR_UUID);
   expr_t *contract = get_attrp(iface->attrs, ATTR_CONTRACT);
+  int unknown = !type_iface_get_inherit(iface) && !iface->impl_name && !strcmp(iface->name, "IUnknown");
   type_t *type;
 
   if (uuid)
@@ -1517,6 +1518,8 @@ static void write_com_interface_end(FILE *header, type_t *iface)
       write_line(header, 0, "} /* extern \"C\" */");
       write_namespace_start(header, iface->namespace);
   }
+  if (unknown)
+      write_line(header, 0, "extern \"C++\" {");
   if (uuid) {
       if (strchr(iface->name, '<')) write_line(header, 0, "template<>");
       write_line(header, 0, "MIDL_INTERFACE(\"%s\")", uuid_string(uuid));
@@ -1547,9 +1550,21 @@ static void write_com_interface_end(FILE *header, type_t *iface)
    * them */
   if (!dispinterface && !iface->impl_name)
     write_cpp_method_def(header, iface);
+  if (unknown)
+  {
+    fprintf(header, "#if defined(_MSC_VER) || defined(__CRT_UUID_DECL)\n");
+    write_line(header, 0, "template<class Q>");
+    write_line(header, 0, "HRESULT STDMETHODCALLTYPE QueryInterface(Q **pp)");
+    write_line(header, 1, "{");
+    write_line(header, 0, "return QueryInterface(__uuidof(Q), (void **)pp);");
+    write_line(header, -1, "}");
+    fprintf(header, "#endif\n\n");
+  }
   if (!type_iface_get_inherit(iface) && !iface->impl_name)
     write_line(header, 0, "END_INTERFACE\n");
   write_line(header, -1, "};");
+  if (unknown)
+      write_line(header, 0, "}");
   if (!is_global_namespace(iface->namespace)) {
       write_namespace_end(header, iface->namespace);
       write_line(header, 0, "extern \"C\" {");

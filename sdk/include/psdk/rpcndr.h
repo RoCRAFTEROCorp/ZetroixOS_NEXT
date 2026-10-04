@@ -147,6 +147,37 @@ typedef void (__RPC_USER *NDR_NOTIFY2_ROUTINE)(boolean flag);
 
 #define MIDL_INTERFACE(x)   struct DECLSPEC_UUID(x) DECLSPEC_NOVTABLE
 
+#if defined(__cplusplus) && !defined(_MSC_VER) && !defined(__CRT_UUID_DECL)
+extern "C++" {
+template <typename T> struct __reactos_uuidof_s;
+template <typename T> struct __reactos_uuidof_s<T *> : __reactos_uuidof_s<T> {};
+template <typename T> struct __reactos_uuidof_s<const T> : __reactos_uuidof_s<T> {};
+}
+#if __cpp_constexpr >= 200704L && __cpp_inline_variables >= 201606L
+#define __CRT_UUID_DECL(type, l, w1, w2, b1, b2, b3, b4, b5, b6, b7, b8) \
+    extern "C++" { \
+    template <> struct __reactos_uuidof_s<type> \
+    { \
+        static constexpr GUID value = {l, w1, w2, {b1, b2, b3, b4, b5, b6, b7, b8}}; \
+        static constexpr const GUID &get() { return value; } \
+    }; \
+    }
+#else
+#define __CRT_UUID_DECL(type, l, w1, w2, b1, b2, b3, b4, b5, b6, b7, b8) \
+    extern "C++" { \
+    template <> struct __reactos_uuidof_s<type> \
+    { \
+        static const GUID &get() \
+        { \
+            static const GUID value = {l, w1, w2, {b1, b2, b3, b4, b5, b6, b7, b8}}; \
+            return value; \
+        } \
+    }; \
+    }
+#endif
+#define __uuidof(type) (__reactos_uuidof_s<__typeof(type)>::get())
+#endif
+
 struct _MIDL_STUB_MESSAGE;
 struct _MIDL_STUB_DESC;
 struct _FULL_PTR_XLAT_TABLES;
