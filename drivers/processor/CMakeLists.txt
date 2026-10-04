@@ -1,5 +1,4 @@
 
-add_subdirectory(processr)
 add_subdirectory(pnpcpu)
 
 if(ARCH STREQUAL "arm64")
