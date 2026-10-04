@@ -3794,7 +3794,7 @@ PNP_UninstallDevInst(
         Separator = wcschr(DriverKey, L'\\');
         if (Type != REG_SZ || !Separator || Separator == DriverKey ||
             !Separator[1] || wcschr(Separator + 1, L'\\'))
-            return CR_REGISTRY_ERROR;
+            DriverKey[0] = UNICODE_NULL;
     }
 
     /* Do not erase the registry while the driver can still use the device. */
