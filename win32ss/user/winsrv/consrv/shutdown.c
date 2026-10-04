@@ -25,7 +25,9 @@ NotifyConsoleProcessForShutdown(IN PCSR_PROCESS CsrProcess,
              CsrProcess, Flags, CsrProcess->ClientId.UniqueProcess, CsrProcess->ClientId.UniqueThread);
 
     /* Send a log-off event. In reality this should be way more complex */
-    ConSrvConsoleCtrlEventTimeout(CTRL_LOGOFF_EVENT, ProcessData,
+    ConSrvConsoleCtrlEventTimeout((CsrProcess->ShutdownFlags & (CsrShutdownSystem | CsrShutdownOther)) ?
+                                      CTRL_SHUTDOWN_EVENT : CTRL_LOGOFF_EVENT,
+                                  ProcessData,
                                   ShutdownSettings.WaitToKillAppTimeout);
 }
 
@@ -101,6 +103,12 @@ ConsoleClientShutdown(IN PCSR_PROCESS CsrProcess,
 
         /* On first pass, let the gui server terminate all the processes that it owns */
         if (FirstPhase) return CsrShutdownNonCsrProcess;
+
+        if (CsrProcess->ShutdownFlags & (CsrShutdownSystem | CsrShutdownOther))
+        {
+            CsrDereferenceProcess(CsrProcess);
+            return CsrShutdownCsrProcess;
+        }
 
         /* Use the generic handler since this isn't a gui process */
         return NonConsoleProcessShutdown(CsrProcess, Flags);

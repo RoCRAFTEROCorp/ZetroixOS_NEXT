@@ -774,6 +774,12 @@ UserClientShutdown(IN PCSR_PROCESS CsrProcess,
         return result;
     }
 
+    if (CsrProcess->ShutdownFlags & (SHUTDOWN_OTHERCONTEXT | SHUTDOWN_SYSTEMCONTEXT))
+    {
+        CsrDereferenceProcess(CsrProcess);
+        return CsrShutdownCsrProcess;
+    }
+
     /* Terminate this process */
 #if DBG
     {
