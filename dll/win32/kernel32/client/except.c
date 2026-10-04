@@ -13,6 +13,7 @@
 
 #include <k32.h>
 #include <strsafe.h>
+#include <errorrep.h>
 
 #define NDEBUG
 #include <debug.h>
@@ -106,6 +107,25 @@ _dump_context(PCONTEXT pc)
 #else
     #error "Unknown architecture"
 #endif
+}
+
+static VOID
+BasepReportFault(IN PEXCEPTION_POINTERS ExceptionInfo)
+{
+    pfn_REPORTFAULT ReportFault;
+    HMODULE FaultRep;
+
+    if (BaseRunningInServerProcess)
+        return;
+
+    FaultRep = LoadLibraryW(L"faultrep.dll");
+    if (FaultRep == NULL)
+        return;
+
+    ReportFault = (pfn_REPORTFAULT)GetProcAddress(FaultRep, "ReportFault");
+    if (ReportFault != NULL)
+        ReportFault(ExceptionInfo, 0);
+    FreeLibrary(FaultRep);
 }
 
 static VOID
@@ -418,6 +438,8 @@ UnhandledExceptionFilter(IN PEXCEPTION_POINTERS ExceptionInfo)
         if (RetValue != EXCEPTION_CONTINUE_SEARCH)
             return RetValue;
     }
+
+    BasepReportFault(ExceptionInfo);
 
     /*
      * Now pop up an error if needed. Check both the process-wide (Win32)
