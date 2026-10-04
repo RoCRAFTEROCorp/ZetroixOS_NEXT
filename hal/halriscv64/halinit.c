@@ -24,6 +24,8 @@ typedef enum _RISCV_HAL_INITIALIZATION_FAILURE
 volatile ULONG HalpRiscvInitializationPhase;
 volatile ULONG HalpRiscvInitializationFailure;
 ULONG64 HalpRiscvTimebaseFrequency;
+const VOID *HalpRiscvDeviceTree;
+SIZE_T HalpRiscvDeviceTreeSize;
 ULONG64 HalpRiscvBootCounter;
 ULONG HalpRiscvCurrentTimeIncrement = RISCV_HAL_MAXIMUM_INCREMENT;
 
@@ -124,7 +126,10 @@ HalInitSystem(
     }
     if (HalpRiscvPciDmaCoherent())
         KeSetDmaIoCoherency(1);
+    HalpRiscvDeviceTree = (const VOID *)(ULONG_PTR)RiscvBlock->DeviceTree;
+    HalpRiscvDeviceTreeSize = (SIZE_T)RiscvBlock->DeviceTreeSize;
     HalInitPnpDriver = HaliInitPnpDriver;
+    HalpRiscvInitializeDma(LoaderBlock);
     if (!HalpRiscvInitializeSbi() || !HalpRiscvDiscoverHarts(LoaderBlock))
     {
         HalpRiscvInitializationFailure = RiscvHalSbiUnavailable;
