@@ -448,6 +448,9 @@ FUNC KiStackFault
     /* We have an error code */
     EnterTrap (TF_HAS_ERROR_CODE OR TF_SAVE_ALL)
 
+    test word ptr [rbp + KTRAP_FRAME_SegCs], 3
+    jnz KiStackFaultUserMode
+
     /* Bugcheck */
     Fatal EXCEPTION_STACK_FAULT
 #ifdef _USE_ML
@@ -455,6 +458,11 @@ FUNC KiStackFault
 #else
 9:  jmp 9b
 #endif
+
+KiStackFaultUserMode:
+    sti
+    DispatchException STATUS_ACCESS_VIOLATION, 2, 0, -1, 0
+    ExitTrap TF_SAVE_ALL
 ENDFUNC
 
 
