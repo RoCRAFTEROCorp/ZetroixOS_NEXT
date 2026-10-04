@@ -349,6 +349,65 @@ HasDriveLetter(IN PDEVICE_INFORMATION DeviceInformation)
     return FALSE;
 }
 
+static
+NTSTATUS
+NTAPI
+CheckForReservedDriveLetter(IN PWSTR ValueName,
+                            IN ULONG ValueType,
+                            IN PVOID ValueData,
+                            IN ULONG ValueLength,
+                            IN PVOID Context,
+                            IN PVOID EntryContext)
+{
+    PBOOLEAN Reserved = EntryContext;
+    PMOUNTDEV_UNIQUE_ID UniqueId = Context;
+
+    UNREFERENCED_PARAMETER(ValueName);
+
+    if (ValueType != REG_BINARY)
+    {
+        return STATUS_SUCCESS;
+    }
+
+    if (!UniqueId || UniqueId->UniqueIdLength != ValueLength ||
+        RtlCompareMemory(UniqueId->UniqueId, ValueData, ValueLength) != ValueLength)
+    {
+        *Reserved = TRUE;
+    }
+
+    return STATUS_SUCCESS;
+}
+
+BOOLEAN
+IsDriveLetterReserved(IN PUNICODE_STRING DriveLetter,
+                      IN PMOUNTDEV_UNIQUE_ID UniqueId OPTIONAL)
+{
+    BOOLEAN Reserved = FALSE;
+    RTL_QUERY_REGISTRY_TABLE QueryTable[2];
+    WCHAR Name[DRIVE_LETTER_LENGTH / sizeof(WCHAR) + 1];
+
+    if (DriveLetter->Length != DRIVE_LETTER_LENGTH)
+    {
+        return FALSE;
+    }
+
+    RtlCopyMemory(Name, DriveLetter->Buffer, DRIVE_LETTER_LENGTH);
+    Name[DRIVE_LETTER_LENGTH / sizeof(WCHAR)] = UNICODE_NULL;
+
+    RtlZeroMemory(QueryTable, sizeof(QueryTable));
+    QueryTable[0].QueryRoutine = CheckForReservedDriveLetter;
+    QueryTable[0].Name = Name;
+    QueryTable[0].EntryContext = &Reserved;
+
+    RtlQueryRegistryValues(RTL_REGISTRY_ABSOLUTE,
+                           DatabasePath,
+                           QueryTable,
+                           UniqueId,
+                           NULL);
+
+    return Reserved;
+}
+
 /*
  * @implemented
  */
@@ -417,6 +476,11 @@ CreateNewDriveLetterName(OUT PUNICODE_STRING DriveLetter,
     for (; Letter <= 'Z'; Letter++)
     {
         DriveLetter->Buffer[DosDevices.Length / sizeof(WCHAR)] = (WCHAR)Letter;
+        if (IsDriveLetterReserved(DriveLetter, UniqueId))
+        {
+            continue;
+        }
+
         Status = GlobalCreateSymbolicLink(DriveLetter, DeviceName);
         if (NT_SUCCESS(Status))
         {
@@ -1402,7 +1466,7 @@ MountMgrMountedDeviceArrival(IN PDEVICE_EXTENSION DeviceExtension,
         /* Create a new drive letter */
         Status = CreateNewDriveLetterName(&DriveLetter, &TargetDeviceName,
                                           DeviceInformation->SuggestedDriveLetter,
-                                          NULL);
+                                          UniqueId);
         if (!NT_SUCCESS(Status))
         {
             CreateNoDriveLetterEntry(UniqueId);

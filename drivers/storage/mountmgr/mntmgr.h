@@ -438,6 +438,12 @@ HasNoDriveLetterEntry(
     IN PMOUNTDEV_UNIQUE_ID UniqueId
 );
 
+BOOLEAN
+IsDriveLetterReserved(
+    IN PUNICODE_STRING DriveLetter,
+    IN PMOUNTDEV_UNIQUE_ID UniqueId OPTIONAL
+);
+
 VOID
 UpdateReplicatedUniqueIds(
     IN PDEVICE_INFORMATION DeviceInformation,

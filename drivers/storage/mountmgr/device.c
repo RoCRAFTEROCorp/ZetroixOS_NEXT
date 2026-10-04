@@ -584,6 +584,10 @@ MountMgrNextDriveLetterWorker(IN PDEVICE_EXTENSION DeviceExtension,
          DriveLetterInfo->CurrentDriveLetter++)
     {
         NameBuffer[LETTER_POSITION] = DriveLetterInfo->CurrentDriveLetter;
+        if (IsDriveLetterReserved(&SymbolicName, DeviceInformation->UniqueId))
+        {
+            continue;
+        }
 
         Status = MountMgrCreatePointWorker(DeviceExtension, &SymbolicName, &TargetDeviceName);
         if (NT_SUCCESS(Status))
