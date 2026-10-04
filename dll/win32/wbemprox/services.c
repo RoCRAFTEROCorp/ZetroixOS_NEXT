@@ -1031,6 +1031,10 @@ struct wbem_context
     IWbemContext IWbemContext_iface;
     LONG refs;
     struct list values;
+#ifdef __REACTOS__
+    struct list *cursor;
+    BOOL enumerating;
+#endif
 };
 
 static void wbem_context_delete_values(struct wbem_context *context)
@@ -1137,6 +1141,63 @@ static HRESULT WINAPI wbem_context_GetNames(
     return E_NOTIMPL;
 }
 
+#ifdef __REACTOS__
+static HRESULT WINAPI wbem_context_BeginEnumeration(
+    IWbemContext *iface,
+    LONG flags )
+{
+    struct wbem_context *context = impl_from_IWbemContext( iface );
+
+    TRACE( "%p, %#lx\n", iface, flags );
+
+    if (flags) return WBEM_E_INVALID_PARAMETER;
+    context->cursor = list_head( &context->values );
+    context->enumerating = TRUE;
+    return S_OK;
+}
+
+static HRESULT WINAPI wbem_context_Next(
+    IWbemContext *iface,
+    LONG flags,
+    BSTR *name,
+    VARIANT *value )
+{
+    struct wbem_context *context = impl_from_IWbemContext( iface );
+    struct wbem_context_value *entry;
+    HRESULT hr;
+
+    TRACE( "%p, %#lx, %p, %p\n", iface, flags, name, value );
+
+    if (!context->enumerating) return WBEM_E_UNEXPECTED;
+    if (!context->cursor) return WBEM_S_NO_MORE_DATA;
+
+    entry = LIST_ENTRY( context->cursor, struct wbem_context_value, entry );
+    if (value)
+    {
+        VariantInit( value );
+        if (FAILED(hr = VariantCopy( value, &entry->value ))) return hr;
+    }
+    if (name && !(*name = SysAllocString( entry->name )))
+    {
+        if (value) VariantClear( value );
+        return E_OUTOFMEMORY;
+    }
+    context->cursor = list_next( &context->values, context->cursor );
+    return S_OK;
+}
+
+static HRESULT WINAPI wbem_context_EndEnumeration(
+    IWbemContext *iface )
+{
+    struct wbem_context *context = impl_from_IWbemContext( iface );
+
+    TRACE( "%p\n", iface );
+
+    context->enumerating = FALSE;
+    context->cursor = NULL;
+    return S_OK;
+}
+#else
 static HRESULT WINAPI wbem_context_BeginEnumeration(
     IWbemContext *iface,
     LONG flags )
@@ -1164,6 +1225,7 @@ static HRESULT WINAPI wbem_context_EndEnumeration(
 
     return E_NOTIMPL;
 }
+#endif
 
 static struct wbem_context_value *wbem_context_get_value( struct wbem_context *context, const WCHAR *name )
 {
@@ -1288,6 +1350,10 @@ HRESULT WbemContext_create( void **obj, REFIID riid )
     context->IWbemContext_iface.lpVtbl = &wbem_context_vtbl;
     context->refs = 1;
     list_init(&context->values);
+#ifdef __REACTOS__
+    context->cursor = NULL;
+    context->enumerating = FALSE;
+#endif
 
     *obj = &context->IWbemContext_iface;
 
