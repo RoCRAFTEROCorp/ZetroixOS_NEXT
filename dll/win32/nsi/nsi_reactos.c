@@ -938,6 +938,35 @@ static void complete_notification(struct nsi_notification *notification, NTSTATU
     SetEvent(notification->overlapped->hEvent ? notification->overlapped->hEvent : notification_complete);
 }
 
+struct nsi_table_state
+{
+    NPI_MODULEID module;
+    UINT table;
+    DWORD error;
+    ULONG hash;
+};
+
+static DWORD cached_table_hash(struct nsi_table_state *states, ULONG *count, ULONG capacity,
+                               const NPI_MODULEID *module, UINT table, ULONG *hash)
+{
+    ULONG index;
+
+    for (index = 0; index < *count; index++)
+    {
+        if (states[index].table == table && !memcmp(&states[index].module, module, sizeof(*module)))
+        {
+            *hash = states[index].hash;
+            return states[index].error;
+        }
+    }
+    if (*count == capacity) return table_hash(module, table, hash);
+    states[*count].module = *module;
+    states[*count].table = table;
+    states[*count].error = table_hash(module, table, &states[*count].hash);
+    *hash = states[*count].hash;
+    return states[(*count)++].error;
+}
+
 static DWORD WINAPI notification_worker(void *arg)
 {
     HANDLE handles[2] = {notification_stop, notification_wake};
@@ -945,6 +974,8 @@ static DWORD WINAPI notification_worker(void *arg)
     for (;;)
     {
         struct nsi_notification **cursor;
+        struct nsi_table_state states[16];
+        ULONG state_count = 0;
 
         if (WaitForMultipleObjects(ARRAY_SIZE(handles), handles, FALSE, 1000) == WAIT_OBJECT_0) break;
         EnterCriticalSection(&notification_cs);
@@ -954,7 +985,8 @@ static DWORD WINAPI notification_worker(void *arg)
             struct nsi_notification *notification = *cursor;
             ULONG hash;
 
-            if (!table_hash(&notification->module, notification->table, &hash) && hash != notification->hash)
+            if (!cached_table_hash(states, &state_count, ARRAY_SIZE(states), &notification->module,
+                                   notification->table, &hash) && hash != notification->hash)
             {
                 *cursor = notification->next;
                 complete_notification(notification, STATUS_SUCCESS);
