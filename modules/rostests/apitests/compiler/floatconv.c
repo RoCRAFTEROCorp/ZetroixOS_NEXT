@@ -30,12 +30,30 @@
 #define OLD_BEHAVIOR
 #endif
 
-#ifdef OLD_BEHAVIOR
+#if defined(_M_ARM64)
+#define SATURATING_BEHAVIOR
+#endif
+
+#if defined(OLD_BEHAVIOR) || defined(SATURATING_BEHAVIOR)
 #define ULONG_OVERFLOW ULONG_MAX
 #define ULONGLONG_OVERFLOW ULLONG_MAX
 #else
 #define ULONG_OVERFLOW 0ul
 #define ULONGLONG_OVERFLOW 0x8000000000000000ull
+#endif
+
+#ifdef SATURATING_BEHAVIOR
+#define LONG_OVERFLOW LONG_MAX
+#define LONGLONG_OVERFLOW LLONG_MAX
+#define ULONG_NEGATIVE(x) 0ul
+#define ULONGLONG_NEGATIVE(x) 0ull
+#define ULONGLONG_NEGATIVE_OVERFLOW 0ull
+#else
+#define LONG_OVERFLOW LONG_MIN
+#define LONGLONG_OVERFLOW LLONG_MIN
+#define ULONG_NEGATIVE(x) ((unsigned long)(x))
+#define ULONGLONG_NEGATIVE(x) ((unsigned long long)(x))
+#define ULONGLONG_NEGATIVE_OVERFLOW ULONGLONG_OVERFLOW
 #endif
 
 __declspec(noinline)
@@ -99,10 +117,10 @@ void Test_float(void)
     ok_eq_long(cast_float_to_long(2147483500.0f), 2147483520l);
     ok_eq_long(cast_float_to_long(2147483583.999f), 2147483520l);
     ok_eq_long(cast_float_to_long(-2147483583.999f), -2147483520l);
-    ok_eq_long(cast_float_to_long(2147483584.0f), LONG_MIN); // -2147483648
-    ok_eq_long(cast_float_to_long(2147483648.0f), LONG_MIN); // -2147483648
+    ok_eq_long(cast_float_to_long(2147483584.0f), LONG_OVERFLOW); // -2147483648
+    ok_eq_long(cast_float_to_long(2147483648.0f), LONG_OVERFLOW); // -2147483648
     ok_eq_long(cast_float_to_long(-2147483648.0f), LONG_MIN); // -2147483648
-    ok_eq_long(cast_float_to_long(10000000000.0f), LONG_MIN);
+    ok_eq_long(cast_float_to_long(10000000000.0f), LONG_OVERFLOW);
     ok_eq_long(cast_float_to_long(-10000000000.0f), LONG_MIN);
 
     // float to unsigned long cast (positive values)
@@ -117,15 +135,15 @@ void Test_float(void)
     // float to unsigned long cast (negative values)
     ok_eq_ulong(cast_float_to_ulong(-0.0f), 0ul);
     ok_eq_ulong(cast_float_to_ulong(-0.5f), 0ul);
-    ok_eq_ulong(cast_float_to_ulong(-1.0f), ULONG_MAX);
+    ok_eq_ulong(cast_float_to_ulong(-1.0f), ULONG_NEGATIVE(-1l));
 #ifdef OLD_BEHAVIOR
     ok_eq_ulong(cast_float_to_ulong(-10.0f), ULONG_MAX);
     ok_eq_ulong(cast_float_to_ulong(-1147483648.0f), ULONG_MAX);
     ok_eq_ulong(cast_float_to_ulong(-2147483648.0f), ULONG_MAX);
 #else
-    ok_eq_ulong(cast_float_to_ulong(-10.0f), (unsigned long)-10);
-    ok_eq_ulong(cast_float_to_ulong(-1147483648.0f), (unsigned long)-1147483648ll);
-    ok_eq_ulong(cast_float_to_ulong(-2147483648.0f), (unsigned long)-2147483648ll);
+    ok_eq_ulong(cast_float_to_ulong(-10.0f), ULONG_NEGATIVE(-10));
+    ok_eq_ulong(cast_float_to_ulong(-1147483648.0f), ULONG_NEGATIVE(-1147483648ll));
+    ok_eq_ulong(cast_float_to_ulong(-2147483648.0f), ULONG_NEGATIVE(-2147483648ll));
 #endif
 
     // float to long long cast
@@ -137,10 +155,10 @@ void Test_float(void)
     ok_eq_longlong(cast_float_to_longlong(0.999999f), 0ll);
     ok_eq_longlong(cast_float_to_longlong(-0.999999f), 0ll);
     ok_eq_longlong(cast_float_to_longlong(9223371761976868863.9999f), 9223371487098961920ll);
-    ok_eq_longlong(cast_float_to_longlong(9223371761976868864.0f), LLONG_MIN);
+    ok_eq_longlong(cast_float_to_longlong(9223371761976868864.0f), LONGLONG_OVERFLOW);
     ok_eq_longlong(cast_float_to_longlong(-9223371761976868863.9999f), -9223371487098961920ll);
     ok_eq_longlong(cast_float_to_longlong(-9223371761976868864.0f), LLONG_MIN);
-    ok_eq_longlong(cast_float_to_longlong(100000000000000000000.0f), LLONG_MIN);
+    ok_eq_longlong(cast_float_to_longlong(100000000000000000000.0f), LONGLONG_OVERFLOW);
     ok_eq_longlong(cast_float_to_longlong(-100000000000000000000.0f), LLONG_MIN);
 
     // float to unsigned long long cast (positive values)
@@ -159,7 +177,7 @@ void Test_float(void)
     // float to unsigned long long cast (negative values)
     ok_eq_ulonglong(cast_float_to_ulonglong(-0.0f), 0ull);
     ok_eq_ulonglong(cast_float_to_ulonglong(-0.5f), 0ull);
-    ok_eq_ulonglong(cast_float_to_ulonglong(-1.0f), 18446744073709551615ull);
+    ok_eq_ulonglong(cast_float_to_ulonglong(-1.0f), ULONGLONG_NEGATIVE(-1ll));
 #ifdef OLD_BEHAVIOR
     ok_eq_ulonglong(cast_float_to_ulonglong(-10.0f), ULLONG_MAX);
     ok_eq_ulonglong(cast_float_to_ulonglong(-1147483648.0f), ULLONG_MAX);
@@ -168,14 +186,14 @@ void Test_float(void)
     ok_eq_ulonglong(cast_float_to_ulonglong(-9223371761976868864.0f), ULLONG_MAX);
     ok_eq_ulonglong(cast_float_to_ulonglong(-9223372036854775808.0f), ULLONG_MAX);
 #else
-    ok_eq_ulonglong(cast_float_to_ulonglong(-10.0f), (unsigned long long)-10);
-    ok_eq_ulonglong(cast_float_to_ulonglong(-1147483648.0f), (unsigned long long)-1147483648ll);
-    ok_eq_ulonglong(cast_float_to_ulonglong(-2147483648.0f), (unsigned long long)-2147483648ll);
-    ok_eq_ulonglong(cast_float_to_ulonglong(-9223371761976868863.9f), (unsigned long long)-9223371487098961920);
-    ok_eq_ulonglong(cast_float_to_ulonglong(-9223371761976868864.0f), (unsigned long long)(-9223372036854775807ll - 1)); // 0x8000000000000000 / ULONGLONG_OVERFLOW
-    ok_eq_ulonglong(cast_float_to_ulonglong(-9223372036854775808.0f), (unsigned long long)(-9223372036854775807ll - 1)); // 0x8000000000000000 / ULONGLONG_OVERFLOW
+    ok_eq_ulonglong(cast_float_to_ulonglong(-10.0f), ULONGLONG_NEGATIVE(-10));
+    ok_eq_ulonglong(cast_float_to_ulonglong(-1147483648.0f), ULONGLONG_NEGATIVE(-1147483648ll));
+    ok_eq_ulonglong(cast_float_to_ulonglong(-2147483648.0f), ULONGLONG_NEGATIVE(-2147483648ll));
+    ok_eq_ulonglong(cast_float_to_ulonglong(-9223371761976868863.9f), ULONGLONG_NEGATIVE(-9223371487098961920));
+    ok_eq_ulonglong(cast_float_to_ulonglong(-9223371761976868864.0f), ULONGLONG_NEGATIVE(-9223372036854775807ll - 1)); // 0x8000000000000000 / ULONGLONG_OVERFLOW
+    ok_eq_ulonglong(cast_float_to_ulonglong(-9223372036854775808.0f), ULONGLONG_NEGATIVE(-9223372036854775807ll - 1)); // 0x8000000000000000 / ULONGLONG_OVERFLOW
 #endif
-    ok_eq_ulonglong(cast_float_to_ulonglong(-100000000000000000000.0f), ULONGLONG_OVERFLOW);
+    ok_eq_ulonglong(cast_float_to_ulonglong(-100000000000000000000.0f), ULONGLONG_NEGATIVE_OVERFLOW);
 }
 
 void Test_double(void)
@@ -190,9 +208,9 @@ void Test_double(void)
     ok_eq_long(cast_double_to_long(-0.999999999), 0l);
     ok_eq_long(cast_double_to_long(2147483647.99999), 2147483647l);
     ok_eq_long(cast_double_to_long(-2147483647.99999), -2147483647l);
-    ok_eq_long(cast_double_to_long(2147483648.0), LONG_MIN); // -2147483648
+    ok_eq_long(cast_double_to_long(2147483648.0), LONG_OVERFLOW); // -2147483648
     ok_eq_long(cast_double_to_long(-2147483648.0), LONG_MIN); // -2147483648
-    ok_eq_long(cast_double_to_long(10000000000.0), LONG_MIN);
+    ok_eq_long(cast_double_to_long(10000000000.0), LONG_OVERFLOW);
     ok_eq_long(cast_double_to_long(-10000000000.0), LONG_MIN);
 
     // double to unsigned long cast (positive values)
@@ -207,15 +225,15 @@ void Test_double(void)
     // double to unsigned long cast (negative values)
     ok_eq_ulong(cast_double_to_ulong(-0.0), 0ul);
     ok_eq_ulong(cast_double_to_ulong(-0.5), 0ul);
-    ok_eq_ulong(cast_double_to_ulong(-1.0), ULONG_MAX);
+    ok_eq_ulong(cast_double_to_ulong(-1.0), ULONG_NEGATIVE(-1l));
 #ifdef OLD_BEHAVIOR
     ok_eq_ulong(cast_double_to_ulong(-10.0), ULONG_MAX);
     ok_eq_ulong(cast_double_to_ulong(-1147483648.0), ULONG_MAX);
     ok_eq_ulong(cast_double_to_ulong(-2147483648.0), ULONG_MAX);
 #else
-    ok_eq_ulong(cast_double_to_ulong(-10.0), (unsigned long)-10);
-    ok_eq_ulong(cast_double_to_ulong(-1147483648.0), (unsigned long)-1147483648ll);
-    ok_eq_ulong(cast_double_to_ulong(-2147483648.0), (unsigned long)-2147483648ll);
+    ok_eq_ulong(cast_double_to_ulong(-10.0), ULONG_NEGATIVE(-10));
+    ok_eq_ulong(cast_double_to_ulong(-1147483648.0), ULONG_NEGATIVE(-1147483648ll));
+    ok_eq_ulong(cast_double_to_ulong(-2147483648.0), ULONG_NEGATIVE(-2147483648ll));
 #endif
 
     // double to long long cast
@@ -227,10 +245,10 @@ void Test_double(void)
     ok_eq_longlong(cast_double_to_longlong(0.999999), 0ll);
     ok_eq_longlong(cast_double_to_longlong(-0.999999), 0ll);
     ok_eq_longlong(cast_double_to_longlong(9223372036854775295.9), 9223372036854774784ll);
-    ok_eq_longlong(cast_double_to_longlong(9223372036854775296.0), LLONG_MIN);
+    ok_eq_longlong(cast_double_to_longlong(9223372036854775296.0), LONGLONG_OVERFLOW);
     ok_eq_longlong(cast_double_to_longlong(-9223372036854775295.9), -9223372036854774784ll);
     ok_eq_longlong(cast_double_to_longlong(-9223372036854775296.0), LLONG_MIN);
-    ok_eq_longlong(cast_double_to_longlong(100000000000000000000.0), LLONG_MIN);
+    ok_eq_longlong(cast_double_to_longlong(100000000000000000000.0), LONGLONG_OVERFLOW);
     ok_eq_longlong(cast_double_to_longlong(-100000000000000000000.0), LLONG_MIN);
 
     // double to unsigned long long cast (positive values)
@@ -250,7 +268,7 @@ void Test_double(void)
     // float to unsigned long long cast (negative values)
     ok_eq_ulonglong(cast_double_to_ulonglong(-0.0), 0ull);
     ok_eq_ulonglong(cast_double_to_ulonglong(-0.5), 0ull);
-    ok_eq_ulonglong(cast_double_to_ulonglong(-1.0), 18446744073709551615ull);
+    ok_eq_ulonglong(cast_double_to_ulonglong(-1.0), ULONGLONG_NEGATIVE(-1ll));
 #ifdef OLD_BEHAVIOR
     ok_eq_ulonglong(cast_double_to_ulonglong(-10.0), ULLONG_MAX);
     ok_eq_ulonglong(cast_double_to_ulonglong(-1147483648.0), ULLONG_MAX);
@@ -259,13 +277,13 @@ void Test_double(void)
     ok_eq_ulonglong(cast_double_to_ulonglong(-9223371761976868864.0), ULLONG_MAX);
     ok_eq_ulonglong(cast_double_to_ulonglong(-9223372036854775808.0), ULLONG_MAX);
 #else
-    ok_eq_ulonglong(cast_double_to_ulonglong(-10.0), (unsigned long long)-10);
-    ok_eq_ulonglong(cast_double_to_ulonglong(-1147483648.0), (unsigned long long)-1147483648ll);
-    ok_eq_ulonglong(cast_double_to_ulonglong(-2147483648.0), (unsigned long long)-2147483648ll);
-    ok_eq_ulonglong(cast_double_to_ulonglong(-9223372036854775000.0), (unsigned long long)-9223372036854774784ll);
-    ok_eq_ulonglong(cast_double_to_ulonglong(-9223372036854775808.0), (unsigned long long)(-9223372036854775807ll - 1));
+    ok_eq_ulonglong(cast_double_to_ulonglong(-10.0), ULONGLONG_NEGATIVE(-10));
+    ok_eq_ulonglong(cast_double_to_ulonglong(-1147483648.0), ULONGLONG_NEGATIVE(-1147483648ll));
+    ok_eq_ulonglong(cast_double_to_ulonglong(-2147483648.0), ULONGLONG_NEGATIVE(-2147483648ll));
+    ok_eq_ulonglong(cast_double_to_ulonglong(-9223372036854775000.0), ULONGLONG_NEGATIVE(-9223372036854774784ll));
+    ok_eq_ulonglong(cast_double_to_ulonglong(-9223372036854775808.0), ULONGLONG_NEGATIVE(-9223372036854775807ll - 1));
 #endif
-    ok_eq_ulonglong(cast_double_to_ulonglong(-100000000000000000000.0), ULONGLONG_OVERFLOW);
+    ok_eq_ulonglong(cast_double_to_ulonglong(-100000000000000000000.0), ULONGLONG_NEGATIVE_OVERFLOW);
 }
 
 START_TEST(floatconv)
