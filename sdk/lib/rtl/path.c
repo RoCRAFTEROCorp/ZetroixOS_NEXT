@@ -44,6 +44,8 @@ const UNICODE_STRING RtlpDosPRNDevice = RTL_CONSTANT_STRING(L"PRN");
 const UNICODE_STRING RtlpDosAUXDevice = RTL_CONSTANT_STRING(L"AUX");
 const UNICODE_STRING RtlpDosCONDevice = RTL_CONSTANT_STRING(L"CON");
 const UNICODE_STRING RtlpDosNULDevice = RTL_CONSTANT_STRING(L"NUL");
+const UNICODE_STRING RtlpDosCONINDevice = RTL_CONSTANT_STRING(L"CONIN$");
+const UNICODE_STRING RtlpDosCONOUTDevice = RTL_CONSTANT_STRING(L"CONOUT$");
 
 const UNICODE_STRING RtlpDoubleSlashPrefix   = RTL_CONSTANT_STRING(L"\\\\");
 
@@ -244,6 +246,11 @@ RtlIsDosDeviceName_Ustr(IN PCUNICODE_STRING PathString)
         /* Otherwise this was something like AUX, NUL, PRN, or CON */
         ReturnLength = sizeof(L"AUX") - sizeof(WCHAR);
         return MAKELONG(ReturnLength, ReturnOffset);
+    }
+    else if (((PathChars == 6) && RtlEqualUnicodeString(&PathCopy, &RtlpDosCONINDevice, TRUE)) ||
+             ((PathChars == 7) && RtlEqualUnicodeString(&PathCopy, &RtlpDosCONOUTDevice, TRUE)))
+    {
+        return MAKELONG(PathCopy.Length, ReturnOffset);
     }
 
     /* Otherwise, this is not a valid DOS device */
