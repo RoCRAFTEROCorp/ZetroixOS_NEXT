@@ -4045,6 +4045,19 @@ XHCI_Requires32BitDma(
 
 static
 BOOLEAN
+XHCI_ForcesControlBounce(
+    _In_ PXHCI_EXTENSION Extension)
+{
+#if !defined(_WIN64)
+    return (Extension->Quirks & XHCI_QUIRK_IGNORE_STARTUP_HCE) != 0;
+#else
+    UNREFERENCED_PARAMETER(Extension);
+    return FALSE;
+#endif
+}
+
+static
+BOOLEAN
 XHCI_SgListHasHighAddress(
     _In_ PUSBPORT_SCATTER_GATHER_LIST SgList,
     _Out_opt_ PULONGLONG HighAddress)
@@ -4411,7 +4424,8 @@ XHCI_InitBouncePool(
         return MP_STATUS_HW_ERROR;
 
     if (!XHCI_Requires32BitDma(Extension) &&
-        !(Extension->Quirks & XHCI_QUIRK_NON_COHERENT_DMA))
+        !(Extension->Quirks & XHCI_QUIRK_NON_COHERENT_DMA) &&
+        !XHCI_ForcesControlBounce(Extension))
         return MP_STATUS_SUCCESS;
 
     Extension->BounceBufferSize = XHCI_BOUNCE_BUFFER_SIZE;
@@ -11016,13 +11030,10 @@ XHCI_SubmitControlTransfer(
     Transfer->TdFirstTrbPointer = 0;
     Transfer->CompletionTrbPointer = 0;
 
-#if !defined(_WIN64)
-    if (Endpoint->DefaultControl &&
-        (Extension->Quirks & XHCI_QUIRK_IGNORE_STARTUP_HCE))
+    if (Endpoint->DefaultControl && XHCI_ForcesControlBounce(Extension))
     {
         ForceBounce = TRUE;
     }
-#endif
 
     if (TransferParameters->SetupPacket.bmRequestType.B == 0 &&
         TransferParameters->SetupPacket.bRequest == USB_REQUEST_SET_ADDRESS)
