@@ -2203,7 +2203,7 @@ typedef struct _KTHREAD
             ULONG QueueDeferPreemption:1;
             ULONG ForceDeferSchedule:1;
             ULONG SharedReadyQueueAffinity:1;
-            ULONG FreezeCount:1;
+            ULONG FreezeCountFlag:1;
             ULONG TerminationApcRequest:1;
             ULONG AutoBoostEntriesExhausted:1;
             ULONG KernelStackResident:1;
@@ -2356,7 +2356,7 @@ typedef struct _KTHREAD
     USHORT UserAffinityPrimaryGroup;                     // 0x230
     CHAR PreviousMode;                                   // 0x232
     CHAR BasePriority;                                   // 0x233
-    UCHAR Spare24;                                       // 0x234
+    CCHAR FreezeCount;                                   // 0x234 Win11 name: Spare24 [ReactOS]
     UCHAR Preempted;                                     // 0x235
     UCHAR AdjustReason;                                  // 0x236
     CHAR AdjustIncrement;                                // 0x237
