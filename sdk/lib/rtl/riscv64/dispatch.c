@@ -362,7 +362,8 @@ __C_specific_handler(PEXCEPTION_RECORD Record, PVOID Frame,
         for (j = 0; j < i; j++) {
             if (!NT_SUCCESS(RtlpRiscv64ReadScope(Dc, j, &OtherCount, &Earlier)) || OtherCount != Count)
                 Corruption(STATUS_BAD_FUNCTION_TABLE);
-            if (Earlier.BeginAddress < Scope.EndAddress && Scope.BeginAddress < Earlier.EndAddress &&
+            if (Earlier.BeginAddress < Earlier.EndAddress && Scope.BeginAddress < Scope.EndAddress &&
+                Earlier.BeginAddress < Scope.EndAddress && Scope.BeginAddress < Earlier.EndAddress &&
                 (Earlier.BeginAddress < Scope.BeginAddress || Earlier.EndAddress > Scope.EndAddress))
                 Corruption(STATUS_BAD_FUNCTION_TABLE);
         }
