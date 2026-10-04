@@ -409,6 +409,26 @@ Done:
     KeRevertToUserAffinityThreadEx(PreviousAffinity);
 }
 
+static
+BOOLEAN
+PhysicalTimerAccessible(VOID)
+{
+    BOOLEAN Accessible = FALSE;
+    ULONG64 Control;
+
+    _SEH2_TRY
+    {
+        __asm__ __volatile__("mrs %0, cntp_ctl_el0" : "=r"(Control));
+        Accessible = TRUE;
+    }
+    _SEH2_EXCEPT(EXCEPTION_EXECUTE_HANDLER)
+    {
+        Accessible = FALSE;
+    }
+    _SEH2_END;
+    return Accessible;
+}
+
 START_TEST(KeArm64IpiPreemption)
 {
     PKMT_DISABLE_INTERRUPT Disable;
@@ -416,6 +436,7 @@ START_TEST(KeArm64IpiPreemption)
     ULONG Cpu;
 
     if (skip(KeNumberProcessors >= 2, "SMP required\n")) return;
+    if (skip(PhysicalTimerAccessible(), "Physical timer is not accessible\n")) return;
     for (Cpu = 0; Cpu < (ULONG)KeNumberProcessors; Cpu++)
         TestProcessor(Cpu);
     TestBankLifetime();
