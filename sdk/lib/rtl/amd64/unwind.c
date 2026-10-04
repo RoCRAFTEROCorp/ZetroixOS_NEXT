@@ -759,6 +759,7 @@ RtlpUnwindInternal(
 
     /* Copy the context */
     UnwindContext = *ContextRecord;
+    UnwindContext.ContextFlags &= ~(CONTEXT_XSTATE & ~CONTEXT_AMD64);
 
     /* Set up the constant fields of the dispatcher context */
     DispatcherContext.ContextRecord =

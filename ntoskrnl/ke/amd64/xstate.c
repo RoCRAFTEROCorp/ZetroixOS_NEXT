@@ -307,3 +307,176 @@ KiInitializeXStateConfiguration(
         }
     }
 }
+
+static
+BOOLEAN
+KiIsUserXStateCompacted(
+    _In_ ULONG64 Layout)
+{
+    return SharedUserData->XState.CompactionEnabled && (Layout & XSTATE_COMPACTION_ENABLE_MASK);
+}
+
+static
+ULONG
+KiGetXStateStandardOffset(
+    _In_ ULONG Feature)
+{
+    CPUID_EXTENDED_STATE_SIZE_OFFSET_REGS Component;
+
+    __cpuidex(Component.AsInt32, CPUID_EXTENDED_STATE, Feature);
+    return Component.Offset;
+}
+
+static
+ULONG
+KiGetUserXStateFeatureOffset(
+    _In_ ULONG64 Layout,
+    _In_ ULONG Feature)
+{
+    ULONG Offset = sizeof(XSAVE_AREA_HEADER);
+    ULONG Index;
+
+    if (!KiIsUserXStateCompacted(Layout))
+        return KiGetXStateStandardOffset(Feature) - sizeof(XSAVE_FORMAT);
+
+    for (Index = 2; Index < Feature; Index++)
+    {
+        if (Layout & (1ULL << Index))
+            Offset += SharedUserData->XState.Features[Index].Size;
+        if (SharedUserData->XState.AlignedFeatures & (1ULL << (Index + 1)))
+            Offset = ALIGN_UP_BY(Offset, 64);
+    }
+    return Offset;
+}
+
+static
+PXSAVE_AREA
+KiGetXStateScratchArea(
+    _In_ PVOID Scratch)
+{
+    return (PXSAVE_AREA)ALIGN_UP_POINTER_BY(Scratch, 64);
+}
+
+ULONG64
+NTAPI
+KiGetUserXStateFeatures(VOID)
+{
+    return SharedUserData->XState.EnabledFeatures & ~(ULONG64)XSTATE_MASK_LEGACY;
+}
+
+ULONG
+NTAPI
+KiGetUserXStateLength(
+    _In_ ULONG64 Layout,
+    _In_ ULONG64 Features)
+{
+    ULONG Length = sizeof(XSAVE_AREA_HEADER);
+    ULONG Index, End;
+
+    for (Index = 2; Index < MAXIMUM_XSTATE_FEATURES; Index++)
+    {
+        if (!(Features & (1ULL << Index)))
+            continue;
+        End = KiGetUserXStateFeatureOffset(Layout, Index) + SharedUserData->XState.Features[Index].Size;
+        if (End > Length)
+            Length = End;
+    }
+    return Length;
+}
+
+ULONG
+NTAPI
+KiGetUserXStateMaximumLength(VOID)
+{
+    ULONG64 Features = KiGetUserXStateFeatures();
+
+    return KiGetUserXStateLength(Features | XSTATE_COMPACTION_ENABLE_MASK, Features);
+}
+
+ULONG
+NTAPI
+KiGetUserXStateScratchSize(VOID)
+{
+    return SharedUserData->XState.Size + 63;
+}
+
+ULONG64
+NTAPI
+KiGetUserXStateSetFeatures(
+    _In_ PXSAVE_AREA_HEADER Header)
+{
+    if (KiIsUserXStateCompacted(Header->CompactionMask))
+        return Header->CompactionMask & KiGetUserXStateFeatures();
+    return KiGetUserXStateFeatures();
+}
+
+NTSTATUS
+NTAPI
+KiSaveUserXState(
+    _Inout_updates_bytes_(Length) PUCHAR XState,
+    _In_ ULONG Length,
+    _Out_ PVOID Scratch)
+{
+    PXSAVE_AREA_HEADER Header = (PXSAVE_AREA_HEADER)XState;
+    PXSAVE_AREA SaveArea = KiGetXStateScratchArea(Scratch);
+    ULONG64 Features, Layout;
+    ULONG Index;
+
+    Features = SharedUserData->XState.CompactionEnabled ? Header->CompactionMask : Header->Mask;
+    Features &= KiGetUserXStateFeatures();
+    Layout = SharedUserData->XState.CompactionEnabled ? (Features | XSTATE_COMPACTION_ENABLE_MASK) : 0;
+
+    RtlZeroMemory(SaveArea, sizeof(XSAVE_AREA));
+    if (Features)
+        _xsave64(SaveArea, Features);
+
+    Header->Mask = SaveArea->Header.Mask & Features;
+    Header->CompactionMask = Layout;
+    RtlZeroMemory(Header->Reserved2, sizeof(Header->Reserved2));
+
+    if (Length < KiGetUserXStateLength(Layout, Header->Mask))
+        return STATUS_BUFFER_OVERFLOW;
+
+    for (Index = 2; Index < MAXIMUM_XSTATE_FEATURES; Index++)
+    {
+        if (!(Header->Mask & (1ULL << Index)))
+            continue;
+        RtlCopyMemory(XState + KiGetUserXStateFeatureOffset(Layout, Index),
+                      (PUCHAR)SaveArea + KiGetXStateStandardOffset(Index),
+                      SharedUserData->XState.Features[Index].Size);
+    }
+    return STATUS_SUCCESS;
+}
+
+VOID
+NTAPI
+KiRestoreUserXState(
+    _In_ PUCHAR XState,
+    _Out_ PVOID Scratch)
+{
+    PXSAVE_AREA_HEADER Header = (PXSAVE_AREA_HEADER)XState;
+    PXSAVE_AREA SaveArea = KiGetXStateScratchArea(Scratch);
+    ULONG64 Features, Loaded;
+    ULONG Index;
+
+    Features = KiGetUserXStateSetFeatures(Header);
+    if (!Features)
+        return;
+    Loaded = Header->Mask & Features;
+
+    RtlZeroMemory(SaveArea, sizeof(XSAVE_AREA));
+    _xsave64(SaveArea, Features);
+
+    for (Index = 2; Index < MAXIMUM_XSTATE_FEATURES; Index++)
+    {
+        if (!(Loaded & (1ULL << Index)))
+            continue;
+        RtlCopyMemory((PUCHAR)SaveArea + KiGetXStateStandardOffset(Index),
+                      XState + KiGetUserXStateFeatureOffset(Header->CompactionMask, Index),
+                      SharedUserData->XState.Features[Index].Size);
+    }
+
+    SaveArea->Header.Mask = (SaveArea->Header.Mask & ~Features) | Loaded;
+    SaveArea->Header.CompactionMask = 0;
+    _xrstor64(SaveArea, Features);
+}

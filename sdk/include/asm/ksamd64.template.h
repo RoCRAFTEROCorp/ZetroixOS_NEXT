@@ -451,6 +451,10 @@ OFFSET(MfRsp, MACHINE_FRAME, Rsp),
 OFFSET(MfSegSs, MACHINE_FRAME, SegSs),
 SIZE(MachineFrameLength, MACHINE_FRAME),
 
+HEADER("KUSER_EXCEPTION_STACK offsets"),
+OFFSET(UesExceptionRecord, KUSER_EXCEPTION_STACK, ExceptionRecord),
+OFFSET(UesMachineFrame, KUSER_EXCEPTION_STACK, MachineFrame),
+
 // MCE Recovery Context Offset Definitions
 //OFFSET(MrcFlags, ????, Flags),
 //OFFSET(MrcPhysicalAddress, ????, PhysicalAddress),

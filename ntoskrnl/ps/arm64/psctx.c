@@ -401,3 +401,33 @@ PspArchCopyLiveWow64Context(
     /* TODO: get or set the live x86 state through the emulator backend when it is not in the CPU area */
     return STATUS_NOT_FOUND;
 }
+
+NTSTATUS
+NTAPI
+PspArchCaptureXStateContext(
+    _In_ PCONTEXT Context,
+    _In_ ULONG ContextFlags,
+    _In_ KPROCESSOR_MODE PreviousMode,
+    _In_ BOOLEAN SetContext,
+    _Out_ PVOID *XState)
+{
+    UNREFERENCED_PARAMETER(Context);
+    UNREFERENCED_PARAMETER(ContextFlags);
+    UNREFERENCED_PARAMETER(PreviousMode);
+    UNREFERENCED_PARAMETER(SetContext);
+
+    /* TODO: capture the extended processor state (CONTEXT_XSTATE) of the context */
+    *XState = NULL;
+    return STATUS_SUCCESS;
+}
+
+NTSTATUS
+NTAPI
+PspArchCompleteXStateContext(
+    _In_opt_ PVOID XState,
+    _In_ BOOLEAN CopyOut)
+{
+    UNREFERENCED_PARAMETER(XState);
+    UNREFERENCED_PARAMETER(CopyOut);
+    return STATUS_SUCCESS;
+}

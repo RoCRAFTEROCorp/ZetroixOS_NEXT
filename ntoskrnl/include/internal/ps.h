@@ -141,6 +141,7 @@ typedef struct _GET_SET_CTX_CONTEXT
     KEVENT Event;
     KPROCESSOR_MODE Mode;
     NTSTATUS Status;
+    PVOID XState;
     CONTEXT Context;
 } GET_SET_CTX_CONTEXT, *PGET_SET_CTX_CONTEXT;
 
@@ -679,6 +680,21 @@ PspArchCopyLiveWow64Context(
     _In_ PETHREAD Thread,
     _Inout_ PWOW64_CONTEXT Context,
     _In_ BOOLEAN SetContext);
+
+NTSTATUS
+NTAPI
+PspArchCaptureXStateContext(
+    _In_ PCONTEXT Context,
+    _In_ ULONG ContextFlags,
+    _In_ KPROCESSOR_MODE PreviousMode,
+    _In_ BOOLEAN SetContext,
+    _Out_ PVOID *XState);
+
+NTSTATUS
+NTAPI
+PspArchCompleteXStateContext(
+    _In_opt_ PVOID XState,
+    _In_ BOOLEAN CopyOut);
 
 VOID
 NTAPI

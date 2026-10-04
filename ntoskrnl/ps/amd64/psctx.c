@@ -15,6 +15,123 @@
 
 /* FUNCTIONS ******************************************************************/
 
+typedef struct _PSP_XSTATE_BUFFER
+{
+    PUCHAR UserXState;
+    ULONG Length;
+    DECLSPEC_ALIGN(64) UCHAR XState[ANYSIZE_ARRAY];
+} PSP_XSTATE_BUFFER, *PPSP_XSTATE_BUFFER;
+
+static
+PVOID
+PspXStateScratch(
+    _In_ PPSP_XSTATE_BUFFER Buffer)
+{
+    return Buffer->XState + Buffer->Length;
+}
+
+NTSTATUS
+NTAPI
+PspArchCaptureXStateContext(
+    _In_ PCONTEXT Context,
+    _In_ ULONG ContextFlags,
+    _In_ KPROCESSOR_MODE PreviousMode,
+    _In_ BOOLEAN SetContext,
+    _Out_ PVOID *XState)
+{
+    PCONTEXT_EX ContextEx;
+    PPSP_XSTATE_BUFFER Buffer;
+    PXSAVE_AREA_HEADER Header;
+    PUCHAR UserXState;
+    ULONG Length;
+    NTSTATUS Status = STATUS_SUCCESS;
+
+    *XState = NULL;
+    if ((ContextFlags & CONTEXT_XSTATE) != CONTEXT_XSTATE)
+        return STATUS_SUCCESS;
+
+    ContextEx = (PCONTEXT_EX)(Context + 1);
+    if (PreviousMode != KernelMode)
+        ProbeForRead(ContextEx, sizeof(*ContextEx), sizeof(ULONG));
+
+    Length = ContextEx->XState.Length;
+    UserXState = (PUCHAR)ContextEx + ContextEx->XState.Offset;
+    if (Length < sizeof(XSAVE_AREA_HEADER) || Length > KiGetUserXStateMaximumLength())
+        return STATUS_INVALID_PARAMETER;
+
+    if (PreviousMode != KernelMode)
+    {
+        if (SetContext)
+            ProbeForRead(UserXState, Length, sizeof(ULONG));
+        else
+            ProbeForWrite(UserXState, Length, sizeof(ULONG));
+    }
+
+    Buffer = ExAllocatePoolWithTag(NonPagedPool,
+                                   FIELD_OFFSET(PSP_XSTATE_BUFFER, XState) + Length +
+                                   KiGetUserXStateScratchSize(),
+                                   TAG_PS_XSTATE);
+    if (!Buffer)
+        return STATUS_INSUFFICIENT_RESOURCES;
+
+    Buffer->UserXState = UserXState;
+    Buffer->Length = Length;
+    _SEH2_TRY
+    {
+        RtlCopyMemory(Buffer->XState, UserXState, Length);
+    }
+    _SEH2_EXCEPT(EXCEPTION_EXECUTE_HANDLER)
+    {
+        Status = _SEH2_GetExceptionCode();
+    }
+    _SEH2_END;
+
+    if (NT_SUCCESS(Status) && SetContext)
+    {
+        Header = (PXSAVE_AREA_HEADER)Buffer->XState;
+        if (Length < KiGetUserXStateLength(Header->CompactionMask, Header->Mask & KiGetUserXStateSetFeatures(Header)))
+            Status = STATUS_BUFFER_OVERFLOW;
+    }
+
+    if (!NT_SUCCESS(Status))
+    {
+        ExFreePoolWithTag(Buffer, TAG_PS_XSTATE);
+        return Status;
+    }
+
+    *XState = Buffer;
+    return STATUS_SUCCESS;
+}
+
+NTSTATUS
+NTAPI
+PspArchCompleteXStateContext(
+    _In_opt_ PVOID XState,
+    _In_ BOOLEAN CopyOut)
+{
+    PPSP_XSTATE_BUFFER Buffer = XState;
+    NTSTATUS Status = STATUS_SUCCESS;
+
+    if (!Buffer)
+        return STATUS_SUCCESS;
+
+    if (CopyOut)
+    {
+        _SEH2_TRY
+        {
+            RtlCopyMemory(Buffer->UserXState, Buffer->XState, Buffer->Length);
+        }
+        _SEH2_EXCEPT(EXCEPTION_EXECUTE_HANDLER)
+        {
+            Status = _SEH2_GetExceptionCode();
+        }
+        _SEH2_END;
+    }
+
+    ExFreePoolWithTag(Buffer, TAG_PS_XSTATE);
+    return Status;
+}
+
 
 _IRQL_requires_(APC_LEVEL)
 VOID
@@ -27,6 +144,7 @@ PspGetOrSetContextKernelRoutine(
     _Inout_ PVOID* SystemArgument2)
 {
     PGET_SET_CTX_CONTEXT GetSetContext;
+    PPSP_XSTATE_BUFFER XStateBuffer;
     PKTHREAD Thread;
     PKTRAP_FRAME TrapFrame = NULL;
 
@@ -34,6 +152,7 @@ PspGetOrSetContextKernelRoutine(
 
     /* Get the Context Structure */
     GetSetContext = CONTAINING_RECORD(Apc, GET_SET_CTX_CONTEXT, Apc);
+    XStateBuffer = GetSetContext->XState;
     Thread = Apc->SystemArgument2;
     NT_ASSERT(KeGetCurrentThread() == Thread);
 
@@ -55,11 +174,17 @@ PspGetOrSetContextKernelRoutine(
     {
         /* Set the nonvolatiles on the stack, target frame is the trap frame */
         KiSetTrapContext(TrapFrame, &GetSetContext->Context, GetSetContext->Mode);
+        if (XStateBuffer)
+            KiRestoreUserXState(XStateBuffer->XState, PspXStateScratch(XStateBuffer));
     }
     else
     {
         /* Get the nonvolatiles from the stack */
         KiGetTrapContext(TrapFrame, &GetSetContext->Context);
+        if (XStateBuffer)
+            GetSetContext->Status = KiSaveUserXState(XStateBuffer->XState,
+                                                     XStateBuffer->Length,
+                                                     PspXStateScratch(XStateBuffer));
     }
 
     /* Notify the Native API that we are done */

@@ -164,6 +164,12 @@ PsGetContextThread(IN PETHREAD Thread,
             /* Probe the context */
             ProbeForWrite(ThreadContext, Size, sizeof(ULONG));
         }
+
+        Status = PspArchCaptureXStateContext(ThreadContext,
+                                             Flags,
+                                             PreviousMode,
+                                             FALSE,
+                                             &GetSetContext.XState);
     }
     _SEH2_EXCEPT(EXCEPTION_EXECUTE_HANDLER)
     {
@@ -171,6 +177,9 @@ PsGetContextThread(IN PETHREAD Thread,
         _SEH2_YIELD(return _SEH2_GetExceptionCode());
     }
     _SEH2_END;
+
+    if (!NT_SUCCESS(Status))
+        return Status;
 
     /* Initialize the wait event */
     KeInitializeEvent(&GetSetContext.Event, NotificationEvent, FALSE);
@@ -234,9 +243,15 @@ PsGetContextThread(IN PETHREAD Thread,
     }
 
     if (!NT_SUCCESS(Status))
+    {
+        PspArchCompleteXStateContext(GetSetContext.XState, FALSE);
         return Status;
+    }
+    Status = PspArchCompleteXStateContext(GetSetContext.XState, TRUE);
     if (!NT_SUCCESS(GetSetContext.Status))
         return GetSetContext.Status;
+    if (!NT_SUCCESS(Status))
+        return Status;
 
     _SEH2_TRY
     {
@@ -268,6 +283,7 @@ PspGetOrSetUserContext(IN PETHREAD Thread,
     RtlCopyMemory(&GetSetContext.Context, Context, sizeof(CONTEXT));
     GetSetContext.Mode = UserMode;
     GetSetContext.Status = STATUS_SUCCESS;
+    GetSetContext.XState = NULL;
 
     if (Thread == PsGetCurrentThread())
     {
@@ -345,6 +361,12 @@ PsSetContextThread(IN PETHREAD Thread,
 
         /* Copy the context */
         RtlCopyMemory(&GetSetContext.Context, ThreadContext, Size);
+
+        Status = PspArchCaptureXStateContext(ThreadContext,
+                                             Flags,
+                                             PreviousMode,
+                                             TRUE,
+                                             &GetSetContext.XState);
     }
     _SEH2_EXCEPT(EXCEPTION_EXECUTE_HANDLER)
     {
@@ -352,6 +374,9 @@ PsSetContextThread(IN PETHREAD Thread,
         _SEH2_YIELD(return _SEH2_GetExceptionCode());
     }
     _SEH2_END;
+
+    if (!NT_SUCCESS(Status))
+        return Status;
 
     /* Initialize the wait event */
     KeInitializeEvent(&GetSetContext.Event, NotificationEvent, FALSE);
@@ -412,6 +437,8 @@ PsSetContextThread(IN PETHREAD Thread,
                                            NULL);
         }
     }
+
+    PspArchCompleteXStateContext(GetSetContext.XState, FALSE);
 
     /* Return an architecture failure after the APC completed. */
     return NT_SUCCESS(Status) ? GetSetContext.Status : Status;

@@ -580,6 +580,42 @@ NTAPI
 KiInitializeXStateConfiguration(
     _In_ ULONG Processor);
 
+ULONG64
+NTAPI
+KiGetUserXStateFeatures(VOID);
+
+ULONG
+NTAPI
+KiGetUserXStateLength(
+    _In_ ULONG64 Layout,
+    _In_ ULONG64 Features);
+
+ULONG
+NTAPI
+KiGetUserXStateMaximumLength(VOID);
+
+ULONG
+NTAPI
+KiGetUserXStateScratchSize(VOID);
+
+ULONG64
+NTAPI
+KiGetUserXStateSetFeatures(
+    _In_ PXSAVE_AREA_HEADER Header);
+
+NTSTATUS
+NTAPI
+KiSaveUserXState(
+    _Inout_updates_bytes_(Length) PUCHAR XState,
+    _In_ ULONG Length,
+    _Out_ PVOID Scratch);
+
+VOID
+NTAPI
+KiRestoreUserXState(
+    _In_ PUCHAR XState,
+    _Out_ PVOID Scratch);
+
 FORCEINLINE
 BOOLEAN
 KiIsDpcInterruptRequested(

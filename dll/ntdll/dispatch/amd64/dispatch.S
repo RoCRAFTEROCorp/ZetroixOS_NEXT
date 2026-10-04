@@ -211,7 +211,7 @@ PUBLIC KiUserExceptionDispatcher
     .PUSHFRAME
 
     /* This is for the alignment, EXCEPTION_RECORD and CONTEXT */
-    .ALLOCSTACK 8 + EXCEPTION_RECORD_LENGTH + CONTEXT_FRAME_LENGTH
+    .ALLOCSTACK UesMachineFrame
     .ENDPROLOG
 
     /* Clear direction flag */
@@ -223,14 +223,14 @@ PUBLIC KiUserExceptionDispatcher
     jz .NoWow64
 
     /* Prepare for WOW64 exception dispatching */
-    lea rcx, [rsp + CONTEXT_FRAME_LENGTH] /* ExceptionRecord */
+    lea rcx, [rsp + UesExceptionRecord] /* ExceptionRecord */
     lea rdx, [rsp] /* ContextRecord */
     call rax
 
 .NoWow64:
 
     /* Dispatch the exception */
-    lea rcx, [rsp + CONTEXT_FRAME_LENGTH] /* ExceptionRecord */
+    lea rcx, [rsp + UesExceptionRecord] /* ExceptionRecord */
     lea rdx, [rsp] /* ContextRecord */
     call RtlDispatchException
 
@@ -249,13 +249,13 @@ PUBLIC KiUserExceptionDispatcher
 RaiseException:
 
     /* Raise the exception */
-    lea rcx, [rsp + CONTEXT_FRAME_LENGTH] /* ExceptionRecord */
+    lea rcx, [rsp + UesExceptionRecord] /* ExceptionRecord */
     lea rdx, [rsp] /* ContextRecord */
     xor r8, r8
     call ZwRaiseException
 
 Exit:
-    lea rcx, [rsp + CONTEXT_FRAME_LENGTH] /* ExceptionRecord */
+    lea rcx, [rsp + UesExceptionRecord] /* ExceptionRecord */
     mov rdx, rax
     call KiUserExceptionDispatcherNested
     ret

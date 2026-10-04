@@ -63,3 +63,32 @@ PsArchInitializeUserThreadContext(
     Context->Sp = (ULONG)StackBase;
     Context->Cpsr = 0x10;
 }
+
+NTSTATUS
+NTAPI
+PspArchCaptureXStateContext(
+    _In_ PCONTEXT Context,
+    _In_ ULONG ContextFlags,
+    _In_ KPROCESSOR_MODE PreviousMode,
+    _In_ BOOLEAN SetContext,
+    _Out_ PVOID *XState)
+{
+    UNREFERENCED_PARAMETER(Context);
+    UNREFERENCED_PARAMETER(ContextFlags);
+    UNREFERENCED_PARAMETER(PreviousMode);
+    UNREFERENCED_PARAMETER(SetContext);
+
+    *XState = NULL;
+    return STATUS_SUCCESS;
+}
+
+NTSTATUS
+NTAPI
+PspArchCompleteXStateContext(
+    _In_opt_ PVOID XState,
+    _In_ BOOLEAN CopyOut)
+{
+    UNREFERENCED_PARAMETER(XState);
+    UNREFERENCED_PARAMETER(CopyOut);
+    return STATUS_SUCCESS;
+}

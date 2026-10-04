@@ -627,3 +627,16 @@ KiDispatchException(
 Handled:
     KeContextToTrapFrame(&Context, ExceptionFrame, TrapFrame, Context.ContextFlags, PreviousMode);
 }
+
+NTSTATUS
+NTAPI
+KiContinueExtendedState(
+    _In_ PCONTEXT Context,
+    _In_ ULONG ContextFlags)
+{
+    UNREFERENCED_PARAMETER(Context);
+    UNREFERENCED_PARAMETER(ContextFlags);
+
+    /* TODO: restore the extended processor state (CONTEXT_XSTATE) of the context */
+    return STATUS_SUCCESS;
+}

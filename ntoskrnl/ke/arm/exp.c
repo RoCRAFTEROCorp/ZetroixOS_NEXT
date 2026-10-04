@@ -269,3 +269,15 @@ KeRaiseUserException(
     ASSERT(FALSE);
     return STATUS_NOT_IMPLEMENTED;
 }
+
+NTSTATUS
+NTAPI
+KiContinueExtendedState(
+    _In_ PCONTEXT Context,
+    _In_ ULONG ContextFlags)
+{
+    UNREFERENCED_PARAMETER(Context);
+    UNREFERENCED_PARAMETER(ContextFlags);
+
+    return STATUS_SUCCESS;
+}

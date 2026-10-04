@@ -126,6 +126,12 @@ KiDispatchExceptionToUser(
     EXCEPTION_RECORD LocalExceptRecord;
     ULONG64 UserRsp;
     PKUSER_EXCEPTION_STACK UserStack;
+    PCONTEXT_EX ContextEx;
+    PXSAVE_AREA_HEADER Header;
+    PUCHAR XState = NULL;
+    ULONG64 Features, Layout = 0;
+    ULONG XStateLength = 0;
+    BOOLEAN Success = TRUE;
 
     /* Make sure we have a valid SS */
     if (TrapFrame->SegSs != (KGDT64_R3_DATA | RPL_MASK))
@@ -137,8 +143,16 @@ KiDispatchExceptionToUser(
         ExceptionRecord = &LocalExceptRecord;
     }
 
+    Features = KiGetUserXStateFeatures();
+    if (Features)
+    {
+        if (SharedUserData->XState.CompactionEnabled)
+            Layout = Features | XSTATE_COMPACTION_ENABLE_MASK;
+        XStateLength = KiGetUserXStateLength(Layout, Features);
+    }
+
     /* Get new stack pointer and align it to 16 bytes */
-    UserRsp = (Context->Rsp - sizeof(KUSER_EXCEPTION_STACK)) & ~15;
+    UserRsp = (Context->Rsp - sizeof(KUSER_EXCEPTION_STACK) - XStateLength) & ~63;
 
     /* Get pointer to the usermode context, exception record and machine frame */
     UserStack = (PKUSER_EXCEPTION_STACK)UserRsp;
@@ -146,16 +160,48 @@ KiDispatchExceptionToUser(
     /* Enable interrupts */
     _enable();
 
+    if (XStateLength)
+    {
+        XState = ExAllocatePoolWithTag(NonPagedPool,
+                                       XStateLength + KiGetUserXStateScratchSize(),
+                                       TAG_KE_XSTATE);
+        if (XState)
+        {
+            Header = (PXSAVE_AREA_HEADER)XState;
+            RtlZeroMemory(Header, sizeof(*Header));
+            Header->Mask = Features;
+            Header->CompactionMask = Layout;
+            KiSaveUserXState(XState, XStateLength, XState + XStateLength);
+        }
+        else
+        {
+            XStateLength = 0;
+        }
+    }
+
     /* Set up the user-stack */
     _SEH2_TRY
     {
         /* Probe the user stack frame and zero it out */
-        ProbeForWrite(UserStack, sizeof(*UserStack), TYPE_ALIGNMENT(KUSER_EXCEPTION_STACK));
+        ProbeForWrite(UserStack, sizeof(*UserStack) + XStateLength, TYPE_ALIGNMENT(KUSER_EXCEPTION_STACK));
         RtlZeroMemory(UserStack, sizeof(*UserStack));
 
         /* Copy Context and ExceptionFrame */
         UserStack->Context = *Context;
         UserStack->ExceptionRecord = *ExceptionRecord;
+
+        ContextEx = (PCONTEXT_EX)UserStack->ContextEx;
+        ContextEx->Legacy.Offset = -(LONG)sizeof(CONTEXT);
+        ContextEx->Legacy.Length = sizeof(CONTEXT);
+        ContextEx->XState.Offset = (LONG)((ULONG_PTR)(UserStack + 1) - (ULONG_PTR)ContextEx);
+        ContextEx->XState.Length = XStateLength;
+        ContextEx->All.Offset = -(LONG)sizeof(CONTEXT);
+        ContextEx->All.Length = sizeof(CONTEXT) + ContextEx->XState.Offset + XStateLength;
+        if (XStateLength)
+        {
+            RtlCopyMemory(UserStack + 1, XState, XStateLength);
+            UserStack->Context.ContextFlags |= CONTEXT_XSTATE;
+        }
 
         /* Setup the machine frame */
         UserStack->MachineFrame.Rip = Context->Rip;
@@ -169,10 +215,16 @@ KiDispatchExceptionToUser(
     {
         // FIXME: handle stack overflow
 
-        /* Nothing we can do here */
-        return FALSE;
+        Success = FALSE;
     }
     _SEH2_END;
+
+    if (XState)
+        ExFreePoolWithTag(XState, TAG_KE_XSTATE);
+
+    /* Nothing we can do here */
+    if (!Success)
+        return FALSE;
 
     /* Now set the two params for the user-mode dispatcher */
     TrapFrame->Rcx = (ULONG64)&UserStack->ExceptionRecord;
@@ -772,4 +824,54 @@ KiXmmExceptionHandler(
     }
     
     return ExceptionCode;
+}
+
+NTSTATUS
+NTAPI
+KiContinueExtendedState(
+    _In_ PCONTEXT Context,
+    _In_ ULONG ContextFlags)
+{
+    PCONTEXT_EX ContextEx;
+    PXSAVE_AREA_HEADER Header;
+    PUCHAR UserXState, XState;
+    ULONG Length;
+    NTSTATUS Status = STATUS_SUCCESS;
+
+    if ((ContextFlags & CONTEXT_XSTATE) != CONTEXT_XSTATE || !KiGetUserXStateFeatures())
+        return STATUS_SUCCESS;
+
+    ContextEx = (PCONTEXT_EX)(Context + 1);
+    ProbeForRead(ContextEx, sizeof(*ContextEx), sizeof(ULONG));
+    Length = ContextEx->XState.Length;
+    UserXState = (PUCHAR)ContextEx + ContextEx->XState.Offset;
+    if (Length < sizeof(XSAVE_AREA_HEADER) || Length > KiGetUserXStateMaximumLength())
+        return STATUS_INVALID_PARAMETER;
+    ProbeForRead(UserXState, Length, sizeof(ULONG));
+
+    XState = ExAllocatePoolWithTag(NonPagedPool, Length + KiGetUserXStateScratchSize(), TAG_KE_XSTATE);
+    if (!XState)
+        return STATUS_INSUFFICIENT_RESOURCES;
+
+    _SEH2_TRY
+    {
+        RtlCopyMemory(XState, UserXState, Length);
+    }
+    _SEH2_EXCEPT(EXCEPTION_EXECUTE_HANDLER)
+    {
+        Status = _SEH2_GetExceptionCode();
+    }
+    _SEH2_END;
+
+    if (NT_SUCCESS(Status))
+    {
+        Header = (PXSAVE_AREA_HEADER)XState;
+        if (Length < KiGetUserXStateLength(Header->CompactionMask, Header->Mask & KiGetUserXStateSetFeatures(Header)))
+            Status = STATUS_BUFFER_OVERFLOW;
+        else
+            KiRestoreUserXState(XState, XState + Length);
+    }
+
+    ExFreePoolWithTag(XState, TAG_KE_XSTATE);
+    return Status;
 }

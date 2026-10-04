@@ -1141,10 +1141,14 @@ typedef struct _UAPC_FRAME
 typedef struct _KUSER_EXCEPTION_STACK
 {
     CONTEXT Context;
+    ULONG64 ContextEx[4];
     EXCEPTION_RECORD ExceptionRecord;
     ULONG64 Alignment;
     MACHINE_FRAME MachineFrame;
 } KUSER_EXCEPTION_STACK, * PKUSER_EXCEPTION_STACK;
+
+C_ASSERT(FIELD_OFFSET(KUSER_EXCEPTION_STACK, ExceptionRecord) == 0x4F0);
+C_ASSERT(FIELD_OFFSET(KUSER_EXCEPTION_STACK, MachineFrame) == 0x590);
 
 typedef struct _DISPATCHER_CONTEXT
 {

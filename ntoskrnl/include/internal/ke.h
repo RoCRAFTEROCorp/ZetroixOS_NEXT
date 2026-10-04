@@ -1119,6 +1119,12 @@ KiContinue(
     IN PKTRAP_FRAME TrapFrame
 );
 
+NTSTATUS
+NTAPI
+KiContinueExtendedState(
+    _In_ PCONTEXT Context,
+    _In_ ULONG ContextFlags);
+
 #ifndef _M_AMD64
 VOID
 FASTCALL

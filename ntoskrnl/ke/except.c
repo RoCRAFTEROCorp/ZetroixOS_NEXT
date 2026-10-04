@@ -23,10 +23,15 @@ KiContinuePreviousModeUser(
     _Out_ PKTRAP_FRAME TrapFrame)
 {
     CONTEXT LocalContext;
+    NTSTATUS Status;
 
     /* We'll have to make a copy and probe it */
     ProbeForRead(Context, sizeof(CONTEXT), sizeof(ULONG));
     RtlCopyMemory(&LocalContext, Context, sizeof(CONTEXT));
+
+    Status = KiContinueExtendedState(Context, LocalContext.ContextFlags);
+    if (!NT_SUCCESS(Status))
+        ExRaiseStatus(Status);
     Context = &LocalContext;
 
     /* Convert the context into Exception/Trap Frames */
