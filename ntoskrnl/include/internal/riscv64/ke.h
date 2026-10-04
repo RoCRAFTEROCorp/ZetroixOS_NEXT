@@ -28,6 +28,11 @@ KiRiscvCallUserMode(
 #define RISCV_SSTATUS_SUM  (1ULL << 18)
 #define RISCV_SSTATUS_MXR  (1ULL << 19)
 #define RISCV_SSTATUS_FS   (3ULL << 13)
+#define RISCV_SSTATUS_VS   (3ULL << 9)
+#define RISCV_SSTATUS_VS_OFF     (0ULL << 9)
+#define RISCV_SSTATUS_VS_INITIAL (1ULL << 9)
+#define RISCV_SSTATUS_VS_CLEAN   (2ULL << 9)
+#define RISCV_SSTATUS_VS_DIRTY   (3ULL << 9)
 #define RISCV_SSTATUS_UXL64 (2ULL << 32)
 /* NT currently permits supervisor data access to probed user buffers. User
  * contexts cannot supply these CSRs, enable MXR, or select supervisor mode. */
@@ -228,6 +233,14 @@ VOID NTAPI KiRiscvConsoleWrite(_In_reads_bytes_(Length) PCCH Buffer, _In_ SIZE_T
 BOOLEAN NTAPI KiRiscvConsoleGetByte(_Out_ PUCHAR Byte);
 VOID NTAPI KiRiscvIdentifyProcessor(_In_ PLOADER_PARAMETER_BLOCK LoaderBlock);
 VOID NTAPI KiRiscvReportProcessorFeatures(VOID);
+extern ULONG64 KiRiscvVectorLength;
+VOID NTAPI KiRiscvInitializeVector(VOID);
+PVOID NTAPI KiRiscvInitializeVectorArea(_Inout_ PKTHREAD Thread, _In_ PVOID StackTop);
+ULONG64 NTAPI KiRiscvReadVectorStatus(VOID);
+VOID NTAPI KiRiscvSaveVectorState(_In_ PKTHREAD Thread);
+VOID NTAPI KiRiscvRestoreVectorState(_In_ PKTHREAD Thread);
+BOOLEAN NTAPI KiRiscvHandleVectorFirstUse(_Inout_ PKTRAP_FRAME TrapFrame);
+VOID NTAPI KiRiscvRundownVectorState(_In_ PKTHREAD Thread);
 ULONG NTAPI KiRiscvQueryFeatureFlags(VOID);
 extern KI_RISCV_PROCESSOR_FEATURES KiRiscvProcessorFeatures;
 DECLSPEC_NORETURN VOID NTAPI KiRiscvTrapEntry(VOID);

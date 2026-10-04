@@ -55,6 +55,10 @@ KiSwapContext:
     .endr
     sd ra, SwRa(sp)
     sb a0, SwApcBypass(sp)
+    mv s0, a1
+    mv a0, a1
+    call KiRiscvSaveVectorState
+    mv a1, s0
 
     /* Mask interrupts for the switch; t0 keeps the entry SIE bit. */
     csrrci t0, sstatus, SSTATUS_SIE
@@ -83,6 +87,14 @@ KiSwapContext:
     /* Kernel callers use NtCurrentTeb(), which reads tp. Carry the incoming
      * thread's TEB across a switch even while running in supervisor mode. */
     ld tp, ThTeb(a2)
+    mv s0, a1
+    mv s1, a2
+    mv s2, t0
+    mv a0, a2
+    call KiRiscvRestoreVectorState
+    mv a1, s0
+    mv a2, s1
+    mv t0, s2
     csrs sstatus, t0
 
     /* Now on the incoming stack: a0 = its saved WaitIrql (APC bypass). */

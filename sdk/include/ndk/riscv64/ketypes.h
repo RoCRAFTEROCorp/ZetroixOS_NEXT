@@ -11,6 +11,22 @@
 /* Software synchronization priority, below the clock and IPI levels. */
 #define SYNCH_LEVEL 12
 
+#define KF_RISCV_ZICBOM      0x00000001
+#define KF_RISCV_ZICBOZ      0x00000002
+#define KF_RISCV_ZICBOP      0x00000004
+#define KF_RISCV_ZIHINTPAUSE 0x00000008
+#define KF_RISCV_ZICNTR      0x00000010
+#define KF_RISCV_ZBA         0x00000020
+#define KF_RISCV_ZBB         0x00000040
+#define KF_RISCV_ZBS         0x00000080
+#define KF_RISCV_SSTC        0x00000100
+#define KF_RISCV_SVADU       0x00000200
+#define KF_RISCV_SVPBMT      0x00000400
+#define KF_RISCV_SVNAPOT     0x00000800
+#define KF_RISCV_SVINVAL     0x00001000
+#define KF_RISCV_V           0x00002000
+#define KF_RISCV_H           0x00004000
+
 /* ReactOS-private U-mode ECALL selector, outside the NT service-table space. */
 #define RISCV_DEBUG_SERVICE_CALL 0x10000
 

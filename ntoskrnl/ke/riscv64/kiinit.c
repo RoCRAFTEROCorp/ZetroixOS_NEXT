@@ -345,6 +345,7 @@ KiRiscvSystemStartup(
     RiscvBlock = &LoaderBlock->u.Riscv64;
     KiRiscvConsoleInitialize(LoaderBlock);
     KiRiscvIdentifyProcessor(LoaderBlock);
+    KiRiscvInitializeVector();
 
     InitialProcess = (PKPROCESS)(ULONG_PTR)LoaderBlock->Process;
     InitialThread = (PKTHREAD)(ULONG_PTR)LoaderBlock->Thread;
@@ -377,7 +378,9 @@ KiRiscvSystemStartup(
     KeProcessorArchitecture = PROCESSOR_ARCHITECTURE_RISCV64;
     KeProcessorLevel = 0;
     KeProcessorRevision = 0;
-    KeFeatureBits = 0;
+    KeFeatureBits = KiRiscvProcessorFeatures.Valid ? KiRiscvProcessorFeatures.Flags : 0;
+    if (KiRiscvVectorLength == 0)
+        KeFeatureBits &= ~(ULONG64)KF_RISCV_V;
     KeSetDmaIoCoherency(0);
 
     Prcb = KeGetCurrentPrcb();
