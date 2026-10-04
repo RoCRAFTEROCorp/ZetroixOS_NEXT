@@ -29,7 +29,7 @@
 #define HEAP_DECOMMIT_COMMITTED_DIVISOR 8
 #define HEAP_INITIAL_REGION 0x10000
 #define HEAP_INITIAL_COMMIT_ALIGN (0x400 * sizeof(PVOID))
-#define HEAP_MAX_GROW_SIZE 0xFD0000
+#define HEAP_MAX_GROW_SIZE ((SIZE_T)(sizeof(PVOID) == sizeof(ULONG) ? 0xFD0000 : 0x40000000))
 
 /* Bitmaps stuff */
 
@@ -2233,7 +2233,7 @@ RtlAllocateHeap(IN PVOID HeapPtr,
         return RtlDebugAllocateHeap(Heap, Flags, Size);
 
     /* Check for the maximum size */
-    if (Size >= 0x80000000)
+    if (Size > Heap->MaximumAllocationSize)
     {
         RtlSetLastWin32ErrorAndNtStatusFromNtStatus(STATUS_NO_MEMORY);
         DPRINT1("HEAP: Allocation failed!\n");
@@ -2956,7 +2956,7 @@ RtlReAllocateHeap(HANDLE HeapPtr,
         return RtlDebugReAllocateHeap(Heap, Flags, Ptr, Size);
 
     /* Make sure size is valid */
-    if (Size >= 0x80000000)
+    if (Size > Heap->MaximumAllocationSize)
     {
         RtlSetLastWin32ErrorAndNtStatusFromNtStatus(STATUS_NO_MEMORY);
         return NULL;
