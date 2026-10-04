@@ -773,8 +773,8 @@ CopySystemProfile(
         goto done;
     }
 
-    cchSize = GetSystemWow64DirectoryW(szProfilePath, ARRAYSIZE(szProfilePath));
-    if (cchSize != 0 && cchSize < ARRAYSIZE(szProfilePath) &&
+    cchSize = ExpandEnvironmentStringsW(L"%SystemRoot%\\SysWOW64", szProfilePath, ARRAYSIZE(szProfilePath));
+    if (cchSize != 0 && cchSize <= ARRAYSIZE(szProfilePath) &&
         GetFileAttributesW(szProfilePath) != INVALID_FILE_ATTRIBUTES &&
         SUCCEEDED(StringCchCatW(szProfilePath, ARRAYSIZE(szProfilePath), L"\\config")))
     {
