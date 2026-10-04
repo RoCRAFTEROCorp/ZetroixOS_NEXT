@@ -690,7 +690,7 @@ PsLookupThreadByThreadId(IN HANDLE ThreadId,
         FoundThread = CidEntry->Object;
 
         /* Make sure it's really a thread, and not mid-creation */
-        if ((FoundThread->Tcb.Header.Type == ThreadObject) &&
+        if (((FoundThread->Tcb.Header.Type & KOBJECT_TYPE_MASK) == ThreadObject) &&
             !(OBJECT_TO_OBJECT_HEADER(FoundThread)->Flags & OB_FLAG_CREATE_INFO))
         {
             /* Safe Reference and return it */

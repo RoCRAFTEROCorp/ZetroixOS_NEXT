@@ -180,7 +180,7 @@ KeSetEvent(IN PKEVENT Event,
      * Check if this is an signaled notification event without an upcoming wait.
      * In this case, we can immediately return TRUE, without locking.
      */
-    if ((Event->Header.Type == EventNotificationObject) &&
+    if (((Event->Header.Type & KOBJECT_TYPE_MASK) == EventNotificationObject) &&
         (Event->Header.SignalState == 1) &&
         !(Wait))
     {

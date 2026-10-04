@@ -33,7 +33,7 @@ PspCatchCriticalBreak(IN PCHAR Message,
     PAGED_CODE();
 
     /* A critical process cannot be allowed to terminate on any architecture. */
-    if (((PKPROCESS)ProcessOrThread)->Header.Type == ProcessObject)
+    if ((((PKPROCESS)ProcessOrThread)->Header.Type & KOBJECT_TYPE_MASK) == ProcessObject)
     {
         KeBugCheckEx(CRITICAL_PROCESS_DIED,
                      (ULONG_PTR)ProcessOrThread,
