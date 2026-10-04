@@ -2464,7 +2464,16 @@ BOOL WINAPI SetupCopyOEMInfA(
             DestinationInfFileNameComponent ? &DestinationInfFileNameComponentW : NULL);
         if (!ret)
         {
+            DWORD LastError = GetLastError();
+
             if (RequiredSize) *RequiredSize = size;
+            if (LastError == ERROR_FILE_EXISTS && DestinationInfFileNameSize != 0 &&
+                !WideCharToMultiByte(CP_ACP, 0, DestinationInfFileNameW, -1,
+                                     DestinationInfFileName, DestinationInfFileNameSize, NULL, NULL))
+            {
+                DestinationInfFileName[0] = '\0';
+            }
+            SetLastError(LastError);
             goto cleanup;
         }
 
@@ -2567,11 +2576,14 @@ BOOL WINAPI SetupCopyOEMInfW(
         HANDLE hSourceFile = INVALID_HANDLE_VALUE;
         BOOL HasSourcePath = strchrW(SourceInfFileName, '\\') || strchrW(SourceInfFileName, '/');
 
+        if (!HasSourcePath && GetFileAttributesW(SourceInfFileName) != INVALID_FILE_ATTRIBUTES)
+            HasSourcePath = TRUE;
+
         if (OEMSourceMediaType == SPOST_PATH || OEMSourceMediaType == SPOST_URL)
             FIXME("OEMSourceMediaType 0x%lx ignored\n", OEMSourceMediaType);
 
         /* Check if source file exists, and open it */
-        if (strchrW(SourceInfFileName, '\\' ) || strchrW(SourceInfFileName, '/' ))
+        if (HasSourcePath)
         {
             WCHAR *path;
 
@@ -2689,7 +2701,7 @@ BOOL WINAPI SetupCopyOEMInfW(
         }
         else if (AlreadyExists && (CopyStyle & SP_COPY_NOOVERWRITE))
         {
-            DWORD Size = strlenW(pFileName) + 1;
+            DWORD Size = strlenW(pFullFileName) + 1;
 
             if (RequiredSize)
                 *RequiredSize = Size;
@@ -2700,7 +2712,9 @@ BOOL WINAPI SetupCopyOEMInfW(
             else
             {
                 SetLastError(ERROR_FILE_EXISTS);
-                strcpyW(DestinationInfFileName, pFileName);
+                strcpyW(DestinationInfFileName, pFullFileName);
+                if (DestinationInfFileNameComponent)
+                    *DestinationInfFileNameComponent = &DestinationInfFileName[pFileName - pFullFileName];
             }
             if (HasSourcePath)
             {

@@ -427,22 +427,20 @@ GetPublishedInfPath(
     return TRUE;
 }
 
-BOOL
-SETUPAPI_FindDriverStoreInf(
-    IN PCWSTR FileName,
+static BOOL
+FindStoreInf(
+    IN PCWSTR Published,
+    IN PCWSTR RequiredName,
     OUT PWSTR StoreInfFileName)
 {
-    WCHAR Published[MAX_PATH], Root[MAX_PATH], Pattern[MAX_PATH], Candidate[MAX_PATH], Suffix[64];
+    WCHAR Root[MAX_PATH], Pattern[MAX_PATH], Candidate[MAX_PATH], Suffix[64];
     WIN32_FIND_DATAW FindData;
     ULONGLONG Hash;
     HANDLE hFind;
     BOOL Found = FALSE;
 
-    if (!GetPublishedInfPath(FileName, Published) ||
-        !GetRepositoryRoot(Root, ARRAY_SIZE(Root)))
-    {
+    if (!GetRepositoryRoot(Root, ARRAY_SIZE(Root)))
         return FALSE;
-    }
 
     if (_wcsnicmp(Published, Root, lstrlenW(Root)) == 0)
     {
@@ -477,6 +475,8 @@ SETUPAPI_FindDriverStoreInf(
             continue;
 
         lstrcpynW(InfName, FindData.cFileName, NameLength - SuffixLength + 1);
+        if (RequiredName && _wcsicmp(InfName, RequiredName))
+            continue;
         if (lstrlenW(Root) + 2 + NameLength + lstrlenW(InfName) >= MAX_PATH)
             continue;
 
@@ -490,6 +490,18 @@ SETUPAPI_FindDriverStoreInf(
 
     FindClose(hFind);
     return Found;
+}
+
+BOOL
+SETUPAPI_FindDriverStoreInf(
+    IN PCWSTR FileName,
+    OUT PWSTR StoreInfFileName)
+{
+    WCHAR Published[MAX_PATH];
+
+    if (!GetPublishedInfPath(FileName, Published))
+        return FALSE;
+    return FindStoreInf(Published, NULL, StoreInfFileName);
 }
 
 PCWSTR
@@ -570,4 +582,307 @@ SETUPAPI_DeleteDriverStorePackage(
 
     *Last = UNICODE_NULL;
     return DeleteDirectoryTree(StoreInf);
+}
+
+static HRESULT
+CheckStoreRequest(
+    IN WORD Architecture,
+    IN PDWORD ReturnLength)
+{
+    SYSTEM_INFO SystemInfo;
+
+    if (*ReturnLength < MAX_PATH)
+        return E_INVALIDARG;
+
+    GetSystemInfo(&SystemInfo);
+    if (Architecture != SystemInfo.wProcessorArchitecture)
+        return E_INVALIDARG;
+
+    return S_OK;
+}
+
+static HRESULT
+ReturnStorePath(
+    IN PCWSTR Path,
+    OUT PWSTR ReturnPath,
+    IN OUT PDWORD ReturnLength)
+{
+    DWORD Length = lstrlenW(Path) + 1;
+
+    if (Length > *ReturnLength)
+    {
+        *ReturnLength = Length;
+        return HRESULT_FROM_WIN32(ERROR_INSUFFICIENT_BUFFER);
+    }
+
+    lstrcpyW(ReturnPath, Path);
+    *ReturnLength = Length;
+    return S_OK;
+}
+
+static BOOL
+FindSourceStoreInf(
+    IN PCWSTR InfPath,
+    OUT PWSTR Source,
+    OUT PWSTR StoreInfFileName)
+{
+    PWSTR BaseName;
+    DWORD Length;
+
+    Length = GetFullPathNameW(InfPath, MAX_PATH, Source, &BaseName);
+    if (Length == 0 || Length >= MAX_PATH || !BaseName)
+        return FALSE;
+
+    return FindStoreInf(Source, BaseName, StoreInfFileName);
+}
+
+static VOID
+DeletePublishedInfs(
+    IN PCWSTR StoreInfFileName)
+{
+    WCHAR InfDirectory[MAX_PATH], Pattern[MAX_PATH], Published[MAX_PATH];
+    WIN32_FIND_DATAW FindData;
+    HANDLE hFind;
+    PWSTR Extension;
+    UINT Length;
+
+    Length = GetSystemWindowsDirectoryW(InfDirectory, ARRAY_SIZE(InfDirectory));
+    if (Length == 0 || Length + 5 >= ARRAY_SIZE(InfDirectory))
+        return;
+    lstrcatW(InfDirectory, L"\\inf");
+
+    if (!CombinePath(Pattern, InfDirectory, L"oem*.inf"))
+        return;
+
+    hFind = FindFirstFileW(Pattern, &FindData);
+    if (hFind == INVALID_HANDLE_VALUE)
+        return;
+
+    do
+    {
+        if ((FindData.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) ||
+            !CombinePath(Published, InfDirectory, FindData.cFileName) ||
+            !FilesAreIdentical(Published, StoreInfFileName))
+        {
+            continue;
+        }
+
+        DeleteFileW(Published);
+        Extension = wcsrchr(Published, L'.');
+        if (Extension)
+        {
+            lstrcpyW(Extension, L".pnf");
+            DeleteFileW(Published);
+        }
+    } while (FindNextFileW(hFind, &FindData));
+
+    FindClose(hFind);
+}
+
+HRESULT
+WINAPI
+DriverStoreFindDriverPackageW(
+    IN PCWSTR InfPath,
+    IN PVOID Reserved1,
+    IN PVOID Reserved2,
+    IN WORD Architecture,
+    IN PVOID Reserved3,
+    OUT PWSTR ReturnPath,
+    IN OUT PDWORD ReturnLength)
+{
+    WCHAR Source[MAX_PATH], StoreInf[MAX_PATH];
+    HRESULT hr;
+
+    hr = CheckStoreRequest(Architecture, ReturnLength);
+    if (FAILED(hr))
+        return hr;
+
+    Source[0] = UNICODE_NULL;
+    if (FindSourceStoreInf(InfPath, Source, StoreInf))
+        return ReturnStorePath(StoreInf, ReturnPath, ReturnLength);
+
+    *ReturnPath = UNICODE_NULL;
+    *ReturnLength = 0;
+    if (GetFileAttributesW(Source) == INVALID_FILE_ATTRIBUTES)
+        return HRESULT_FROM_WIN32(ERROR_FILE_NOT_FOUND);
+    return HRESULT_FROM_WIN32(ERROR_NOT_FOUND);
+}
+
+HRESULT
+WINAPI
+DriverStoreAddDriverPackageW(
+    IN PCWSTR InfPath,
+    IN PVOID Reserved1,
+    IN PVOID Reserved2,
+    IN WORD Architecture,
+    OUT PWSTR ReturnPath,
+    IN OUT PDWORD ReturnLength)
+{
+    WCHAR Source[MAX_PATH], StoreInf[MAX_PATH];
+    HRESULT hr;
+
+    hr = CheckStoreRequest(Architecture, ReturnLength);
+    if (FAILED(hr))
+        return hr;
+
+    if (!FindSourceStoreInf(InfPath, Source, StoreInf))
+    {
+        if (GetFileAttributesW(Source) == INVALID_FILE_ATTRIBUTES)
+            return HRESULT_FROM_WIN32(ERROR_FILE_NOT_FOUND);
+        if (!SetupCopyOEMInfW(Source, NULL, SPOST_NONE, 0, NULL, 0, NULL, NULL))
+            return HRESULT_FROM_WIN32(GetLastError());
+        if (!FindSourceStoreInf(Source, Source, StoreInf))
+            return HRESULT_FROM_WIN32(ERROR_FILE_NOT_FOUND);
+    }
+
+    return ReturnStorePath(StoreInf, ReturnPath, ReturnLength);
+}
+
+HRESULT
+WINAPI
+DriverStoreDeleteDriverPackageW(
+    IN PCWSTR InfPath,
+    IN PVOID Reserved1,
+    IN PVOID Reserved2)
+{
+    WCHAR Source[MAX_PATH], StoreInf[MAX_PATH];
+    PWSTR Last;
+
+    if (!FindSourceStoreInf(InfPath, Source, StoreInf))
+        return HRESULT_FROM_WIN32(ERROR_FILE_NOT_FOUND);
+
+    DeletePublishedInfs(StoreInf);
+
+    Last = wcsrchr(StoreInf, L'\\');
+    if (!Last)
+        return HRESULT_FROM_WIN32(ERROR_FILE_NOT_FOUND);
+
+    *Last = UNICODE_NULL;
+    if (!DeleteDirectoryTree(StoreInf))
+        return HRESULT_FROM_WIN32(GetLastError());
+
+    return S_OK;
+}
+
+static PWSTR
+StoreAnsiToUnicode(
+    IN PCSTR String)
+{
+    PWSTR Result;
+    INT Length;
+
+    Length = MultiByteToWideChar(CP_ACP, 0, String, -1, NULL, 0);
+    if (Length == 0)
+        return NULL;
+
+    Result = MyMalloc(Length * sizeof(WCHAR));
+    if (Result)
+        MultiByteToWideChar(CP_ACP, 0, String, -1, Result, Length);
+    return Result;
+}
+
+static HRESULT
+ReturnStorePathA(
+    IN HRESULT hr,
+    IN PCWSTR PathW,
+    OUT PSTR ReturnPath,
+    IN OUT PDWORD ReturnLength)
+{
+    INT Length;
+
+    if (FAILED(hr))
+    {
+        if (hr == HRESULT_FROM_WIN32(ERROR_NOT_FOUND) ||
+            hr == HRESULT_FROM_WIN32(ERROR_FILE_NOT_FOUND))
+        {
+            *ReturnPath = ANSI_NULL;
+            *ReturnLength = 0;
+        }
+        return hr;
+    }
+
+    Length = WideCharToMultiByte(CP_ACP, 0, PathW, -1, NULL, 0, NULL, NULL);
+    if ((DWORD)Length > *ReturnLength)
+    {
+        *ReturnLength = Length;
+        return HRESULT_FROM_WIN32(ERROR_INSUFFICIENT_BUFFER);
+    }
+
+    WideCharToMultiByte(CP_ACP, 0, PathW, -1, ReturnPath, Length, NULL, NULL);
+    *ReturnLength = Length;
+    return S_OK;
+}
+
+HRESULT
+WINAPI
+DriverStoreFindDriverPackageA(
+    IN PCSTR InfPath,
+    IN PVOID Reserved1,
+    IN PVOID Reserved2,
+    IN WORD Architecture,
+    IN PVOID Reserved3,
+    OUT PSTR ReturnPath,
+    IN OUT PDWORD ReturnLength)
+{
+    WCHAR PathW[MAX_PATH];
+    DWORD LengthW = ARRAY_SIZE(PathW);
+    PWSTR InfPathW;
+    HRESULT hr;
+
+    if (*ReturnLength < MAX_PATH)
+        return E_INVALIDARG;
+
+    InfPathW = StoreAnsiToUnicode(InfPath);
+    if (!InfPathW)
+        return E_OUTOFMEMORY;
+
+    hr = DriverStoreFindDriverPackageW(InfPathW, Reserved1, Reserved2, Architecture, Reserved3, PathW, &LengthW);
+    MyFree(InfPathW);
+    return ReturnStorePathA(hr, PathW, ReturnPath, ReturnLength);
+}
+
+HRESULT
+WINAPI
+DriverStoreAddDriverPackageA(
+    IN PCSTR InfPath,
+    IN PVOID Reserved1,
+    IN PVOID Reserved2,
+    IN WORD Architecture,
+    OUT PSTR ReturnPath,
+    IN OUT PDWORD ReturnLength)
+{
+    WCHAR PathW[MAX_PATH];
+    DWORD LengthW = ARRAY_SIZE(PathW);
+    PWSTR InfPathW;
+    HRESULT hr;
+
+    if (*ReturnLength < MAX_PATH)
+        return E_INVALIDARG;
+
+    InfPathW = StoreAnsiToUnicode(InfPath);
+    if (!InfPathW)
+        return E_OUTOFMEMORY;
+
+    hr = DriverStoreAddDriverPackageW(InfPathW, Reserved1, Reserved2, Architecture, PathW, &LengthW);
+    MyFree(InfPathW);
+    return ReturnStorePathA(hr, PathW, ReturnPath, ReturnLength);
+}
+
+HRESULT
+WINAPI
+DriverStoreDeleteDriverPackageA(
+    IN PCSTR InfPath,
+    IN PVOID Reserved1,
+    IN PVOID Reserved2)
+{
+    PWSTR InfPathW;
+    HRESULT hr;
+
+    InfPathW = StoreAnsiToUnicode(InfPath);
+    if (!InfPathW)
+        return E_OUTOFMEMORY;
+
+    hr = DriverStoreDeleteDriverPackageW(InfPathW, Reserved1, Reserved2);
+    MyFree(InfPathW);
+    return hr;
 }

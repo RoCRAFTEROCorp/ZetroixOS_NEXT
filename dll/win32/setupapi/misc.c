@@ -1304,7 +1304,10 @@ BOOL WINAPI SetupUninstallOEMInfW( PCWSTR inf_file, DWORD flags, PVOID reserved 
     }
 
     SETUPAPI_DeleteDriverStorePackage(target);
-    return DeleteFileW(target);
+    if (!DeleteFileW(target))
+        return FALSE;
+    SetLastError(ERROR_SUCCESS);
+    return TRUE;
 }
 
 /***********************************************************************

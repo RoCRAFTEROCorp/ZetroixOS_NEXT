@@ -226,14 +226,14 @@
 @ stdcall CM_Unregister_Device_Interface_ExW(wstr long ptr)
 @ stub -version=0x600+ CM_Write_UserPowerKey
 @ stdcall DoesUserHavePrivilege(wstr)
-@ stub -version=0x600+ DriverStoreAddDriverPackageA
-@ stub -version=0x600+ DriverStoreAddDriverPackageW
-@ stub -version=0x600+ DriverStoreDeleteDriverPackageA
-@ stub -version=0x600+ DriverStoreDeleteDriverPackageW
+@ stdcall -version=0x600+ DriverStoreAddDriverPackageA(str ptr ptr long ptr ptr)
+@ stdcall -version=0x600+ DriverStoreAddDriverPackageW(wstr ptr ptr long ptr ptr)
+@ stdcall -version=0x600+ DriverStoreDeleteDriverPackageA(str ptr ptr)
+@ stdcall -version=0x600+ DriverStoreDeleteDriverPackageW(wstr ptr ptr)
 @ stub -version=0x600+ DriverStoreEnumDriverPackageA
 @ stub -version=0x600+ DriverStoreEnumDriverPackageW
-@ stub -version=0x600+ DriverStoreFindDriverPackageA
-@ stub -version=0x600+ DriverStoreFindDriverPackageW
+@ stdcall -version=0x600+ DriverStoreFindDriverPackageA(str ptr ptr long ptr ptr ptr)
+@ stdcall -version=0x600+ DriverStoreFindDriverPackageW(wstr ptr ptr long ptr ptr ptr)
 @ stub ExtensionPropSheetPageProc
 @ stdcall InstallCatalog(str str ptr)
 @ stdcall InstallHinfSection(long long str long) InstallHinfSectionA
