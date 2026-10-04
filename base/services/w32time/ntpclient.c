@@ -101,13 +101,13 @@ SendData(PINFO pInfo)
 }
 
 
-static ULONG
+static ULONGLONG
 ReceiveData(PINFO pInfo)
 {
     TIMEVAL timeVal;
     FD_SET readFDS;
     INT Ret;
-    ULONG ulTime = 0;
+    ULONGLONG ullTime = 0;
 
     /* Monitor socket for incoming connections */
     FD_ZERO(&readFDS);
@@ -130,20 +130,23 @@ ReceiveData(PINFO pInfo)
                        NULL);
 
         if (Ret != SOCKET_ERROR)
-            ulTime = ntohl(pInfo->RecvPacket.TransmitTimestamp.dwInteger);
+        {
+            ullTime = (ULONGLONG)ntohl(pInfo->RecvPacket.TransmitTimestamp.dwInteger) * 10000000;
+            ullTime += ((ULONGLONG)ntohl(pInfo->RecvPacket.TransmitTimestamp.dwFractional) * 10000000) >> 32;
+        }
     }
 
-    return ulTime;
+    return ullTime;
 }
 
 
-ULONG
+ULONGLONG
 GetServerTime(LPWSTR lpAddress)
 {
     PINFO pInfo;
     LPSTR lpAddr;
     DWORD dwSize = wcslen(lpAddress) + 1;
-    ULONG ulTime = 0;
+    ULONGLONG ulTime = 0;
 
     pInfo = (PINFO)HeapAlloc(GetProcessHeap(),
                              HEAP_ZERO_MEMORY,

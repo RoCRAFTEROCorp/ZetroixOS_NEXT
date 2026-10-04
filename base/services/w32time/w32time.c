@@ -17,8 +17,10 @@ static WCHAR ServiceName[] = L"W32Time";
 
 int InitService(VOID);
 
-BOOL
-SystemSetTime(LPSYSTEMTIME lpSystemTime)
+static ULONGLONG SlewEndTick;
+
+static BOOL
+SystemTimeChange(LPSYSTEMTIME lpSystemTime, DWORD dwAdjustment, BOOL bDisable)
 {
     HANDLE hToken;
     DWORD PrevSize;
@@ -51,7 +53,10 @@ SystemSetTime(LPSYSTEMTIME lpSystemTime)
                 /*
                  * We successfully enabled it, we're permitted to change the time.
                  */
-                Ret = SetSystemTime(lpSystemTime);
+                if (lpSystemTime)
+                    Ret = SetSystemTime(lpSystemTime);
+                else
+                    Ret = SetSystemTimeAdjustment(dwAdjustment, bDisable);
 
                 /*
                  * For the sake of security, restore the previous status again
@@ -73,6 +78,83 @@ SystemSetTime(LPSYSTEMTIME lpSystemTime)
     return Ret;
 }
 
+BOOL
+SystemSetTime(LPSYSTEMTIME lpSystemTime)
+{
+    return SystemTimeChange(lpSystemTime, 0, FALSE);
+}
+
+static VOID
+EndClockSlew(VOID)
+{
+    if (SlewEndTick)
+    {
+        SystemTimeChange(NULL, 0, TRUE);
+        SlewEndTick = 0;
+    }
+}
+
+static DWORD
+GetConfigSetting(LPCWSTR lpName, DWORD dwDefault)
+{
+    HKEY hKey;
+    DWORD dwData = dwDefault;
+    DWORD dwSize = sizeof(dwData);
+
+    if (RegOpenKeyExW(HKEY_LOCAL_MACHINE,
+                      L"SYSTEM\\CurrentControlSet\\Services\\W32Time\\Config",
+                      0,
+                      KEY_QUERY_VALUE,
+                      &hKey) == ERROR_SUCCESS)
+    {
+        if (RegQueryValueExW(hKey, lpName, NULL, NULL, (LPBYTE)&dwData, &dwSize) != ERROR_SUCCESS ||
+            dwSize != sizeof(dwData))
+        {
+            dwData = dwDefault;
+        }
+        RegCloseKey(hKey);
+    }
+
+    return dwData;
+}
+
+static BOOL
+SlewSystemTime(LONGLONG llOffset)
+{
+    DWORD dwAdjustment, dwIncrement, dwSeconds;
+    BOOL bDisabled;
+    LONGLONG llDelta;
+
+    if ((ULONGLONG)(llOffset < 0 ? -llOffset : llOffset) >
+        (ULONGLONG)GetConfigSetting(L"MaxAllowedPhaseOffset", 1) * 10000000)
+    {
+        return FALSE;
+    }
+
+    if (!GetSystemTimeAdjustment(&dwAdjustment, &dwIncrement, &bDisabled) || !dwIncrement)
+        return FALSE;
+
+    dwSeconds = GetConfigSetting(L"UpdateInterval", 360000) / 100;
+    if (!dwSeconds)
+        dwSeconds = 1;
+
+    llDelta = llOffset * (LONGLONG)dwIncrement / ((LONGLONG)dwSeconds * 10000000);
+    if ((ULONGLONG)(llDelta < 0 ? -llDelta : llDelta) > dwIncrement / 2)
+        return FALSE;
+
+    if (!llDelta)
+    {
+        EndClockSlew();
+        return TRUE;
+    }
+
+    if (!SystemTimeChange(NULL, (DWORD)((LONGLONG)dwIncrement + llDelta), FALSE))
+        return FALSE;
+
+    SlewEndTick = GetTickCount64() + (ULONGLONG)dwSeconds * 1000;
+    return TRUE;
+}
+
 
 /*
  * NTP servers state the number of seconds passed since
@@ -80,10 +162,10 @@ SystemSetTime(LPSYSTEMTIME lpSystemTime)
  * needs adding to that date to get the current Gregorian time
  */
 static DWORD
-UpdateSystemTime(ULONG ulTime)
+UpdateSystemTime(ULONGLONG ullTime, BOOL bAllowSlew)
 {
-    FILETIME ftNew;
-    LARGE_INTEGER li;
+    FILETIME ftNew, ftNow;
+    LARGE_INTEGER li, liNow;
     SYSTEMTIME stNew;
 
     /* Time at 1st Jan 1900 */
@@ -103,8 +185,18 @@ UpdateSystemTime(ULONG ulTime)
 
     /* Add on the time passed since 1st Jan 1900 */
     li = *(LARGE_INTEGER *)&ftNew;
-    li.QuadPart += (LONGLONG)10000000 * ulTime;
+    li.QuadPart += ullTime;
     ftNew = * (FILETIME *)&li;
+
+    if (bAllowSlew)
+    {
+        GetSystemTimeAsFileTime(&ftNow);
+        liNow = *(LARGE_INTEGER *)&ftNow;
+        if (SlewSystemTime(li.QuadPart - liNow.QuadPart))
+            return ERROR_SUCCESS;
+    }
+
+    EndClockSlew();
 
     /* Convert back to a system time */
     if (!FileTimeToSystemTime(&ftNew, &stNew))
@@ -160,9 +252,9 @@ GetIntervalSetting(VOID)
 
 
 DWORD
-SetTime(VOID)
+SetTime(BOOL bAllowSlew)
 {
-    ULONG ulTime;
+    ULONGLONG ulTime;
     LONG lRet;
     HKEY hKey;
     WCHAR szData[MAX_VALUE_NAME] = L"";
@@ -202,7 +294,7 @@ SetTime(VOID)
 
     if (ulTime != 0)
     {
-        return UpdateSystemTime(ulTime);
+        return UpdateSystemTime(ulTime, bAllowSlew);
     }
     else
         return ERROR_GEN_FAILURE;
@@ -306,7 +398,7 @@ W32TmServiceMain(DWORD argc, LPWSTR *argv)
 
         if (!bNoSync)
         {
-            error = SetTime();
+            error = SetTime(TRUE);
             if (error != ERROR_SUCCESS)
             {
                 DPRINT("W32Time Service failed to set clock: 0x%08lX\n", error);
@@ -329,8 +421,19 @@ W32TmServiceMain(DWORD argc, LPWSTR *argv)
             }
         }
 
+        if (SlewEndTick)
+        {
+            ULONGLONG ullNow = GetTickCount64();
+
+            if (ullNow >= SlewEndTick)
+                EndClockSlew();
+            else
+                dwWaitInterval = min(dwWaitInterval, (DWORD)((SlewEndTick - ullNow + 999) / 1000));
+        }
+
         if (WaitForSingleObject(hStopEvent, dwWaitInterval * 1000) == WAIT_OBJECT_0)
         {
+            EndClockSlew();
             CloseHandle(hStopEvent);
             hStopEvent = NULL;
 
@@ -370,7 +473,7 @@ W32TimeSyncNow(LPCWSTR cmdline,
                UINT flags)
 {
     DWORD result;
-    result = SetTime();
+    result = SetTime(FALSE);
     if (result)
     {
         DPRINT("W32TimeSyncNow failed and clock not set.\n");
