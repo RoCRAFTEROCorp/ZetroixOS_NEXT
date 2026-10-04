@@ -1118,8 +1118,13 @@ static HRESULT WINAPI IPropertyStorage_fnSetTimes(
     const FILETIME* patime,
     const FILETIME* pmtime)
 {
+#ifdef __REACTOS__
+    TRACE("%p, %p, %p, %p\n", iface, pctime, patime, pmtime);
+    return S_OK;
+#else
     FIXME("\n");
     return E_NOTIMPL;
+#endif
 }
 
 /************************************************************************
@@ -2794,9 +2799,30 @@ static HRESULT WINAPI enum_stat_propset_stg_Next(IEnumSTATPROPSETSTG *iface, ULO
 
 static HRESULT WINAPI enum_stat_propset_stg_Skip(IEnumSTATPROPSETSTG *iface, ULONG celt)
 {
+#ifdef __REACTOS__
+    struct enum_stat_propset_stg *psenum = impl_from_IEnumSTATPROPSETSTG(iface);
+    ULONG count = 0;
+
+    TRACE("%p, %lu.\n", iface, celt);
+
+    if (psenum->current == ~0u)
+        psenum->current = 0;
+
+    if (!celt)
+        celt = ~0u;
+
+    while (count < celt && psenum->current < psenum->count)
+    {
+        psenum->current++;
+        count++;
+    }
+
+    return count < celt ? S_FALSE : S_OK;
+#else
     FIXME("%p, %lu.\n", iface, celt);
 
     return S_OK;
+#endif
 }
 
 static HRESULT WINAPI enum_stat_propset_stg_Reset(IEnumSTATPROPSETSTG *iface)
