@@ -507,7 +507,21 @@ LSTATUS query_device_interface_property( HKEY hkey, const struct device_interfac
         const struct property_desc *desc = device_interface_properties + i;
         if (memcmp( desc->key, &prop->key, sizeof(prop->key) )) continue;
         if (!desc->name) return query_property( hkey, prefix, desc->type, prop );
+#ifdef __REACTOS__
+        {
+            WCHAR params[MAX_PATH];
+            HKEY params_key;
+            LSTATUS err;
+
+            swprintf( params, ARRAY_SIZE(params), L"%s\\Device Parameters", iface->refstr );
+            if ((err = open_key( hkey, params, KEY_QUERY_VALUE, TRUE, &params_key ))) return err;
+            err = query_named_property( params_key, desc->name, desc->type, prop );
+            RegCloseKey( params_key );
+            return err;
+        }
+#else
         return query_named_property( hkey, desc->name, desc->type, prop );
+#endif
     }
 
     return query_property( hkey, prefix, DEVPROP_TYPE_EMPTY, prop );
@@ -542,10 +556,17 @@ LSTATUS enum_device_interface_property_keys( HKEY hkey, const struct device_inte
     if (capacity < ++count || !buffer) err = ERROR_MORE_DATA;
     else buffer[count - 1] = DEVPKEY_DeviceInterface_ClassGuid;
 
+#ifdef __REACTOS__
+    swprintf( path, ARRAY_SIZE(path), L"%s\\Device Parameters", iface->refstr );
+#endif
     for (UINT i = 0; i < ARRAY_SIZE(device_interface_properties); i++)
     {
         const struct property_desc *desc = device_interface_properties + i;
+#ifdef __REACTOS__
+        if (desc->name && !RegGetValueW( hkey, path, desc->name, RRF_RT_ANY, NULL, NULL, NULL ))
+#else
         if (desc->name && !RegQueryValueExW( hkey, desc->name, NULL, NULL, NULL, NULL ))
+#endif
         {
             if (capacity < ++count || !buffer) err = ERROR_MORE_DATA;
             else buffer[count - 1] = *desc->key;
