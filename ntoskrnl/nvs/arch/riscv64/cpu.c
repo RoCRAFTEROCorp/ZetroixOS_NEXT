@@ -29,6 +29,7 @@ MiInitializeKernelVaLayout(
     }
 
     MmSystemRangeStart = (PVOID)(ULONG_PTR)MiArchDescribe()->SystemAddressStart;
+    MiRiscvPbmtEnabled = (KiRiscvQueryFeatureFlags() & KI_RISCV_FEATURE_SVPBMT) != 0;
 }
 
 VOID
@@ -42,7 +43,8 @@ MiArchSyncInstructionCache(
 NTSTATUS
 MiArchSetFrameCache(ULONG Frame, ULONG Flags)
 {
-    UNREFERENCED_PARAMETER(Frame);
+    if (MiRiscvPbmtEnabled)
+        return MiSetDirectFrameCache(Frame, Flags);
     return Flags == 0 ? STATUS_SUCCESS : STATUS_NOT_SUPPORTED;
 }
 

@@ -26,6 +26,23 @@ static const MI_PTE MiRiscvAccess[8] =
     MI_RISCV_PTE_READ | MI_RISCV_PTE_EXECUTE | MI_RISCV_PTE_COPYONWRITE
 };
 
+BOOLEAN MiRiscvPbmtEnabled;
+
+static
+MI_PTE
+MiRiscvCacheBits(_In_ ULONG Flags)
+{
+    if (!MiRiscvPbmtEnabled)
+        return 0;
+    if (Flags & MI_LEAF_DEVICE)
+        return MI_RISCV_PTE_PBMT_IO;
+    if (Flags & MI_LEAF_NOCACHE)
+        return MI_RISCV_PTE_PBMT_NC;
+    if (Flags & MI_LEAF_WRITECOMBINE)
+        return MI_RISCV_PTE_PBMT_NC | MI_RISCV_PTE_WRITECOMBINE;
+    return 0;
+}
+
 MI_PTE
 MiArchPteMakeLeaf(
     _In_ ULONG64 Frame,
@@ -51,12 +68,7 @@ MiArchPteMakeLeaf(
     if ((Pte & MI_RISCV_PTE_WRITE) && (Flags & MI_LEAF_DIRTY))
         Pte |= MI_RISCV_PTE_DIRTY;
 
-    /* Caching comes from the platform's physical memory attributes: device
-     * ranges are already I/O and RAM stays cacheable, which the coherent DMA
-     * the HAL requires allows. No Svpbmt type is encoded: a non-cacheable
-     * alias of RAM would need cache-block maintenance against the cacheable
-     * direct map. */
-    return Pte;
+    return Pte | MiRiscvCacheBits(Flags);
 }
 
 MI_PTE
@@ -97,8 +109,7 @@ MiArchPteBlockToPage(MI_PTE Pte, ULONG64 Frame)
 MI_PTE
 MiArchPteWithCache(MI_PTE Pte, ULONG Flags)
 {
-    UNREFERENCED_PARAMETER(Flags);
-    return Pte;
+    return (Pte & ~(MI_RISCV_PTE_PBMT_MASK | MI_RISCV_PTE_WRITECOMBINE)) | MiRiscvCacheBits(Flags);
 }
 
 ULONG64
@@ -128,9 +139,15 @@ MiArchPteIsCopyOnWrite(_In_ MI_PTE Pte)
 ULONG
 MiArchPteLeafFlags(_In_ MI_PTE Pte)
 {
-    /* Leaves carry no cache attribute (see MiArchPteMakeLeaf). */
-    UNREFERENCED_PARAMETER(Pte);
-    return 0;
+    switch (Pte & MI_RISCV_PTE_PBMT_MASK)
+    {
+        case MI_RISCV_PTE_PBMT_IO:
+            return MI_LEAF_DEVICE;
+        case MI_RISCV_PTE_PBMT_NC:
+            return (Pte & MI_RISCV_PTE_WRITECOMBINE) ? MI_LEAF_WRITECOMBINE : MI_LEAF_NOCACHE;
+        default:
+            return 0;
+    }
 }
 
 BOOLEAN

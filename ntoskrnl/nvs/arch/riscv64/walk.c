@@ -61,8 +61,14 @@ MiRiscvWalkPageTables(
         if (!Value.u.Hard.Valid)
             return STATUS_NOT_MAPPED_VIEW;
 
-        if ((Value.u.Long & (MI_RISCV_PTE_RESERVED | MI_RISCV_PTE_PBMT_MASK | MI_RISCV_PTE_NAPOT)) ||
+        if ((Value.u.Long & (MI_RISCV_PTE_RESERVED | MI_RISCV_PTE_NAPOT)) ||
             (Value.u.Hard.Write && !Value.u.Hard.Read))
+        {
+            return STATUS_INVALID_ADDRESS;
+        }
+        if ((Value.u.Long & MI_RISCV_PTE_PBMT_MASK) &&
+            (!MiRiscvPbmtEnabled || !(Value.u.Long & MI_RISCV_PTE_LEAF_MASK) ||
+             (Value.u.Long & MI_RISCV_PTE_PBMT_MASK) == MI_RISCV_PTE_PBMT_MASK))
         {
             return STATUS_INVALID_ADDRESS;
         }

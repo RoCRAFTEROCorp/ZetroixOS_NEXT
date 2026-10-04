@@ -51,6 +51,7 @@ DBG_DEFAULT_CHANNEL(WINDOWS);
  * direct map may use large leaves; KSEG0 must consist of level-0 leaves only
  * (RISCV64_LOADER_FLAG_KSEG0_4K). */
 #define RISCV64_MAP_LEVEL_ANY          2
+#define RISCV64_MAP_LEVEL_2M           1
 #define RISCV64_MAP_LEVEL_4K           0
 
 typedef enum _RISCV64_MAP_RESULT
@@ -1085,7 +1086,7 @@ RiscvMapDirectMapRun(
                        Start << RISCV64_PAGE_SHIFT,
                        Count << RISCV64_PAGE_SHIFT,
                        RISCV64_PTE_DATA_LEAF,
-                       RISCV64_MAP_LEVEL_ANY))
+                       RISCV64_MAP_LEVEL_2M))
     {
         return FALSE;
     }
