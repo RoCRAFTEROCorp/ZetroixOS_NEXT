@@ -1219,6 +1219,10 @@ typedef struct tagITypeInfoImpl
     LONG ref;
     BOOL not_attached_to_typelib;
     BOOL needs_layout;
+#ifdef __REACTOS__
+    struct tagITypeInfoImpl *dual_view;
+    struct tagITypeInfoImpl *dual_parent;
+#endif
 
     TLBGuid *guid;
     TYPEATTR typeattr;
@@ -8733,7 +8737,15 @@ static HRESULT WINAPI ITypeInfo_fnQueryInterface(
 static ULONG WINAPI ITypeInfo_fnAddRef( ITypeInfo2 *iface)
 {
     ITypeInfoImpl *This = impl_from_ITypeInfo2(iface);
+#ifdef __REACTOS__
+    ULONG ref;
+
+    if (This->dual_parent)
+        return ITypeInfo2_AddRef(&This->dual_parent->ITypeInfo2_iface);
+    ref = InterlockedIncrement(&This->ref);
+#else
     ULONG ref = InterlockedIncrement(&This->ref);
+#endif
 
     TRACE("%p, refcount %lu.\n", iface, ref);
 
@@ -8822,13 +8834,24 @@ static void ITypeInfoImpl_Destroy(ITypeInfoImpl *This)
 
     TLB_FreeCustData(&This->custdata_list);
 
+#ifdef __REACTOS__
+    free(This->dual_view);
+#endif
     free(This);
 }
 
 static ULONG WINAPI ITypeInfo_fnRelease(ITypeInfo2 *iface)
 {
     ITypeInfoImpl *This = impl_from_ITypeInfo2(iface);
+#ifdef __REACTOS__
+    ULONG ref;
+
+    if (This->dual_parent)
+        return ITypeInfo2_Release(&This->dual_parent->ITypeInfo2_iface);
+    ref = InterlockedDecrement(&This->ref);
+#else
     ULONG ref = InterlockedDecrement(&This->ref);
+#endif
 
     TRACE("%p, refcount %lu.\n", iface, ref);
 
@@ -8836,8 +8859,16 @@ static ULONG WINAPI ITypeInfo_fnRelease(ITypeInfo2 *iface)
     {
         BOOL not_attached_to_typelib = This->not_attached_to_typelib;
         ITypeLib2_Release(&This->pTypeLib->ITypeLib2_iface);
+#ifdef __REACTOS__
+        if (not_attached_to_typelib)
+        {
+            free(This->dual_view);
+            free(This);
+        }
+#else
         if (not_attached_to_typelib)
             free(This);
+#endif
         /* otherwise This will be freed when typelib is freed */
     }
 
@@ -11061,6 +11092,42 @@ static HRESULT WINAPI ITypeInfo_fnGetRefTypeInfo(
                     This->typeattr.typekind == TKIND_DISPATCH))
             return TYPE_E_ELEMENTNOTFOUND;
 
+#ifdef __REACTOS__
+        if (This->dual_parent)
+        {
+            *ppTInfo = (ITypeInfo *)&This->dual_parent->ITypeInfo2_iface;
+            ITypeInfo_AddRef(*ppTInfo);
+            return S_OK;
+        }
+
+        pTypeInfoImpl = This->dual_view;
+        if (!pTypeInfoImpl)
+        {
+            pTypeInfoImpl = ITypeInfoImpl_Constructor();
+            if (!pTypeInfoImpl)
+                return E_OUTOFMEMORY;
+            if (InterlockedCompareExchangePointer((void **)&This->dual_view, pTypeInfoImpl, NULL))
+            {
+                free(pTypeInfoImpl);
+                pTypeInfoImpl = This->dual_view;
+            }
+        }
+
+        *pTypeInfoImpl = *This;
+        pTypeInfoImpl->ref = 0;
+        list_init(&pTypeInfoImpl->custdata_list);
+        pTypeInfoImpl->dual_view = NULL;
+        pTypeInfoImpl->dual_parent = This;
+
+        if (This->typeattr.typekind == TKIND_INTERFACE)
+            pTypeInfoImpl->typeattr.typekind = TKIND_DISPATCH;
+        else
+            pTypeInfoImpl->typeattr.typekind = TKIND_INTERFACE;
+
+        *ppTInfo = (ITypeInfo *)&pTypeInfoImpl->ITypeInfo2_iface;
+        pTypeInfoImpl->not_attached_to_typelib = TRUE;
+        ITypeInfo_AddRef(*ppTInfo);
+#else
         /* when we meet a DUAL typeinfo, we must create the alternate
         * version of it.
         */
@@ -11083,6 +11150,7 @@ static HRESULT WINAPI ITypeInfo_fnGetRefTypeInfo(
         pTypeInfoImpl->not_attached_to_typelib = TRUE;
         ITypeInfo_AddRef(*ppTInfo);
 
+#endif
         TRACE("got dual interface %p\n", *ppTInfo);
         return S_OK;
     }
