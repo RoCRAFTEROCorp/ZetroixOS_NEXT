@@ -213,6 +213,8 @@
 
 ; ReactOS-private kernel/HAL bridge on RISC-V.
 @ stdcall -arch=riscv64 HalpRiscvClockInterrupt(ptr)
+@ stdcall -arch=riscv64 HalpRiscvSuspendClockTick()
+@ stdcall -arch=riscv64 HalpRiscvResumeClockTick()
 @ stdcall -arch=riscv64 HalpRiscvClaimPlicInterrupt()
 @ stdcall -arch=riscv64 HalpRiscvCompletePlicInterrupt(long)
 @ stdcall -arch=riscv64 HalpRiscvQueryProcessorHartId(long ptr)

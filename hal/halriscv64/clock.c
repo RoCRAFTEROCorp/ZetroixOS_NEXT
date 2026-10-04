@@ -18,6 +18,7 @@ typedef struct _HAL_RISCV_CLOCK
     ULONG64 Period;
     ULONG Increment;
     ULONG64 ProfileElapsed;
+    BOOLEAN Suspended;
 } HAL_RISCV_CLOCK;
 static HAL_RISCV_CLOCK HalpRiscvClocks[MAXIMUM_PROCESSORS];
 static BOOLEAN HalpProfileEnabled;
@@ -93,6 +94,39 @@ HalpRiscvStartClock(VOID)
     Clock->Period = HalpRiscvIncrementToTicks(Clock->Increment);
     Clock->Deadline = HalpRiscvReadTime() + Clock->Period;
     HalpRiscvWriteClockDeadline(Clock->Deadline);
+}
+
+VOID
+NTAPI
+HalpRiscvSuspendClockTick(VOID)
+{
+    ULONG Number = KeGetCurrentProcessorNumber();
+    HAL_RISCV_CLOCK *Clock = &HalpRiscvClocks[Number];
+
+    if ((Number == 0) || Clock->Suspended || HalpProfileEnabled)
+        return;
+    Clock->Suspended = TRUE;
+    HalpRiscvWriteClockDeadline(~0ULL);
+}
+
+ULONG
+NTAPI
+HalpRiscvResumeClockTick(VOID)
+{
+    HAL_RISCV_CLOCK *Clock = &HalpRiscvClocks[KeGetCurrentProcessorNumber()];
+    ULONG64 Now, Skipped = 0;
+
+    if (!Clock->Suspended)
+        return 0;
+    Clock->Suspended = FALSE;
+    Now = HalpRiscvReadTime();
+    if ((LONG64)(Now - Clock->Deadline) >= 0)
+    {
+        Skipped = (Now - Clock->Deadline) / Clock->Period + 1;
+        Clock->Deadline += Skipped * Clock->Period;
+    }
+    HalpRiscvWriteClockDeadline(Clock->Deadline);
+    return (ULONG)min(Skipped, MAXULONG);
 }
 
 /* Called by the kernel at CLOCK_LEVEL with interrupts masked. */

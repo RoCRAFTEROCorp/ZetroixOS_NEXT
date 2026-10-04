@@ -255,6 +255,8 @@ ULONG NTAPI KiRiscvQueryInterruptLimit(VOID);
 /* Clock ISR exported by hal.dll (hal.spec, -arch=riscv64): rearms the
  * supervisor timer deadline and calls KeUpdateSystemTime at CLOCK_LEVEL. */
 NTHALAPI VOID NTAPI HalpRiscvClockInterrupt(_In_ PKTRAP_FRAME TrapFrame);
+NTHALAPI VOID NTAPI HalpRiscvSuspendClockTick(VOID);
+NTHALAPI ULONG NTAPI HalpRiscvResumeClockTick(VOID);
 DECLSPEC_NORETURN VOID NTAPI KiRiscvUnimplemented(_In_ const CHAR *Routine);
 ULONG NTAPI KeGetCurrentProcessorNumber(VOID);
 PKTRAP_FRAME NTAPI KeGetTrapFrame(_In_ PKTHREAD Thread);
