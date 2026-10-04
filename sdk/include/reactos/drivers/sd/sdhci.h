@@ -527,6 +527,7 @@ typedef struct _SDHCI_ADMA2_DESCRIPTOR_64 {
 #define EMMC_EXT_CSD_SEC_COUNT          212 /* 4 bytes: sector count */
 #define EMMC_EXT_CSD_DEVICE_TYPE        196 /* 1 byte: device type */
 #define EMMC_EXT_CSD_HS_TIMING          185 /* 1 byte: high-speed timing */
+#define EMMC_EXT_CSD_STROBE_SUPPORT     184 /* 1 byte: enhanced strobe support */
 #define EMMC_EXT_CSD_BUS_WIDTH          183 /* 1 byte: bus width mode */
 #define EMMC_EXT_CSD_REV                192 /* 1 byte: EXT_CSD revision */
 #define EMMC_EXT_CSD_POWER_CLASS        187 /* 1 byte: power class */
@@ -545,6 +546,7 @@ typedef struct _SDHCI_ADMA2_DESCRIPTOR_64 {
 #define EMMC_BUS_WIDTH_8                0x02
 #define EMMC_BUS_WIDTH_4_DDR            0x05
 #define EMMC_BUS_WIDTH_8_DDR            0x06
+#define EMMC_BUS_WIDTH_STROBE           0x80
 
 /* eMMC timing modes for EXT_CSD[185] */
 #define EMMC_TIMING_LEGACY              0x00
