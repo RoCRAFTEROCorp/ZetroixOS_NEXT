@@ -1387,11 +1387,11 @@ DoUpdate:
         }
 
         /* Set the default pagefile entry */
-        SetDefaultPagefile(DestinationDriveLetter);
+        SetDefaultPagefile(L'C');
 
         /* Update the mounted devices list */
         // FIXME: This should technically be done by mountmgr (if AutoMount is enabled)!
-        SetMountedDeviceValues(PartitionList);
+        SetMountedDeviceValues(PartitionList, &pSetupData->DestinationRootPath);
     }
 
 #ifdef __REACTOS__

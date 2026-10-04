@@ -39,6 +39,7 @@ list(APPEND SOURCE
 add_library(setuplib_static ${SOURCE})
 add_pch(setuplib_static precomp.h SOURCE)
 add_dependencies(setuplib_static xdk) # psdk
+target_link_libraries(setuplib_static gptsup)
 
 add_library(setuplib SHARED
     main.c

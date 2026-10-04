@@ -946,7 +946,9 @@ GetPartitionTypeString(
     {
         /* Do the table lookup */
         PCSTR Description = LookupPartitionTypeString(PartEntry->DiskEntry->DiskStyle,
-                                                      &PartEntry->PartitionType);
+                                                      (PartEntry->DiskEntry->DiskStyle == PARTITION_STYLE_GPT)
+                                                          ? (PVOID)&PartEntry->PartitionTypeGuid
+                                                          : (PVOID)&PartEntry->PartitionType);
         if (Description)
         {
             StringCchCopyA(strBuffer, cchBuffer, Description);
@@ -1486,6 +1488,54 @@ DoCreatePartition(
     }
     ASSERT(!PartEntry->Volume);
 #endif
+
+    if (!PartitionInfo && !PartEntry->IsPartitioned && GptDiskNeedsSystemPartitions(PartEntry))
+    {
+        PPARTENTRY EfiPart, ReservedPart;
+        PPARTITEM EfiItem;
+        PVOL_CREATE_INFO VolCreate = PartItem->VolCreate;
+        PVOL_CREATE_INFO EfiCreate;
+        HTLITEM hEfiItem, hReservedItem;
+
+        hParentItem = TreeList_GetParent(hList, *phItem);
+        hInsertAfter = TreeList_GetPrevSibling(hList, *phItem);
+        if (!hInsertAfter)
+            hInsertAfter = TVI_FIRST;
+
+        if (!CreateGptSystemPartitions(List, &PartEntry, &EfiPart, &ReservedPart) || !PartEntry)
+            return FALSE;
+
+        PartItem->VolCreate = NULL;
+        TreeList_DeleteItem(hList, *phItem);
+
+        hEfiItem = PrintPartitionData(hList, hParentItem, hInsertAfter, EfiPart);
+        hReservedItem = PrintPartitionData(hList, hParentItem, hEfiItem, ReservedPart);
+        EfiItem = GetItemPartition(hList, hEfiItem);
+        EfiCreate = LocalAlloc(LPTR, sizeof(*EfiCreate));
+        if (EfiItem && EfiCreate)
+        {
+            StringCchCopyW(EfiCreate->FileSystemName, _countof(EfiCreate->FileSystemName), L"FAT32");
+            EfiCreate->MediaFlag = FMIFS_HARDDISK;
+            EfiCreate->Label = L"System";
+            EfiCreate->QuickFormat = TRUE;
+            EfiCreate->ClusterSize = 0;
+            EfiCreate->Volume = EfiItem->Volume;
+            EfiItem->VolCreate = EfiCreate;
+        }
+        else if (EfiCreate)
+        {
+            LocalFree(EfiCreate);
+        }
+
+        *phItem = PrintPartitionData(hList, hParentItem, hReservedItem, PartEntry);
+        PartItem = GetItemPartition(hList, *phItem);
+        PartItem->VolCreate = VolCreate;
+        if (pPartItem)
+            *pPartItem = PartItem;
+
+        if (SizeBytes > GetPartEntrySizeInBytes(PartEntry))
+            SizeBytes = 0;
+    }
 
     Success = CreatePartition(List,
                               PartEntry,
@@ -2097,6 +2147,17 @@ DisableWizNext:
                     }
                     PartEntry = PartItem->PartEntry;
                     ASSERT(PartEntry);
+
+                    if (PartEntry->IsPartitioned &&
+                        (PartEntry->DiskEntry->DiskStyle == PARTITION_STYLE_GPT) &&
+                        (PartEntry->PartitionType != PARTITION_IFS))
+                    {
+                        DisplayMessage(hwndDlg, MB_OK | MB_ICONERROR, NULL,
+                                       L"LiberNT cannot be installed on this partition.\n"
+                                       L"Select a basic data partition or unpartitioned space.");
+                        SetWindowLongPtrW(hwndDlg, DWLP_MSGRESULT, -1);
+                        return TRUE;
+                    }
 
                     /*
                      * Check whether the user wants to install ReactOS on a disk that

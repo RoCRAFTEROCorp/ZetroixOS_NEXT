@@ -71,6 +71,10 @@ typedef struct _PARTENTRY
 
     BOOLEAN BootIndicator;  // NOTE: See comment for the PARTLIST::SystemPartition member.
     UCHAR PartitionType;
+    GUID PartitionTypeGuid;
+    GUID PartitionGuid;
+    ULONG64 GptAttributes;
+    WCHAR GptName[36];
     ULONG OnDiskPartitionNumber; /* Enumerated partition number (primary partitions first, excluding the extended partition container, then the logical partitions) */
     ULONG PartitionNumber;       /* Current partition number, only valid for the currently running NTOS instance */
     ULONG PartitionIndex;        /* Index in the LayoutBuffer->PartitionEntry[] cached array of the corresponding DiskEntry */
@@ -141,6 +145,7 @@ typedef struct _DISKENTRY
     UNICODE_STRING DriverName;
 
     PDRIVE_LAYOUT_INFORMATION LayoutBuffer;
+    PDRIVE_LAYOUT_INFORMATION_EX LayoutBufferEx;
     // TODO: When adding support for GPT disks:
     // Use PDRIVE_LAYOUT_INFORMATION_EX which indicates whether
     // the disk is MBR, GPT, or unknown (uninitialized).
@@ -352,6 +357,19 @@ PartitionCreateChecks(
 
 BOOLEAN
 NTAPI
+GptDiskNeedsSystemPartitions(
+    _In_ PPARTENTRY PartEntry);
+
+BOOLEAN
+NTAPI
+CreateGptSystemPartitions(
+    _In_ PPARTLIST List,
+    _Inout_ PPARTENTRY* Region,
+    _Out_ PPARTENTRY* EfiPartition,
+    _Out_ PPARTENTRY* ReservedPartition);
+
+BOOLEAN
+NTAPI
 CreatePartition(
     _In_ PPARTLIST List,
     _Inout_ PPARTENTRY PartEntry,
@@ -388,7 +406,8 @@ WritePartitionsToDisk(
 
 BOOLEAN
 SetMountedDeviceValues(
-    _In_ PPARTLIST List);
+    _In_ PPARTLIST List,
+    _In_ PCUNICODE_STRING SystemRootPath);
 
 VOID
 SetMBRPartitionType(

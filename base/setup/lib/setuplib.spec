@@ -28,6 +28,8 @@
 ;; partlist
 @ stdcall CreatePartitionList()
 @ stdcall CreatePartition(ptr ptr int64 ptr)
+@ stdcall CreateGptSystemPartitions(ptr ptr ptr ptr)
+@ stdcall GptDiskNeedsSystemPartitions(ptr)
 @ stdcall DeletePartition(ptr ptr ptr)
 @ stdcall DestroyPartitionList(ptr)
 @ stdcall GetNextPartition(ptr ptr)

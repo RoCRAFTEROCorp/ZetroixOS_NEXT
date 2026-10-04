@@ -51,7 +51,9 @@ GetPartitionTypeString(
     {
         /* Do the table lookup */
         PCSTR Description = LookupPartitionTypeString(PartEntry->DiskEntry->DiskStyle,
-                                                      &PartEntry->PartitionType);
+                                                      (PartEntry->DiskEntry->DiskStyle == PARTITION_STYLE_GPT)
+                                                          ? (PVOID)&PartEntry->PartitionTypeGuid
+                                                          : (PVOID)&PartEntry->PartitionType);
         if (Description)
         {
             RtlStringCchCopyA(strBuffer, cchBuffer, Description);

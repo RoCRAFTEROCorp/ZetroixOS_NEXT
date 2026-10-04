@@ -966,6 +966,45 @@ InstallEfiLoaderFiles(
 
 static
 NTSTATUS
+InstallEfiSystemPartition(
+    _In_ PCUNICODE_STRING SystemRootPath,
+    _In_ PCUNICODE_STRING SourceRootPath,
+    _In_ PCUNICODE_STRING DestinationArcPath)
+{
+    NTSTATUS Status;
+    WCHAR SrcDir[MAX_PATH];
+
+    CombinePaths(SrcDir, ARRAYSIZE(SrcDir), 2, SourceRootPath->Buffer, L"efi\\boot");
+    if (!DoesDirExist(NULL, SrcDir))
+    {
+        DPRINT1("No EFI loader in %S\n", SrcDir);
+        return STATUS_NOT_FOUND;
+    }
+
+    Status = InstallEfiLoaderFiles(SystemRootPath, SourceRootPath);
+    if (!NT_SUCCESS(Status))
+    {
+        DPRINT1("InstallEfiLoaderFiles() failed (Status %lx)\n", Status);
+        return Status;
+    }
+
+    if (DoesFileExist_2(SystemRootPath->Buffer, L"freeldr.ini"))
+    {
+        DPRINT1("Update existing 'freeldr.ini' on the EFI system partition\n");
+        Status = UpdateFreeLoaderIni(SystemRootPath->Buffer, DestinationArcPath->Buffer);
+    }
+    else
+    {
+        DPRINT1("Create new 'freeldr.ini' on the EFI system partition\n");
+        Status = CreateFreeLoaderIniForReactOS(SystemRootPath->Buffer, DestinationArcPath->Buffer);
+    }
+    if (!NT_SUCCESS(Status))
+        DPRINT1("Writing 'freeldr.ini' failed (Status %lx)\n", Status);
+    return Status;
+}
+
+static
+NTSTATUS
 InstallFatBootcodeToPartition(
     _In_ PCUNICODE_STRING SystemRootPath,
     _In_ PCUNICODE_STRING SourceRootPath,
@@ -1549,6 +1588,9 @@ InstallBootManagerAndBootEntriesWorker(
     BOOLEAN IsBIOS = ((ArchType == ARCH_PcAT) || (ArchType == ARCH_NEC98x86));
     UCHAR InstallType = (Options & 0x03);
 
+    if (DiskStyle == PARTITION_STYLE_GPT)
+        return InstallEfiSystemPartition(SystemRootPath, SourceRootPath, DestinationArcPath);
+
     // FIXME: We currently only support BIOS-based PCs
     // TODO: Support other platforms
     if (!IsBIOS)
@@ -1843,6 +1885,14 @@ InstallBootManagerAndBootEntries(
             goto Quit;
         }
 
+        if (DiskGeoEx.Partition.PartitionStyle == PARTITION_STYLE_GPT)
+        {
+            DiskNumber = DeviceNumber.DeviceNumber;
+            PartitionStyle = PARTITION_STYLE_GPT;
+            IsSuperFloppy = FALSE;
+            goto InstallBootManager;
+        }
+
         /*
          * Retrieve the volume's partition information.
          * NOTE: Fails for floppy disks.
@@ -1872,6 +1922,7 @@ InstallBootManagerAndBootEntries(
                                            &PartitionInfo);
     }
 
+InstallBootManager:
     Status = InstallBootManagerAndBootEntriesWorker(
                 ArchType, SystemRootPath,
                 DiskNumber, PartitionStyle, IsSuperFloppy, FileSystem,
