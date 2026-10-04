@@ -168,7 +168,7 @@ CSR_API(SrvLogon)
 {
     PUSER_LOGON LogonRequest = &((PUSER_API_MESSAGE)ApiMessage)->Data.LogonRequest;
 
-    DPRINT1("We are logged %s\n", LogonRequest->IsLogon ? "on" : "off");
+    DPRINT("We are logged %s\n", LogonRequest->IsLogon ? "on" : "off");
 
     /* Impersonate the caller in order to retrieve settings in its context */
     if (!CsrImpersonateClient(NULL))

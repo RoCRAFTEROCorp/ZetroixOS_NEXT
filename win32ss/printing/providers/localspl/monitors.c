@@ -262,7 +262,7 @@ InitializePrintMonitorList(void)
                 ERR("InitializePrintMonitor2 failed for \"%S\" with error %lu!\n", pPrintMonitor->pwszFileName, GetLastError());
                 continue;
             }
-            FIXME("InitializePrintMonitor2 loaded.\n");
+            TRACE("InitializePrintMonitor2 loaded.\n");
             pPrintMonitor->bIsLevel2 = TRUE;
         }
         else
@@ -301,7 +301,7 @@ InitializePrintMonitorList(void)
 
         // Add this Print Monitor to the list.
         InsertTailList(&PrintMonitorList, &pPrintMonitor->Entry);
-        FIXME("InitializePrintMonitorList Handle %p\n",pPrintMonitor->hMonitor);
+        TRACE("InitializePrintMonitorList Handle %p\n",pPrintMonitor->hMonitor);
         pPrintMonitor->refcount++;
 
         // Don't let the cleanup routine free this.

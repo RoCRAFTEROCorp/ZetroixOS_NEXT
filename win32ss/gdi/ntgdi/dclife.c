@@ -903,7 +903,7 @@ GreCreateCompatibleDC(HDC hdc, BOOL bAltDc)
 
     if (!ppdev)
     {
-        DPRINT1("Didn't find a suitable PDEV\n");
+        DPRINT("Didn't find a suitable PDEV\n");
         return NULL;
     }
 

@@ -231,7 +231,7 @@ InitializeFormList(VOID)
     PFORM_INFO_LIST pfil;
     REGISTRYFORMINFO rfi;
 
-    FIXME("InitializeFormList\n");
+    TRACE("InitializeFormList\n");
 
     dwErrorCode = (DWORD)RegCreateKeyExW( HKEY_LOCAL_MACHINE,
                                          L"SYSTEM\\CurrentControlSet\\Control\\Print\\Forms",

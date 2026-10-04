@@ -115,7 +115,7 @@ InitializePrinterDrivers(VOID)
     // HAX! need to get it from the Reg Key L"Driver"!
     StringCbCatW(wszDriverPath, sizeof(wszDriverPath), L"UniDrv.dll");
 
-    FIXME("DriverPath : %S\n",wszDriverPath);
+    TRACE("DriverPath : %S\n",wszDriverPath);
 
     return TRUE;
 }
@@ -789,7 +789,7 @@ BOOL WINAPI LocalGetPrinterDriverDirectory(PWSTR pName, PWSTR pEnvironment, DWOR
     const PRINTENV_T * env = NULL;
     WCHAR * const dir = (WCHAR *)pDriverDirectory;
 
-    FIXME("LocalGetPrinterDriverDirectory(%S, %S, %lu, %p, %lu, %p)\n", pName, pEnvironment, Level, pDriverDirectory, cbBuf, pcbNeeded);
+    TRACE("LocalGetPrinterDriverDirectory(%S, %S, %lu, %p, %lu, %p)\n", pName, pEnvironment, Level, pDriverDirectory, cbBuf, pcbNeeded);
 
     if (pName != NULL && pName[0])
     {
@@ -833,7 +833,7 @@ BOOL WINAPI LocalGetPrinterDriverDirectory(PWSTR pName, PWSTR pEnvironment, DWOR
     lstrcatW( dir, env->subdir );
     CreateDirectoryW( dir, NULL );
 
-    FIXME( "=> %s\n", debugstr_w( dir ) );
+    TRACE( "=> %s\n", debugstr_w( dir ) );
     return TRUE;
 }
 
