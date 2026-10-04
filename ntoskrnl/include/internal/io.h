@@ -910,6 +910,15 @@ IopCreateArcNames(
 CODE_SEG("INIT")
 NTSTATUS
 NTAPI
+IopCreateArcNamesDisk(
+    IN PLOADER_PARAMETER_BLOCK LoaderBlock,
+    IN BOOLEAN SingleDisk,
+    OUT PBOOLEAN FoundBoot
+);
+
+CODE_SEG("INIT")
+NTSTATUS
+NTAPI
 IopReassignSystemRoot(
     IN PLOADER_PARAMETER_BLOCK LoaderBlock,
     OUT PANSI_STRING NtBootPath

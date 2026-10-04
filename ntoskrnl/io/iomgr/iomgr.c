@@ -481,6 +481,37 @@ IopMarkBootPartition(IN PLOADER_PARAMETER_BLOCK LoaderBlock)
 
 CODE_SEG("INIT")
 static
+BOOLEAN
+IopIsBootDiskPresent(IN PLOADER_PARAMETER_BLOCK LoaderBlock)
+{
+    PARC_DISK_INFORMATION ArcDiskInformation = LoaderBlock->ArcDiskInformation;
+    PARC_DISK_SIGNATURE ArcDiskSignature;
+    PLIST_ENTRY NextEntry;
+    BOOLEAN FoundBoot = FALSE;
+
+    if (!IoGetConfigurationInformation()->DiskCount)
+        return FALSE;
+
+    for (NextEntry = ArcDiskInformation->DiskSignatureListHead.Flink;
+         NextEntry != &ArcDiskInformation->DiskSignatureListHead;
+         NextEntry = NextEntry->Flink)
+    {
+        ArcDiskSignature = CONTAINING_RECORD(NextEntry, ARC_DISK_SIGNATURE, ListEntry);
+
+        if (ArcDiskSignature->ValidPartitionTable &&
+            !_strnicmp(LoaderBlock->ArcBootDeviceName,
+                       ArcDiskSignature->ArcName,
+                       strlen(ArcDiskSignature->ArcName)))
+        {
+            return NT_SUCCESS(IopCreateArcNamesDisk(LoaderBlock, FALSE, &FoundBoot)) && FoundBoot;
+        }
+    }
+
+    return TRUE;
+}
+
+CODE_SEG("INIT")
+static
 NTSTATUS
 IopWaitForBootDevice(IN PLOADER_PARAMETER_BLOCK LoaderBlock)
 {
@@ -511,7 +542,7 @@ IopWaitForBootDevice(IN PLOADER_PARAMETER_BLOCK LoaderBlock)
     for (Attempt = 0; Attempt < AttemptCount; Attempt++)
     {
         if ((CdRomBoot && ConfigurationInformation->CdRomCount) ||
-            (!CdRomBoot && ConfigurationInformation->DiskCount))
+            (!CdRomBoot && IopIsBootDiskPresent(LoaderBlock)))
         {
             return PiPerformSyncDeviceAction(IopRootDeviceNode->PhysicalDeviceObject,
                                              PiActionEnumDeviceTree);
