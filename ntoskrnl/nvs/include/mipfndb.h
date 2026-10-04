@@ -137,6 +137,7 @@ typedef struct _MI_PFN_DATABASE
     volatile LONG64 Repurposed;
     ULONG ContiguousHint;
     volatile LONG64 ZeroedOnDemand;
+    volatile LONG ModifiedCursor;
 } MI_PFN_DATABASE, *PMI_PFN_DATABASE;
 
 /* MDL aliases of managed RAM must retain the allocation's cache attributes.

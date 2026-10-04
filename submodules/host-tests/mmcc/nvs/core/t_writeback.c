@@ -150,6 +150,56 @@ WritebackFailureProgress(void)
     WorldDestroy(&World);
 }
 
+static void
+WritebackPastUnwritablePages(void)
+{
+    TEST_WORLD World;
+    WRITEBACK_FILE File = { .World = &World };
+    MI_FILE_OPS Ops = { .Read = TestFileOps.Read, .Write = WritebackAttempt };
+    PMI_SEGMENT Anonymous;
+    PMI_PFN_DATABASE Db = &World.System.Pfn;
+    ULONG Shard, Frame, i;
+    BOOLEAN FileFirst = FALSE;
+
+    WorldCreate(&World, 1024, 1, 100000);
+    CHECK(World.System.PageFile == NULL);
+    CHECK(NT_SUCCESS(MiSegmentCreate(&World.System, MiSegmentPageFileBacked, 64 * PAGE_SIZE, MI_PROT_READWRITE,
+                                     NULL, NULL, NULL, 0, &Anonymous)));
+    CHECK(NT_SUCCESS(MiSegmentMarkDirty(Anonymous, 0, 64 * PAGE_SIZE)));
+    FileCreate(&File.File, PAGE_SIZE);
+    CHECK(NT_SUCCESS(MiSegmentCreate(&World.System, MiSegmentDataFile, PAGE_SIZE, MI_PROT_READWRITE,
+                                     &Ops, &File, NULL, 0, &File.Segment)));
+    CHECK(NT_SUCCESS(MiSegmentMarkDirty(File.Segment, 0, PAGE_SIZE)));
+    memset(File.File.Data, 0xCC, PAGE_SIZE);
+    CHECK(MiPfnListCount(Db, MiPageModified) == 65);
+
+    for (Shard = 0; Shard < RTL_NUMBER_OF(Db->Shard); Shard++)
+    {
+        if (Db->Shard[Shard].List[MiPageModified].Count == 0)
+            continue;
+        for (Frame = Db->Shard[Shard].List[MiPageModified].Head; Frame != MI_FRAME_INVALID; Frame = Db->Pfn[Frame].Flink)
+        {
+            if (MiSoftKind(Db->Pfn[Frame].OriginalPte) == MiSoftSubsection)
+                FileFirst = TRUE;
+        }
+        break;
+    }
+    CHECK(!FileFirst);
+
+    while (MiWriteModifiedPages(&World.System, 256) != 0)
+        ;
+    CHECK(File.Segment->PagesWritten == 1);
+    CHECK(MiPfnListCount(Db, MiPageModified) == 64);
+    for (i = 0; i < PAGE_SIZE; i++)
+        CHECK(File.File.Data[i] == (UCHAR)i);
+    CHECK(WorldCheck(&World) == 0);
+    CHECK(MiSegmentDereferenceAndClose(File.Segment));
+    CHECK(MiSegmentDereferenceAndClose(Anonymous));
+    WorldExpectClean(&World, 1024);
+    FileDestroy(&File.File);
+    WorldDestroy(&World);
+}
+
 typedef struct _WRITEBACK_REDIRTY
 {
     TEST_FILE File;
@@ -254,6 +304,7 @@ TestWriteback(void)
 
     WritebackSizeReentry();
     WritebackFailureProgress();
+    WritebackPastUnwritablePages();
     WritebackConcurrentRedirty(FALSE);
     WritebackConcurrentRedirty(TRUE);
     WorldCreate(&World, 512, 1, 100000);

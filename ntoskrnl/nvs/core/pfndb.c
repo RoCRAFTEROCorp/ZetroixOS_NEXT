@@ -1224,11 +1224,13 @@ ULONG
 MiPfnTakeModified(
     _Inout_ PMI_PFN_DATABASE Db)
 {
+    ULONG Count = MiPfnShardCount(Db);
+    ULONG Start = (ULONG)MI_ATOMIC_ADD32(&Db->ModifiedCursor, 1) % Count;
     ULONG Attempt;
 
-    for (Attempt = 0; Attempt < MiPfnShardCount(Db); Attempt++)
+    for (Attempt = 0; Attempt < Count; Attempt++)
     {
-        PMI_PFN_SHARD Shard = &Db->Shard[Attempt];
+        PMI_PFN_SHARD Shard = &Db->Shard[(Start + Attempt) % Count];
         ULONG Frame;
         KIRQL OldIrql;
 
