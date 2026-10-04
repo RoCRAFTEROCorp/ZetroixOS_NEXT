@@ -116,7 +116,7 @@ KiRiscvScanStackForCode(
         PLIST_ENTRY Entry;
 
         if (!NT_SUCCESS(MiRiscvWalkCurrentPageTables(&Stack[Index], &Walk)))
-            break;
+            continue;
         Value = Stack[Index];
         for (Entry = KeLoaderBlock->LoadOrderListHead.Flink;
              Entry != &KeLoaderBlock->LoadOrderListHead;
