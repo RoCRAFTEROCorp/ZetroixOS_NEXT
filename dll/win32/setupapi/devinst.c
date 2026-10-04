@@ -2478,6 +2478,19 @@ HDEVINFO WINAPI SetupDiGetClassDevsExW(
         return INVALID_HANDLE_VALUE;
     }
 
+#ifdef __REACTOS__
+    if ((flags & DIGCF_DEVICEINTERFACE) && enumstr && *enumstr)
+    {
+        PCWSTR Separator = wcschr(enumstr, L'\\');
+
+        if (!Separator || !wcschr(Separator + 1, L'\\'))
+        {
+            SetLastError(ERROR_INVALID_DATA);
+            return INVALID_HANDLE_VALUE;
+        }
+    }
+
+#endif
     /* Create the deviceset if not set */
     if (deviceset)
     {
@@ -3973,9 +3986,69 @@ static DWORD get_device_property(struct DeviceInfo *device, HDEVINFO devinfo,
             *req_size = size;
         return error;
     }
+#ifdef __REACTOS__
+    if (IsEqualDevPropKey(*prop_key, DEVPKEY_Device_ContainerId))
+    {
+        error = get_device_property(device, devinfo, device_data, &DEVPKEY_Device_BaseContainerId,
+                                    prop_type, buf, buf_size, req_size, flags);
+        return error == ERROR_FILE_NOT_FOUND ? ERROR_NOT_FOUND : error;
+    }
+    if (IsEqualDevPropKey(*prop_key, DEVPKEY_Device_Parent) ||
+        IsEqualDevPropKey(*prop_key, DEVPKEY_Device_Siblings) ||
+        IsEqualDevPropKey(*prop_key, DEVPKEY_Device_Children))
+    {
+        WCHAR id[MAX_DEVICE_ID_LEN];
+        DEVINST node = 0, parent = 0;
+        DWORD size = 0, len;
+        BOOL list = !IsEqualDevPropKey(*prop_key, DEVPKEY_Device_Parent);
+        CONFIGRET cr;
+
+        if (IsEqualDevPropKey(*prop_key, DEVPKEY_Device_Children))
+            cr = CM_Get_Child_Ex(&node, device->dnDevInst, 0, set->hMachine);
+        else
+        {
+            cr = CM_Get_Parent_Ex(&parent, device->dnDevInst, 0, set->hMachine);
+            if (cr == CR_SUCCESS && list)
+                cr = CM_Get_Child_Ex(&node, parent, 0, set->hMachine);
+            else
+                node = parent;
+        }
+
+        while (cr == CR_SUCCESS && node)
+        {
+            if (!list || node != device->dnDevInst)
+            {
+                if (CM_Get_Device_ID_ExW(node, id, ARRAY_SIZE(id), 0, set->hMachine) != CR_SUCCESS)
+                    break;
+                len = (wcslen(id) + 1) * sizeof(WCHAR);
+                if (buf && size + len <= buf_size)
+                    memcpy(buf + size, id, len);
+                size += len;
+            }
+            if (!list)
+                break;
+            if (CM_Get_Sibling_Ex(&node, node, 0, set->hMachine) != CR_SUCCESS)
+                break;
+        }
+
+        if (!size)
+            return ERROR_NOT_FOUND;
+        if (list)
+        {
+            if (buf && size + sizeof(WCHAR) <= buf_size)
+                *(WCHAR *)(buf + size) = UNICODE_NULL;
+            size += sizeof(WCHAR);
+        }
+        *prop_type = list ? DEVPROP_TYPE_STRING_LIST : DEVPROP_TYPE_STRING;
+        if (req_size)
+            *req_size = size;
+        return size <= buf_size ? ERROR_SUCCESS : ERROR_INSUFFICIENT_BUFFER;
+    }
+#else
     if (IsEqualDevPropKey(*prop_key, DEVPKEY_Device_ContainerId))
         return get_device_property(device, devinfo, device_data, &DEVPKEY_Device_BaseContainerId,
                                    prop_type, buf, buf_size, req_size, flags);
+#endif
 
 custom_property:
     key = SETUPDI_OpenDevKey(set->HKLM, device, KEY_QUERY_VALUE);
@@ -4002,6 +4075,10 @@ BOOL WINAPI SetupDiGetDevicePropertyW(HDEVINFO devinfo, PSP_DEVINFO_DATA device_
     return !error;
 }
 
+#ifdef __REACTOS__
+static DWORD SETUPDI_GetReadOnlyRegistryPropertyError(IN DWORD Property);
+
+#endif
 BOOL WINAPI SetupDiSetDevicePropertyW(HDEVINFO devinfo, PSP_DEVINFO_DATA device_data,
                                       const DEVPROPKEY *key, DEVPROPTYPE type,
                                       const BYTE *buffer, DWORD size, DWORD flags)
@@ -4031,6 +4108,76 @@ BOOL WINAPI SetupDiSetDevicePropertyW(HDEVINFO devinfo, PSP_DEVINFO_DATA device_
         return FALSE;
     }
 
+#ifdef __REACTOS__
+    if (IsEqualDevPropKey(*key, DEVPKEY_Device_InstanceId) ||
+        IsEqualDevPropKey(*key, DEVPKEY_Device_Parent) ||
+        IsEqualDevPropKey(*key, DEVPKEY_Device_Siblings) ||
+        IsEqualDevPropKey(*key, DEVPKEY_Device_BusReportedDeviceDesc) ||
+        IsEqualDevPropKey(*key, DEVPKEY_Device_Children) ||
+        IsEqualDevPropKey(*key, DEVPKEY_Device_ContainerId))
+    {
+        DEVPROPTYPE CurrentType;
+        DWORD CurrentSize = 0;
+        BYTE *Current;
+        BOOL Same = FALSE;
+
+        if (get_device_property(device, devinfo, device_data, key, &CurrentType, NULL, 0, &CurrentSize, 0) ==
+                ERROR_INSUFFICIENT_BUFFER &&
+            CurrentType == type && CurrentSize == size &&
+            (Current = HeapAlloc(GetProcessHeap(), 0, CurrentSize)))
+        {
+            if (get_device_property(device, devinfo, device_data, key, &CurrentType, Current, CurrentSize,
+                                    &CurrentSize, 0) == ERROR_SUCCESS &&
+                !memcmp(Current, buffer, size))
+            {
+                Same = TRUE;
+            }
+            HeapFree(GetProcessHeap(), 0, Current);
+        }
+        if (Same)
+        {
+            SetLastError(ERROR_SUCCESS);
+            return TRUE;
+        }
+        SetLastError(ERROR_ACCESS_DENIED);
+        return FALSE;
+    }
+
+    if (IsEqualGUID(&key->fmtid, &DEVPKEY_Device_DeviceDesc.fmtid) && key->pid >= 2 &&
+        SETUPDI_GetReadOnlyRegistryPropertyError(key->pid - 2) != ERROR_SUCCESS)
+    {
+        SetLastError(SETUPDI_GetReadOnlyRegistryPropertyError(key->pid - 2));
+        return FALSE;
+    }
+
+    if (IsEqualGUID(&key->fmtid, &DEVPKEY_Device_DeviceDesc.fmtid) && key->pid >= 2 &&
+        key->pid - 2 < ARRAY_SIZE(PropertyMap) && PropertyMap[key->pid - 2].devPropType &&
+        PropertyMap[key->pid - 2].devPropType == type)
+    {
+        WCHAR guid_string[39];
+        BOOL ret;
+
+        if (type == DEVPROP_TYPE_GUID)
+        {
+            if (size != sizeof(GUID))
+            {
+                SetLastError(ERROR_INVALID_DATA);
+                return FALSE;
+            }
+            pSetupStringFromGuid((LPGUID)buffer, guid_string, ARRAY_SIZE(guid_string));
+            ret = SetupDiSetDeviceRegistryPropertyW(devinfo, device_data, key->pid - 2,
+                                                    (const BYTE *)guid_string, sizeof(guid_string));
+        }
+        else
+        {
+            ret = SetupDiSetDeviceRegistryPropertyW(devinfo, device_data, key->pid - 2, buffer, size);
+        }
+        if (ret)
+            SetLastError(ERROR_SUCCESS);
+        return ret;
+    }
+
+#endif
     reg_key = SETUPDI_OpenDevKey(set->HKLM, device, KEY_READ | KEY_WRITE);
     if (reg_key == INVALID_HANDLE_VALUE)
         return FALSE;
@@ -4269,6 +4416,27 @@ BOOL WINAPI SetupDiGetDeviceRegistryPropertyW(
 /***********************************************************************
  *		Internal for SetupDiSetDeviceRegistryPropertyA/W
  */
+#ifdef __REACTOS__
+static DWORD
+SETUPDI_GetReadOnlyRegistryPropertyError(
+    IN DWORD Property)
+{
+    switch (Property)
+    {
+        case SPDRP_CAPABILITIES:
+        case SPDRP_UI_NUMBER:
+        case SPDRP_PHYSICAL_DEVICE_OBJECT_NAME:
+            return ERROR_ACCESS_DENIED;
+
+        case SPDRP_BASE_CONTAINERID:
+            return ERROR_INVALID_REG_PROPERTY;
+
+        default:
+            return ERROR_SUCCESS;
+    }
+}
+
+#endif
 BOOL WINAPI IntSetupDiSetDeviceRegistryPropertyAW(
         HDEVINFO DeviceInfoSet,
         PSP_DEVINFO_DATA DeviceInfoData,
@@ -4303,6 +4471,14 @@ BOOL WINAPI IntSetupDiSetDeviceRegistryPropertyAW(
 
     deviceInfo = (struct DeviceInfo *)DeviceInfoData->Reserved;
 
+#ifdef __REACTOS__
+    if (SETUPDI_GetReadOnlyRegistryPropertyError(Property) != ERROR_SUCCESS)
+    {
+        SetLastError(SETUPDI_GetReadOnlyRegistryPropertyError(Property));
+        return FALSE;
+    }
+
+#endif
     if (Property < sizeof(PropertyMap) / sizeof(PropertyMap[0])
         && PropertyMap[Property].nameW
         && PropertyMap[Property].nameA)
@@ -4842,6 +5018,9 @@ BOOL WINAPI SetupDiOpenDeviceInterfaceW(
 
             if (!wcsicmp(SymBuffer, DevicePath))
             {
+                DWORD Linked = 0, LinkedSize = sizeof(Linked);
+
+                RegGetValueW(hSymKey, L"Control", L"Linked", RRF_RT_REG_DWORD, NULL, &Linked, &LinkedSize);
                 Ret = CreateDeviceInfo(list, InstancePath, &ClassId, &deviceInfo);
                 RegCloseKey(hSymKey);
                 RegCloseKey(hDevKey);
@@ -4855,7 +5034,7 @@ BOOL WINAPI SetupDiOpenDeviceInterfaceW(
 
                         CopyMemory(&deviceInterface->InterfaceClassGuid, &ClassId, sizeof(GUID));
                         deviceInterface->DeviceInfo = deviceInfo;
-                        deviceInterface->Flags = SPINT_ACTIVE; //FIXME
+                        deviceInterface->Flags = Linked ? SPINT_ACTIVE : 0;
 
                         wcscpy(deviceInterface->SymbolicLink, SymBuffer);
 
