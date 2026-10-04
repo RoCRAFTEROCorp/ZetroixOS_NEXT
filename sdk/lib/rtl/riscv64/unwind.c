@@ -140,7 +140,7 @@ RtlpRiscv64ReadScope(PDISPATCHER_CONTEXT Dispatcher, ULONG Index,
     Status = RtlpRiscv64ReadMemory(Scope,
         (PUCHAR)Dispatcher->HandlerData + sizeof(ULONG) + Index * sizeof(*Scope),
         sizeof(*Scope));
-    if (!NT_SUCCESS(Status) || Scope->BeginAddress >= Scope->EndAddress ||
+    if (!NT_SUCCESS(Status) || Scope->BeginAddress > Scope->EndAddress ||
         ((Scope->BeginAddress | Scope->EndAddress | Scope->JumpTarget) & 1) ||
         !SCOPE_RANGE_VALID(Scope->BeginAddress,
             Scope->EndAddress - Scope->BeginAddress,
