@@ -314,9 +314,11 @@ BaseSrvCreateGlobalLink(_In_ HANDLE Directory,
 NTSTATUS
 NTAPI
 CreateBaseAcls(OUT PACL* Dacl,
-               OUT PACL* RestrictedDacl)
+               OUT PACL* RestrictedDacl,
+               IN BOOLEAN GlobalDirectory)
 {
-    PSID SystemSid, WorldSid, RestrictedSid;
+    PSID SystemSid, WorldSid, RestrictedSid, AdminsSid, CreatorOwnerSid;
+    SID_IDENTIFIER_AUTHORITY CreatorAuthority = {SECURITY_CREATOR_SID_AUTHORITY};
     SID_IDENTIFIER_AUTHORITY NtAuthority = {SECURITY_NT_AUTHORITY};
     SID_IDENTIFIER_AUTHORITY WorldAuthority = {SECURITY_WORLD_SID_AUTHORITY};
     NTSTATUS Status;
@@ -363,7 +365,7 @@ CreateBaseAcls(OUT PACL* Dacl,
     }
 
     /* Get object security mode */
-    if (SessionId == 0 ||
+    if (SessionId == 0 || GlobalDirectory ||
         !NT_SUCCESS(NtQuerySystemInformation(SystemObjectSecurityMode, &ObjectSecurityMode, sizeof(ULONG), NULL)))
     {
         ObjectSecurityMode = 0;
@@ -402,11 +404,37 @@ CreateBaseAcls(OUT PACL* Dacl,
         goto Return;
     }
 
-    /* Allocate one ACL with 3 ACEs each for one SID */
-    AclLength = sizeof(ACL) + 3 * sizeof(ACCESS_ALLOWED_ACE) +
-                    RtlLengthSid(SystemSid) +
+    Status = RtlAllocateAndInitializeSid(&NtAuthority,
+                                         2, SECURITY_BUILTIN_DOMAIN_RID, DOMAIN_ALIAS_RID_ADMINS,
+                                         0, 0, 0, 0, 0, 0,
+                                         &AdminsSid);
+    if (!NT_SUCCESS(Status))
+    {
+        RtlFreeSid(RestrictedSid);
+        RtlFreeSid(WorldSid);
+        RtlFreeSid(SystemSid);
+        goto Return;
+    }
+
+    Status = RtlAllocateAndInitializeSid(&CreatorAuthority,
+                                         1, SECURITY_CREATOR_OWNER_RID,
+                                         0, 0, 0, 0, 0, 0, 0,
+                                         &CreatorOwnerSid);
+    if (!NT_SUCCESS(Status))
+    {
+        RtlFreeSid(AdminsSid);
+        RtlFreeSid(RestrictedSid);
+        RtlFreeSid(WorldSid);
+        RtlFreeSid(SystemSid);
+        goto Return;
+    }
+
+    AclLength = sizeof(ACL) + 6 * sizeof(ACCESS_ALLOWED_ACE) +
+                    2 * RtlLengthSid(SystemSid) +
                     RtlLengthSid(WorldSid)  +
-                    RtlLengthSid(RestrictedSid);
+                    RtlLengthSid(RestrictedSid) +
+                    RtlLengthSid(AdminsSid) +
+                    RtlLengthSid(CreatorOwnerSid);
     *Dacl = RtlAllocateHeap(BaseSrvHeap, 0, AclLength);
     if (*Dacl == NULL)
     {
@@ -438,8 +466,29 @@ CreateBaseAcls(OUT PACL* Dacl,
     }
 
     /* Give the appropriate rights to each SID */
-    if (NT_SUCCESS(RtlAddAccessAllowedAce(*Dacl, ACL_REVISION2, WorldAccess, WorldSid)) &&
-        NT_SUCCESS(RtlAddAccessAllowedAce(*Dacl, ACL_REVISION2, DIRECTORY_ALL_ACCESS, SystemSid)))
+    if (ObjectSecurityMode != 0)
+    {
+        Status = RtlAddAccessAllowedAce(*Dacl, ACL_REVISION2, DIRECTORY_ALL_ACCESS, SystemSid);
+        if (NT_SUCCESS(Status))
+            Status = RtlAddAccessAllowedAceEx(*Dacl, ACL_REVISION2,
+                                              OBJECT_INHERIT_ACE | CONTAINER_INHERIT_ACE | INHERIT_ONLY_ACE,
+                                              GENERIC_ALL, SystemSid);
+        if (NT_SUCCESS(Status))
+            Status = RtlAddAccessAllowedAceEx(*Dacl, ACL_REVISION2,
+                                              OBJECT_INHERIT_ACE | CONTAINER_INHERIT_ACE | INHERIT_ONLY_ACE,
+                                              GENERIC_ALL, CreatorOwnerSid);
+        if (NT_SUCCESS(Status))
+            Status = RtlAddAccessAllowedAce(*Dacl, ACL_REVISION2,
+                                            READ_CONTROL | DIRECTORY_QUERY | DIRECTORY_TRAVERSE |
+                                            DIRECTORY_CREATE_OBJECT | DIRECTORY_CREATE_SUBDIRECTORY,
+                                            AdminsSid);
+        if (NT_SUCCESS(Status))
+            Status = RtlAddAccessAllowedAceEx(*Dacl, ACL_REVISION2, CONTAINER_INHERIT_ACE, WorldAccess, WorldSid);
+        if (NT_SUCCESS(Status))
+            RtlAddAccessAllowedAce(*Dacl, ACL_REVISION2, DIRECTORY_TRAVERSE, RestrictedSid);
+    }
+    else if (NT_SUCCESS(RtlAddAccessAllowedAce(*Dacl, ACL_REVISION2, WorldAccess, WorldSid)) &&
+             NT_SUCCESS(RtlAddAccessAllowedAce(*Dacl, ACL_REVISION2, DIRECTORY_ALL_ACCESS, SystemSid)))
     {
         RtlAddAccessAllowedAce(*Dacl, ACL_REVISION2, DIRECTORY_TRAVERSE, RestrictedSid);
     }
@@ -487,6 +536,8 @@ CreateBaseAcls(OUT PACL* Dacl,
 
     /* The SIDs are captured, can free them now */
 FreeAndReturn:
+    RtlFreeSid(CreatorOwnerSid);
+    RtlFreeSid(AdminsSid);
     RtlFreeSid(RestrictedSid);
     RtlFreeSid(WorldSid);
     RtlFreeSid(SystemSid);
@@ -684,7 +735,7 @@ BaseInitializeStaticServerData(IN PCSR_SERVER_DLL LoadedServerDll)
     ASSERT(NT_SUCCESS(Status));
 
     /* Create the BNO and \Restricted DACLs */
-    Status = CreateBaseAcls(&BnoDacl, &BnoRestrictedDacl);
+    Status = CreateBaseAcls(&BnoDacl, &BnoRestrictedDacl, FALSE);
     ASSERT(NT_SUCCESS(Status));
 
     /* Set the BNO DACL as active for now */
@@ -715,17 +766,41 @@ BaseInitializeStaticServerData(IN PCSR_SERVER_DLL LoadedServerDll)
     if (SessionId != 0)
     {
         HANDLE GlobalDirectory;
+        PACL GlobalDacl, GlobalRestrictedDacl, LabelSacl;
+        BOOLEAN SaclPresent, SaclDefaulted;
+        SECURITY_DESCRIPTOR GlobalSd;
+
+        Status = CreateBaseAcls(&GlobalDacl, &GlobalRestrictedDacl, TRUE);
+        ASSERT(NT_SUCCESS(Status));
+        Status = RtlCreateSecurityDescriptor(&GlobalSd, SECURITY_DESCRIPTOR_REVISION);
+        ASSERT(NT_SUCCESS(Status));
+        Status = RtlSetDaclSecurityDescriptor(&GlobalSd, TRUE, GlobalDacl, FALSE);
+        ASSERT(NT_SUCCESS(Status));
+        Status = RtlGetSaclSecurityDescriptor(BnoSd, &SaclPresent, &LabelSacl, &SaclDefaulted);
+        ASSERT(NT_SUCCESS(Status));
+        Status = RtlSetSaclSecurityDescriptor(&GlobalSd, SaclPresent, LabelSacl, FALSE);
+        ASSERT(NT_SUCCESS(Status));
 
         RtlInitUnicodeString(&DirectoryName, L"\\BaseNamedObjects");
         InitializeObjectAttributes(&ObjectAttributes,
                                    &DirectoryName,
                                    OBJ_OPENIF | OBJ_PERMANENT | OBJ_CASE_INSENSITIVE,
                                    NULL,
-                                   BnoSd);
+                                   &GlobalSd);
         Status = NtCreateDirectoryObject(&GlobalDirectory,
                                          DIRECTORY_ALL_ACCESS,
                                          &ObjectAttributes);
         ASSERT(NT_SUCCESS(Status));
+        if (Status == STATUS_OBJECT_NAME_EXISTS)
+        {
+            Status = NtSetSecurityObject(GlobalDirectory,
+                                         DACL_SECURITY_INFORMATION |
+                                         LABEL_SECURITY_INFORMATION,
+                                         &GlobalSd);
+            ASSERT(NT_SUCCESS(Status));
+        }
+        RtlFreeHeap(BaseSrvHeap, 0, GlobalRestrictedDacl);
+        RtlFreeHeap(BaseSrvHeap, 0, GlobalDacl);
         if (NT_SUCCESS(Status))
         {
             BaseSrvCreateGlobalLink(GlobalDirectory, L"Global", L"\\BaseNamedObjects", BnoSd);
