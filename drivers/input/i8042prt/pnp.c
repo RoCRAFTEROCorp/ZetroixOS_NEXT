@@ -658,9 +658,28 @@ i8042RemoveDevice(
     PI8042_DRIVER_EXTENSION DriverExtension;
     KIRQL OldIrql;
     PFDO_DEVICE_EXTENSION DeviceExtension;
+    PPORT_DEVICE_EXTENSION PortDeviceExtension;
 
     DriverExtension = (PI8042_DRIVER_EXTENSION)IoGetDriverObjectExtension(DeviceObject->DriverObject, DeviceObject->DriverObject);
     DeviceExtension = (PFDO_DEVICE_EXTENSION)DeviceObject->DeviceExtension;
+    PortDeviceExtension = DeviceExtension->PortDeviceExtension;
+
+    if (DeviceExtension->Type == Mouse && (PortDeviceExtension->Flags & MOUSE_INITIALIZED))
+    {
+        IoDisconnectInterrupt(PortDeviceExtension->MouseInterrupt.Object);
+        if (PortDeviceExtension->HighestDIRQLInterrupt == PortDeviceExtension->MouseInterrupt.Object)
+            PortDeviceExtension->HighestDIRQLInterrupt = PortDeviceExtension->KeyboardInterrupt.Object;
+        PortDeviceExtension->MouseInterrupt.Object = NULL;
+        PortDeviceExtension->Flags &= ~MOUSE_INITIALIZED;
+    }
+    else if (DeviceExtension->Type == Keyboard && (PortDeviceExtension->Flags & KEYBOARD_INITIALIZED))
+    {
+        IoDisconnectInterrupt(PortDeviceExtension->KeyboardInterrupt.Object);
+        if (PortDeviceExtension->HighestDIRQLInterrupt == PortDeviceExtension->KeyboardInterrupt.Object)
+            PortDeviceExtension->HighestDIRQLInterrupt = PortDeviceExtension->MouseInterrupt.Object;
+        PortDeviceExtension->KeyboardInterrupt.Object = NULL;
+        PortDeviceExtension->Flags &= ~KEYBOARD_INITIALIZED;
+    }
 
     KeAcquireSpinLock(&DriverExtension->DeviceListLock, &OldIrql);
     RemoveEntryList(&DeviceExtension->ListEntry);
