@@ -362,7 +362,7 @@ function(add_cd_file)
     if(NOT __cd EQUAL -1)
         set(_cd_for_all TRUE)
         list(REMOVE_ITEM _CD_FOR "all")
-        list(APPEND _CD_FOR "bootcd;livecd;regtest;preinstall")
+        list(APPEND _CD_FOR "bootcd;livecd;preinstall")
     endif()
 
     # do we add it to bootcd?
@@ -431,37 +431,6 @@ function(add_cd_file)
         endforeach()
     endif() #end livecd
 
-    # do we add it to regtest?
-    list(FIND _CD_FOR regtest __cd)
-    if(NOT __cd EQUAL -1)
-        # whether or not we should put it in reactos.cab or directly on cd
-        if(_CD_NO_CAB)
-            # directly on cd - replace the "reactos/" directory name by the current build architecture name
-            # WARNING: CMake REGEXes are always case-sensitive!
-            string(REGEX REPLACE "^reactos([\\\\/]+|$)" "${ARCH}\\1" _CD_ARCH_DESTINATION "${_CD_DESTINATION}")
-            foreach(item ${_CD_FILE})
-                if(_CD_NAME_ON_CD)
-                    # rename it in the cd tree
-                    set(__file ${_CD_NAME_ON_CD})
-                else()
-                    get_filename_component(__file ${item} NAME)
-                endif()
-                set_property(GLOBAL APPEND PROPERTY BOOTCDREGTEST_${_cd_list} "${_CD_ARCH_DESTINATION}/${__file}=${item}")
-            endforeach()
-            # manage dependency
-            if(_CD_TARGET AND NOT _CD_OPTIONAL)
-                add_dependencies(bootcdregtest ${_CD_TARGET} registry_inf)
-            endif()
-        else()
-            #add it in reactos.cab
-            #dir_to_num(${_CD_DESTINATION} _num)
-            #file(APPEND ${REACTOS_BINARY_DIR}/boot/bootdata/packages/reactos.dff.dyn "${_CD_FILE} ${_num}\n")
-            #if(_CD_TARGET)
-            #    #manage dependency
-            #    add_dependencies(reactos_cab ${_CD_TARGET})
-            #endif()
-        endif()
-    endif() #end regtest
 
     # do we add it to preinstall?
     list(FIND _CD_FOR preinstall __cd)
@@ -579,7 +548,7 @@ function(create_iso_lists)
         TARGET reactos_cab
         FILE ${CMAKE_CURRENT_BINARY_DIR}/reactos.cab
         DESTINATION reactos
-        NO_CAB FOR bootcd regtest)
+        NO_CAB FOR bootcd)
 
 if(FALSE) ## Disabled until we want a RAMDISK ISO
     # Add the LiveImage into the BootCD
@@ -624,17 +593,6 @@ endif()
          OUTPUT ${REACTOS_BINARY_DIR}/boot/bootcd.$<CONFIG>.lst
          INPUT ${REACTOS_BINARY_DIR}/boot/bootcd.cmake.lst)
 
-    # Write the BootCDRegTest file list
-    get_property(_filelist GLOBAL PROPERTY BOOTCDREGTEST_FILE_LIST)
-    if(_filelist)
-        string(REPLACE ";" "\n" _filelist "${_filelist}")
-        file(APPEND ${REACTOS_BINARY_DIR}/boot/bootcdregtest.cmake.lst "${_filelist}\n")
-    endif()
-    unset(_filelist)
-    file(GENERATE
-         OUTPUT ${REACTOS_BINARY_DIR}/boot/bootcdregtest.$<CONFIG>.lst
-         INPUT ${REACTOS_BINARY_DIR}/boot/bootcdregtest.cmake.lst)
-
     get_property(_filelist GLOBAL PROPERTY PREINSTALL_FILE_LIST)
     if(_filelist)
         string(REPLACE ";" "\n" _filelist "${_filelist}")
@@ -654,7 +612,7 @@ endif()
          OUTPUT ${REACTOS_BINARY_DIR}/boot/preinstall.$<CONFIG>.lst
          INPUT ${REACTOS_BINARY_DIR}/boot/preinstall.cmake.lst)
 
-    foreach(_image livecd bootcd bootcdregtest preinstall)
+    foreach(_image livecd bootcd preinstall)
         string(TOUPPER "${_image}" _property)
         get_property(_filelist GLOBAL PROPERTY ${_property}_OPTIONAL_FILE_LIST)
         if(_image STREQUAL "bootcd")
@@ -1215,22 +1173,7 @@ function(create_registry_hives)
     add_cd_file(TARGET registry_inf
                 FILE ${_registry_inf}
                 DESTINATION reactos
-                NO_CAB FOR bootcd regtest)
-
-    # BootCD setup system hive
-    add_custom_command(
-        OUTPUT ${CMAKE_BINARY_DIR}/boot/bootdata/SETUPREG.HIV
-        COMMAND native-mkhive -h:SETUPREG -u -d:${CMAKE_BINARY_DIR}/boot/bootdata ${_registry_inf} ${CMAKE_SOURCE_DIR}/boot/bootdata/setupreg.inf
-        DEPENDS native-mkhive ${_registry_inf})
-
-    add_custom_target(bootcd_hives
-        DEPENDS ${CMAKE_BINARY_DIR}/boot/bootdata/SETUPREG.HIV)
-
-    add_cd_file(
-        FILE ${CMAKE_BINARY_DIR}/boot/bootdata/SETUPREG.HIV
-        TARGET bootcd_hives
-        DESTINATION reactos
-        NO_CAB FOR bootcd regtest)
+                NO_CAB FOR bootcd)
 
     # LiveCD hives
     list(APPEND _livecd_inf_files
@@ -1347,7 +1290,7 @@ function(create_registry_hives)
             FILE ${CMAKE_BINARY_DIR}/boot/bootdata/BCD
             TARGET bcd_hive
             DESTINATION efi/boot
-            NO_CAB FOR bootcd regtest livecd)
+            NO_CAB FOR bootcd livecd)
     endif()
 
 endfunction()

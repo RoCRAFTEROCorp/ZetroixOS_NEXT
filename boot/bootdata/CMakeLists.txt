@@ -2,11 +2,11 @@
 add_subdirectory(packages)
 
 # Setup settings file
-add_cd_file(FILE ${REACTOS_BINARY_DIR}/boot/bootdata/txtsetup.$<CONFIG>.sif DESTINATION reactos NO_CAB NAME_ON_CD txtsetup.sif FOR bootcd regtest)
+add_cd_file(FILE ${REACTOS_BINARY_DIR}/boot/bootdata/txtsetup.$<CONFIG>.sif DESTINATION reactos NO_CAB NAME_ON_CD txtsetup.sif FOR bootcd)
 
 add_custom_target(converted_caroots_inf DEPENDS ${CMAKE_CURRENT_BINARY_DIR}/caroots.inf)
 utf16le_convert(${CMAKE_CURRENT_SOURCE_DIR}/caroots.inf ${CMAKE_CURRENT_BINARY_DIR}/caroots.inf)
-add_cd_file(TARGET converted_caroots_inf FILE ${CMAKE_CURRENT_BINARY_DIR}/caroots.inf DESTINATION reactos NO_CAB FOR bootcd regtest)
+add_cd_file(TARGET converted_caroots_inf FILE ${CMAKE_CURRENT_BINARY_DIR}/caroots.inf DESTINATION reactos NO_CAB FOR bootcd)
 
 # Common hives
 add_registry_inf(
@@ -90,12 +90,10 @@ endif()
 # freeldr.ini (FREELDR_BOOTCD_INI is prepared by boot/boot_images.cmake)
 set(_boot_media_freeldr_ini "${FREELDR_BOOTCD_INI}")
 add_cd_file(FILE ${_boot_media_freeldr_ini} DESTINATION root NO_CAB NAME_ON_CD freeldr.ini FOR bootcd livecd)
-add_cd_file(FILE ${CMAKE_CURRENT_SOURCE_DIR}/bootcd_regtest.ini DESTINATION root NO_CAB NAME_ON_CD freeldr.ini FOR regtest)
 
 # Unattend
 add_cd_file(FILE ${CMAKE_CURRENT_SOURCE_DIR}/bootcd/unattend.inf DESTINATION reactos NO_CAB FOR bootcd)
 add_cd_file(FILE ${CMAKE_CURRENT_SOURCE_DIR}/livecd/unattend.inf DESTINATION reactos NO_CAB FOR livecd)
-add_cd_file(FILE ${CMAKE_CURRENT_SOURCE_DIR}/bootcdregtest/unattend.inf DESTINATION reactos NO_CAB FOR regtest)
 add_cd_file(FILE ${CMAKE_CURRENT_SOURCE_DIR}/livecd/unattend.inf DESTINATION reactos NO_CAB FOR livecd)
 add_cd_file(FILE ${CMAKE_CURRENT_SOURCE_DIR}/preinstall/unattend.inf DESTINATION reactos FOR preinstall)
 

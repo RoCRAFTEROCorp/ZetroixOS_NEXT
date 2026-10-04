@@ -23,8 +23,8 @@
 
 #include <ntstrsafe.h>
 
-#include "../../usetup/spapisup/cabinet.h"
-#include "../../usetup/spapisup/cabinet.c"
+#include "cabinet.h"
+#include "cabinet.c"
 
 #define SetupOpenFileQueue      _SetupOpenFileQueue
 #define SetupCloseFileQueue     _SetupCloseFileQueue
@@ -32,7 +32,7 @@
 #define SetupQueueRenameW       _SetupQueueRenameW
 #define SetupCommitFileQueueW   _SetupCommitFileQueueW
 
-#include "../../usetup/spapisup/fileqsup.c"
+#include "fileq.c"
 
 #else
 

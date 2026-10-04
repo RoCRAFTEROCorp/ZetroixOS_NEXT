@@ -244,14 +244,12 @@ set(ISO_BOOT_FILES_OPTIONS
     -hide boot.catalog -sort ${CMAKE_CURRENT_BINARY_DIR}/bootfiles.sort)
 
 ## "El Torito" ISO boot options
-# ISO_BOOT_OPTIONS; ISO_BOOT_OPTIONS_REGTEST (only for BootCDRegTest)
+# ISO_BOOT_OPTIONS
 
 # BIOS-based PC boot entry (x86/x64 only)
 if(ARCH STREQUAL "i386" OR ARCH STREQUAL "amd64")
     set(ISO_BOOT_OPTIONS
         -eltorito-platform x86 -eltorito-boot loader/isoboot.bin -no-emul-boot -boot-load-size 4)
-    set(ISO_BOOT_OPTIONS_REGTEST
-        -eltorito-platform x86 -eltorito-boot loader/isobtrt.bin -no-emul-boot -boot-load-size 4)
 endif()
 
 # EFI boot entry
@@ -261,22 +259,17 @@ if(DEFINED EFI_PLATFORM_ID)
 
     if(DEFINED ISO_BOOT_OPTIONS)
         list(APPEND ISO_BOOT_OPTIONS -eltorito-alt-boot)
-        list(APPEND ISO_BOOT_OPTIONS_REGTEST -eltorito-alt-boot)
     endif()
     list(APPEND ISO_BOOT_OPTIONS ${ISO_BOOT_EFI_OPTIONS})
-    list(APPEND ISO_BOOT_OPTIONS_REGTEST ${ISO_BOOT_EFI_OPTIONS})
 endif()
 
 set(ISOHYBRID_DEPENDS)
 set(ISOHYBRID_BOOTCD_COMMAND)
-set(ISOHYBRID_BOOTCDREGTEST_COMMAND)
 set(ISOHYBRID_LIVECD_COMMAND)
 if(FREELDR_HAS_BIOS_BOOT)
     set(ISOHYBRID_DEPENDS isombr native-isohybrid)
     set(ISOHYBRID_BOOTCD_COMMAND
         COMMAND native-isohybrid -b ${_isombr_file} -t 0x96 ${REACTOS_BINARY_DIR}/bootcd.iso)
-    set(ISOHYBRID_BOOTCDREGTEST_COMMAND
-        COMMAND native-isohybrid -b ${_isombr_file} -t 0x96 ${REACTOS_BINARY_DIR}/bootcdregtest.iso)
     set(ISOHYBRID_LIVECD_COMMAND
         COMMAND native-isohybrid -b ${_isombr_file} -t 0x96 ${REACTOS_BINARY_DIR}/livecd.iso)
 endif()
@@ -338,20 +331,6 @@ add_custom_target(bootcd
         -path-list ${CMAKE_CURRENT_BINARY_DIR}/bootcd.effective.lst
     ${ISOHYBRID_BOOTCD_COMMAND}
     DEPENDS ${ISOHYBRID_DEPENDS} native-mkisofs livecd
-    VERBATIM)
-
-## BootCDRegTest
-# Create the file list
-file(WRITE ${CMAKE_CURRENT_BINARY_DIR}/bootcdregtest.cmake.lst "${CMAKE_CURRENT_BINARY_DIR}/empty\n")
-
-image_list_command(bootcdregtest _bootcdregtest_list_command)
-add_custom_target(bootcdregtest
-    COMMAND ${_bootcdregtest_list_command}
-    COMMAND native-mkisofs -quiet -o ${REACTOS_BINARY_DIR}/bootcdregtest.iso
-        ${ISO_COMMON_OPTIONS} ${ISO_BOOT_OPTIONS_REGTEST} ${ISO_BOOT_FILES_OPTIONS} ${ISO_LAYOUT_OPTIONS}
-        -path-list ${CMAKE_CURRENT_BINARY_DIR}/bootcdregtest.effective.lst
-    ${ISOHYBRID_BOOTCDREGTEST_COMMAND}
-    DEPENDS ${ISOHYBRID_DEPENDS} native-mkisofs
     VERBATIM)
 
 ## LiveImage -- Constitutes a small RAMDISK ISO, and is also merged with the BootCD
@@ -768,12 +747,12 @@ add_dependencies(reactosvhd preinstall_partition)
 
 if(DEFINED EFI_PLATFORM_ID)
     # For devices such as USB drives, add also the EFI boot image into efi/boot.
-    add_cd_file(TARGET efisys FILE ${CMAKE_CURRENT_BINARY_DIR}/efisys.bin DESTINATION loader NO_CAB FOR bootcd livecd regtest)
-    add_cd_file(TARGET uefildr DESTINATION efi/boot NO_CAB NAME_ON_CD boot${EFI_PLATFORM_ID}.efi FOR bootcd livecd regtest)
+    add_cd_file(TARGET efisys FILE ${CMAKE_CURRENT_BINARY_DIR}/efisys.bin DESTINATION loader NO_CAB FOR bootcd livecd)
+    add_cd_file(TARGET uefildr DESTINATION efi/boot NO_CAB NAME_ON_CD boot${EFI_PLATFORM_ID}.efi FOR bootcd livecd)
     if(_uefi_driver_files)
         foreach(_driver ${_uefi_driver_files})
             get_filename_component(_driver_name "${_driver}" NAME)
-            add_cd_file(FILE "${_driver}" DESTINATION efi/boot/drivers NO_CAB NAME_ON_CD "${_driver_name}" FOR bootcd livecd regtest)
+            add_cd_file(FILE "${_driver}" DESTINATION efi/boot/drivers NO_CAB NAME_ON_CD "${_driver_name}" FOR bootcd livecd)
         endforeach()
     endif()
 endif()
