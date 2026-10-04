@@ -4334,6 +4334,33 @@ WritePartitions(
     return Status;
 }
 
+static VOID
+WaitForPartitionDevice(
+    _In_ PPARTENTRY PartEntry)
+{
+    LARGE_INTEGER Delay;
+    HANDLE DeviceHandle;
+    NTSTATUS Status;
+    ULONG i;
+
+    Delay.QuadPart = -100LL * 10000LL;
+    for (i = 0; i < 300; i++)
+    {
+        Status = pOpenDevice(PartEntry->DeviceName, &DeviceHandle);
+        if (NT_SUCCESS(Status))
+        {
+            NtClose(DeviceHandle);
+            return;
+        }
+        if (Status != STATUS_OBJECT_NAME_NOT_FOUND && Status != STATUS_OBJECT_PATH_NOT_FOUND)
+            return;
+
+        NtDelayExecution(FALSE, &Delay);
+    }
+
+    DPRINT1("Partition device %S did not appear\n", PartEntry->DeviceName);
+}
+
 BOOLEAN
 WritePartitionsToDisk(
     IN PPARTLIST List)
@@ -4388,6 +4415,8 @@ WritePartitionsToDisk(
          Entry = Entry->Flink)
     {
         Volume = CONTAINING_RECORD(Entry, VOLENTRY, ListEntry);
+        if (!*Volume->Info.DeviceName && Volume->PartEntry)
+            WaitForPartitionDevice(Volume->PartEntry);
         InitVolumeDeviceName(Volume, NULL);
     }
 
