@@ -1544,6 +1544,72 @@ Done:
     WorldDestroy(&World);
 }
 
+static
+void
+SectionImageWindow(void)
+{
+    const ULONG64 G = MI_ALLOCATION_GRANULARITY;
+    MI_IMAGE_WINDOW Window, Small;
+    ULONG64 Lowest = 0x40000000ULL, Highest = 0x7FFEFFFFULL;
+    ULONG64 A, B, C, D, E, Base[200], Size[200];
+    ULONG Seed = 0x1234567;
+    ULONG I, J;
+
+    MiImageWindowInitialize(&Window, Lowest, Highest);
+    CHECK(Window.SlotCount == 0x3FFF);
+
+    CHECK(MiImageWindowReserve(&Window, 3 * G, 10, &A) && A == Lowest + 10 * G);
+    CHECK(MiImageWindowReserve(&Window, G + 1, 11, &B) && B == Lowest + 13 * G);
+    CHECK(MiImageWindowReserve(&Window, G, Window.SlotCount - 1, &C) && C == Lowest + (Window.SlotCount - 1) * G);
+    CHECK(C + G - 1 <= Highest);
+    CHECK(MiImageWindowReserve(&Window, 2 * G, Window.SlotCount - 1, &D) && D == Lowest);
+    CHECK(MiImageWindowReserve(&Window, G, Window.SlotCount + 12, &E) && E == Lowest + 15 * G);
+
+    MiImageWindowRelease(&Window, A, 3 * G);
+    CHECK(MiImageWindowReserve(&Window, 3 * G, 10, &A) && A == Lowest + 10 * G);
+    MiImageWindowRelease(&Window, E, G);
+    CHECK(MiImageWindowReserve(&Window, 3 * G, 10, &E) && E == Lowest + 15 * G);
+    CHECK(MiImageWindowReserve(&Window, 2 * G, 10, &E) && E == Lowest + 18 * G);
+
+    CHECK(!MiImageWindowReserve(&Window, 0, 0, &E));
+    CHECK(!MiImageWindowReserve(&Window, (Window.SlotCount + 1) * G, 0, &E));
+    MiImageWindowUninitialize(&Window);
+
+    MiImageWindowInitialize(&Small, Lowest, Lowest + 4 * G - 1);
+    CHECK(MiImageWindowReserve(&Small, 4 * G, 3, &A) && A == Lowest);
+    CHECK(!MiImageWindowReserve(&Small, G, 0, &B));
+    MiImageWindowRelease(&Small, A + G, G);
+    CHECK(MiImageWindowReserve(&Small, G, 3, &B) && B == Lowest + G);
+    MiImageWindowUninitialize(&Small);
+
+    MiImageWindowInitialize(&Small, 0, (MI_IMAGE_WINDOW_MAXIMUM_SLOTS + 1) * G - 1);
+    CHECK(!MiImageWindowReserve(&Small, G, 0, &A));
+    CHECK(Small.Bits == NULL);
+    MiImageWindowUninitialize(&Small);
+
+    MiImageWindowInitialize(&Window, Lowest, Highest);
+    for (I = 0; I < RTL_NUMBER_OF(Base); I++)
+    {
+        Seed = Seed * 1103515245 + 12345;
+        Size[I] = (Seed >> 8) % (24 * G) + 1;
+        Seed = Seed * 1103515245 + 12345;
+        CHECK(MiImageWindowReserve(&Window, Size[I], Seed >> 4, &Base[I]));
+        CHECK(Base[I] >= Lowest && Base[I] + Size[I] - 1 <= Highest && (Base[I] & (G - 1)) == 0);
+    }
+    for (I = 0; I < RTL_NUMBER_OF(Base); I++)
+        for (J = I + 1; J < RTL_NUMBER_OF(Base); J++)
+            CHECK(Base[I] + Size[I] <= Base[J] || Base[J] + Size[J] <= Base[I]);
+    for (I = 0; I < RTL_NUMBER_OF(Base); I += 2)
+        MiImageWindowRelease(&Window, Base[I], Size[I]);
+    for (I = 0; I < RTL_NUMBER_OF(Base); I += 2)
+    {
+        CHECK(MiImageWindowReserve(&Window, Size[I], I, &Base[I]));
+        for (J = 1; J < RTL_NUMBER_OF(Base); J += 2)
+            CHECK(Base[I] + Size[I] <= Base[J] || Base[J] + Size[J] <= Base[I]);
+    }
+    MiImageWindowUninitialize(&Window);
+}
+
 void
 TestSection(void)
 {
@@ -1565,6 +1631,7 @@ TestSection(void)
     SectionSplitBootMapping();
     SectionUncachedLargePages();
     SectionUncachedPageFile();
+    SectionImageWindow();
 }
 
 void

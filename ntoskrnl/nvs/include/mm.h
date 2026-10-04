@@ -464,6 +464,23 @@ typedef struct _MI_SEGMENT
     ULONG64 ReadGeneration;
 } MI_SEGMENT, *PMI_SEGMENT;
 
+#define MI_IMAGE_WINDOW_MAXIMUM_SLOTS 0x100000ULL
+
+typedef struct _MI_IMAGE_WINDOW
+{
+    MI_MUTEX Lock;
+    ULONG64 Lowest;
+    ULONG64 Highest;
+    ULONG64 SlotCount;
+    PULONG64 Bits;
+} MI_IMAGE_WINDOW, *PMI_IMAGE_WINDOW;
+
+VOID MiImageWindowInitialize(_Out_ PMI_IMAGE_WINDOW Window, _In_ ULONG64 Lowest, _In_ ULONG64 Highest);
+VOID MiImageWindowUninitialize(_Inout_ PMI_IMAGE_WINDOW Window);
+BOOLEAN MiImageWindowReserve(_Inout_ PMI_IMAGE_WINDOW Window, _In_ ULONG64 Size, _In_ ULONG64 HintSlot,
+                             _Out_ PULONG64 Base);
+VOID MiImageWindowRelease(_Inout_ PMI_IMAGE_WINDOW Window, _In_ ULONG64 Base, _In_ ULONG64 Size);
+
 NTSTATUS MiSegmentCreate(_Inout_ struct _MI_SYSTEM *System, _In_ UCHAR Kind, _In_ ULONG64 SizeInBytes,
                          _In_ ULONG Protection, _In_opt_ PMI_FILE_OPS FileOps, _In_opt_ PVOID FileContext,
                          _In_opt_ PMI_SEGMENT_LAYOUT Layout, _In_ ULONG LayoutCount, _Out_ PMI_SEGMENT *Segment);

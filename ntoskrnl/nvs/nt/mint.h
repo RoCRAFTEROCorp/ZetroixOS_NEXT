@@ -39,6 +39,8 @@ typedef struct _MI_CONTROL_AREA
     PVOID BasedAddress;
     ULONG64 ImageSize;
     SECTION_IMAGE_INFORMATION ImageInformation;
+    PMI_IMAGE_WINDOW ImageWindow;
+    ULONG64 ImageWindowBase;
 } MI_CONTROL_AREA, *PMI_CONTROL_AREA;
 
 typedef struct _MI_SECTION_OBJECT

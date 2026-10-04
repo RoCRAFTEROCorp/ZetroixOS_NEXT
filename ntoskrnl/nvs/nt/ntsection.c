@@ -16,6 +16,9 @@
 POBJECT_TYPE MmSectionObjectType;
 
 static MI_RWLOCK MiControlLock;
+static MI_MUTEX MiImageWindowLock;
+static MI_IMAGE_WINDOW MiImageWindows[8];
+static ULONG MiImageWindowCount;
 static LONG64 MiBasedSectionCursor;
 
 static GENERIC_MAPPING MiSectionMapping =
@@ -73,6 +76,9 @@ VOID
 MiFreeControlArea(
     _Inout_ PMI_CONTROL_AREA Control)
 {
+    if (Control->ImageWindow != NULL)
+        MiImageWindowRelease(Control->ImageWindow, Control->ImageWindowBase, Control->ImageSize);
+
     if (Control->FileObject != NULL)
         ObDereferenceObject(Control->FileObject);
 
@@ -542,6 +548,35 @@ MiImageRelocationBytes(
 }
 
 static
+PMI_IMAGE_WINDOW
+MiImageWindowFor(
+    _In_ ULONG64 Lowest,
+    _In_ ULONG64 Highest)
+{
+    PMI_IMAGE_WINDOW Window = NULL;
+    ULONG Index;
+
+    MI_MUTEX_ACQUIRE(&MiImageWindowLock);
+    for (Index = 0; Index < MiImageWindowCount; Index++)
+    {
+        if (MiImageWindows[Index].Lowest == Lowest && MiImageWindows[Index].Highest == Highest)
+        {
+            Window = &MiImageWindows[Index];
+            break;
+        }
+    }
+    if (Window == NULL && MiImageWindowCount < RTL_NUMBER_OF(MiImageWindows))
+    {
+        Window = &MiImageWindows[MiImageWindowCount];
+        MiImageWindowInitialize(Window, Lowest, Highest);
+        MiImageWindowCount++;
+    }
+    MI_MUTEX_RELEASE(&MiImageWindowLock);
+
+    return Window;
+}
+
+static
 NTSTATUS
 MiRelocateImageControlArea(
     _Inout_ PMI_CONTROL_AREA Control,
@@ -554,6 +589,9 @@ MiRelocateImageControlArea(
     ULONG64 Highest = (ULONG64)(ULONG_PTR)MM_HIGHEST_VAD_ADDRESS;
     ULONG64 Lowest = 0;
     ULONG64 Slots, Base, Delta;
+    PMI_IMAGE_WINDOW Window;
+    BOOLEAN Reserved = FALSE;
+    BOOLEAN Applied = FALSE;
     ULONG Seed, Page, Position = 0;
     PUCHAR Relocations = NULL;
     PUCHAR *Pages = NULL;
@@ -585,6 +623,9 @@ MiRelocateImageControlArea(
     Base = Lowest + ((ULONG64)RtlRandomEx(&Seed) % Slots + 1) * MI_ALLOCATION_GRANULARITY;
     if (Base == OldBase)
         Base = Lowest + ((Base - Lowest) / MI_ALLOCATION_GRANULARITY % Slots + 1) * MI_ALLOCATION_GRANULARITY;
+    Window = MiImageWindowFor(Lowest, Highest);
+    if (Window != NULL)
+        Reserved = MiImageWindowReserve(Window, Control->ImageSize, (Base - Lowest) / MI_ALLOCATION_GRANULARITY, &Base);
     Delta = Base - OldBase;
 
     if (Length != 0)
@@ -596,7 +637,10 @@ MiRelocateImageControlArea(
         }
         Relocations = ExAllocatePoolWithTag(PagedPool, Length, 'rImM');
         if (Relocations == NULL)
-            return STATUS_INSUFFICIENT_RESOURCES;
+        {
+            Status = STATUS_INSUFFICIENT_RESOURCES;
+            goto Done;
+        }
         Status = MiReadImageSegment(Control->Segment, Directory->VirtualAddress, Relocations, Length);
         if (!NT_SUCCESS(Status))
         {
@@ -705,9 +749,19 @@ MiRelocateImageControlArea(
     {
         Control->BasedAddress = (PVOID)(ULONG_PTR)Base;
         Information->TransferAddress = (PVOID)((ULONG_PTR)Information->TransferAddress + (ULONG_PTR)Delta);
+        Applied = TRUE;
     }
 
 Done:
+    if (Reserved && Applied)
+    {
+        Control->ImageWindow = Window;
+        Control->ImageWindowBase = Base;
+    }
+    else if (Reserved)
+    {
+        MiImageWindowRelease(Window, Base, Control->ImageSize);
+    }
     if (Pages != NULL)
     {
         for (Page = 0; Page < PageCount; Page++)
@@ -1248,6 +1302,7 @@ MiSectionInitialize(VOID)
     NTSTATUS Status;
 
     MI_RW_INIT(&MiControlLock);
+    MI_MUTEX_INIT(&MiImageWindowLock);
 
     RtlZeroMemory(&Initializer, sizeof(Initializer));
     RtlInitUnicodeString(&Name, L"Section");
