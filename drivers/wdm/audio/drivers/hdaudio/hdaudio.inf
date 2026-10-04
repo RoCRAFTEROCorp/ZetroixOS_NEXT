@@ -552,56 +552,56 @@ HKR,,CLSID,,%Proxy.CLSID%
 [HdAudModel.PrimaryLineOutWave]
 AddReg = HdAudModel.PrimaryLineOutWave.AddReg
 [HdAudModel.PrimaryLineOutWave.AddReg]
-HKR,,FriendlyName,,%PrimarySpeakerWaveDeviceName%
+HKR,,FriendlyName,,%PrimaryLineOutWaveDeviceName%
 HKR,,CLSID,,%Proxy.CLSID%
 [HdAudModel.PrimaryLineOutTopo]
 AddReg = HdAudModel.PrimaryLineOutTopo.AddReg, HDAudio.SysFx.Render
 [HdAudModel.PrimaryLineOutTopo.AddReg]
-HKR,,FriendlyName,,%PrimarySpeakerTopoDeviceName%
+HKR,,FriendlyName,,%PrimaryLineOutTopoDeviceName%
 HKR,,CLSID,,%Proxy.CLSID%
 
 [HdAudModel.PrimaryLineOut2Wave]
 AddReg = HdAudModel.PrimaryLineOut2Wave.AddReg
 [HdAudModel.PrimaryLineOut2Wave.AddReg]
-HKR,,FriendlyName,,%PrimarySpeaker2WaveDeviceName%
+HKR,,FriendlyName,,%PrimaryLineOut2WaveDeviceName%
 HKR,,CLSID,,%Proxy.CLSID%
 [HdAudModel.PrimaryLineOut2Topo]
 AddReg = HdAudModel.PrimaryLineOut2Topo.AddReg, HDAudio.SysFx.Render
 [HdAudModel.PrimaryLineOut2Topo.AddReg]
-HKR,,FriendlyName,,%PrimarySpeaker2TopoDeviceName%
+HKR,,FriendlyName,,%PrimaryLineOut2TopoDeviceName%
 HKR,,CLSID,,%Proxy.CLSID%
 
 [HdAudModel.PrimaryLineOut3Wave]
 AddReg = HdAudModel.PrimaryLineOut3Wave.AddReg
 [HdAudModel.PrimaryLineOut3Wave.AddReg]
-HKR,,FriendlyName,,%PrimarySpeaker3WaveDeviceName%
+HKR,,FriendlyName,,%PrimaryLineOut3WaveDeviceName%
 HKR,,CLSID,,%Proxy.CLSID%
 [HdAudModel.PrimaryLineOut3Topo]
 AddReg = HdAudModel.PrimaryLineOut3Topo.AddReg, HDAudio.SysFx.Render
 [HdAudModel.PrimaryLineOut3Topo.AddReg]
-HKR,,FriendlyName,,%PrimarySpeaker3TopoDeviceName%
+HKR,,FriendlyName,,%PrimaryLineOut3TopoDeviceName%
 HKR,,CLSID,,%Proxy.CLSID%
 
 [HdAudModel.PrimaryLineOut4Wave]
 AddReg = HdAudModel.PrimaryLineOut4Wave.AddReg
 [HdAudModel.PrimaryLineOut4Wave.AddReg]
-HKR,,FriendlyName,,%PrimarySpeaker4WaveDeviceName%
+HKR,,FriendlyName,,%PrimaryLineOut4WaveDeviceName%
 HKR,,CLSID,,%Proxy.CLSID%
 [HdAudModel.PrimaryLineOut4Topo]
 AddReg = HdAudModel.PrimaryLineOut4Topo.AddReg, HDAudio.SysFx.Render
 [HdAudModel.PrimaryLineOut4Topo.AddReg]
-HKR,,FriendlyName,,%PrimarySpeaker4TopoDeviceName%
+HKR,,FriendlyName,,%PrimaryLineOut4TopoDeviceName%
 HKR,,CLSID,,%Proxy.CLSID%
 
 [HdAudModel.PrimaryLineOut5Wave]
 AddReg = HdAudModel.PrimaryLineOut5Wave.AddReg
 [HdAudModel.PrimaryLineOut5Wave.AddReg]
-HKR,,FriendlyName,,%PrimarySpeaker5WaveDeviceName%
+HKR,,FriendlyName,,%PrimaryLineOut5WaveDeviceName%
 HKR,,CLSID,,%Proxy.CLSID%
 [HdAudModel.PrimaryLineOut5Topo]
 AddReg = HdAudModel.PrimaryLineOut5Topo.AddReg, HDAudio.SysFx.Render
 [HdAudModel.PrimaryLineOut5Topo.AddReg]
-HKR,,FriendlyName,,%PrimarySpeaker5TopoDeviceName%
+HKR,,FriendlyName,,%PrimaryLineOut5TopoDeviceName%
 HKR,,CLSID,,%Proxy.CLSID%
 
 
@@ -782,7 +782,7 @@ HKR,,CLSID,,%Proxy.CLSID%
 [HdAudModel.SlavedHpSpeaker2Wave]
 AddReg = HdAudModel.SlavedHpSpeaker2Wave.AddReg
 [HdAudModel.SlavedHpSpeaker2Wave.AddReg]
-HKR,,FriendlyName,,%SlavedHpSpeakerWave2DeviceName%
+HKR,,FriendlyName,,%SlavedHpSpeaker2WaveDeviceName%
 HKR,,CLSID,,%Proxy.CLSID%
 [HdAudModel.SlavedHpSpeaker2Topo]
 AddReg = HdAudModel.SlavedHpSpeaker2Topo.AddReg
@@ -793,7 +793,7 @@ HKR,,CLSID,,%Proxy.CLSID%
 [HdAudModel.SlavedHpSpeaker3Wave]
 AddReg = HdAudModel.SlavedHpSpeaker3Wave.AddReg
 [HdAudModel.SlavedHpSpeaker3Wave.AddReg]
-HKR,,FriendlyName,,%SlavedHpSpeakerWave3DeviceName%
+HKR,,FriendlyName,,%SlavedHpSpeaker3WaveDeviceName%
 HKR,,CLSID,,%Proxy.CLSID%
 [HdAudModel.SlavedHpSpeaker3Topo]
 AddReg = HdAudModel.SlavedHpSpeaker3Topo.AddReg
@@ -804,7 +804,7 @@ HKR,,CLSID,,%Proxy.CLSID%
 [HdAudModel.SlavedHpSpeaker4Wave]
 AddReg = HdAudModel.SlavedHpSpeaker4Wave.AddReg
 [HdAudModel.SlavedHpSpeaker4Wave.AddReg]
-HKR,,FriendlyName,,%SlavedHpSpeakerWave4DeviceName%
+HKR,,FriendlyName,,%SlavedHpSpeaker4WaveDeviceName%
 HKR,,CLSID,,%Proxy.CLSID%
 [HdAudModel.SlavedHpSpeaker4Topo]
 AddReg = HdAudModel.SlavedHpSpeaker4Topo.AddReg
@@ -815,7 +815,7 @@ HKR,,CLSID,,%Proxy.CLSID%
 [HdAudModel.SlavedHpSpeaker5Wave]
 AddReg = HdAudModel.SlavedHpSpeaker5Wave.AddReg
 [HdAudModel.SlavedHpSpeaker5Wave.AddReg]
-HKR,,FriendlyName,,%SlavedHpSpeakerWave5DeviceName%
+HKR,,FriendlyName,,%SlavedHpSpeaker5WaveDeviceName%
 HKR,,CLSID,,%Proxy.CLSID%
 [HdAudModel.SlavedHpSpeaker5Topo]
 AddReg = HdAudModel.SlavedHpSpeaker5Topo.AddReg
@@ -1124,6 +1124,16 @@ PrimarySpeaker4WaveDeviceName =        "HD Audio Speaker 4"
 PrimarySpeaker4TopoDeviceName =        "HD Audio Speaker mixer 4" 
 PrimarySpeaker5WaveDeviceName =        "HD Audio Speaker 5"       
 PrimarySpeaker5TopoDeviceName =        "HD Audio Speaker mixer 5" 
+PrimaryLineOutWaveDeviceName = "HD Audio Line out"
+PrimaryLineOutTopoDeviceName = "HD Audio Line out mixer"
+PrimaryLineOut2WaveDeviceName = "HD Audio Line out 2"
+PrimaryLineOut2TopoDeviceName = "HD Audio Line out mixer 2"
+PrimaryLineOut3WaveDeviceName = "HD Audio Line out 3"
+PrimaryLineOut3TopoDeviceName = "HD Audio Line out mixer 3"
+PrimaryLineOut4WaveDeviceName = "HD Audio Line out 4"
+PrimaryLineOut4TopoDeviceName = "HD Audio Line out mixer 4"
+PrimaryLineOut5WaveDeviceName = "HD Audio Line out 5"
+PrimaryLineOut5TopoDeviceName = "HD Audio Line out mixer 5"
 
 PrimaryLineConnectorWaveDeviceName  =  "HD Audio Line connector"         
 PrimaryLineConnectorTopoDeviceName  =  "HD Audio Line connector mixer"   
@@ -1154,8 +1164,8 @@ SpdifOutSpeakerTopoDeviceName = "HD Audio Spdif Speaker mixer"
 
 
 
-SpdifOutLineOutWaveDeviceName = "HD Audio Spdif Speaker"       
-SpdifOutLineOutTopoDeviceName = "HD Audio Spdif Speaker mixer" 
+SpdifOutLineOutWaveDeviceName = "HD Audio Spdif Line out"       
+SpdifOutLineOutTopoDeviceName = "HD Audio Spdif Line out mixer" 
 
 
 DigitalOutputWaveDeviceName =   "HD Audio SPDIF out"       
@@ -1178,16 +1188,16 @@ SlavedHpSpeaker5WaveDeviceName = "HD Audio Headphone/Speakers 5"
 SlavedHpSpeaker5TopoDeviceName = "HD Audio Headphone/Speakers mixer 5" 
 
 
-SlavedHpLineOutWaveDeviceName = "HD Audio Headphone/Speakers"       
-SlavedHpLineOutTopoDeviceName = "HD Audio Headphone/Speakers mixer" 
-SlavedHpLineOut2WaveDeviceName = "HD Audio Headphone/Speakers 2"       
-SlavedHpLineOut2TopoDeviceName = "HD Audio Headphone/Speakers mixer 2" 
-SlavedHpLineOut3WaveDeviceName = "HD Audio Headphone/Speakers 3"       
-SlavedHpLineOut3TopoDeviceName = "HD Audio Headphone/Speakers mixer 3" 
-SlavedHpLineOut4WaveDeviceName = "HD Audio Headphone/Speakers 4"       
-SlavedHpLineOut4TopoDeviceName = "HD Audio Headphone/Speakers mixer 4" 
-SlavedHpLineOut5WaveDeviceName = "HD Audio Headphone/Speakers 5"       
-SlavedHpLineOut5TopoDeviceName = "HD Audio Headphone/Speakers mixer 5" 
+SlavedHpLineOutWaveDeviceName = "HD Audio Headphone/Line out"       
+SlavedHpLineOutTopoDeviceName = "HD Audio Headphone/Line out mixer" 
+SlavedHpLineOut2WaveDeviceName = "HD Audio Headphone/Line out 2"       
+SlavedHpLineOut2TopoDeviceName = "HD Audio Headphone/Line out mixer 2" 
+SlavedHpLineOut3WaveDeviceName = "HD Audio Headphone/Line out 3"       
+SlavedHpLineOut3TopoDeviceName = "HD Audio Headphone/Line out mixer 3" 
+SlavedHpLineOut4WaveDeviceName = "HD Audio Headphone/Line out 4"       
+SlavedHpLineOut4TopoDeviceName = "HD Audio Headphone/Line out mixer 4" 
+SlavedHpLineOut5WaveDeviceName = "HD Audio Headphone/Line out 5"       
+SlavedHpLineOut5TopoDeviceName = "HD Audio Headphone/Line out mixer 5" 
 
 
 SlavedIntSpeakerExtLineOutWaveDeviceName = "HD Audio Int Spkr/Ext LineOut"       
