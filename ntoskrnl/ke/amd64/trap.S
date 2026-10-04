@@ -1046,6 +1046,8 @@ PUBLIC KiSystemCallEntry64
     /* Store user stack pointer in the trap frame */
     mov rax, gs:[PcUserRsp]
     mov [rsp + MAX_SYSCALL_PARAM_SIZE + KTRAP_FRAME_Rsp], rax
+    mov word ptr [rsp + MAX_SYSCALL_PARAM_SIZE + KTRAP_FRAME_SegCs], (KGDT64_R3_CODE OR RPL_MASK)
+    mov word ptr [rsp + MAX_SYSCALL_PARAM_SIZE + KTRAP_FRAME_SegSs], (KGDT64_R3_DATA OR RPL_MASK)
 
     /* Set sane segments */
     mov ax, (KGDT64_R3_DATA OR RPL_MASK)

@@ -276,23 +276,11 @@ KeTrapFrameToContext(IN PKTRAP_FRAME TrapFrame,
     /* Handle segment selectors */
     if (ContextFlags & CONTEXT_SEGMENTS)
     {
-        /* Check if this was a Kernel Trap */
-        if ((TrapFrame->SegCs & MODE_MASK) == KernelMode)
-        {
-            /* Set valid selectors */
-            Context->SegDs = KGDT64_R3_DATA | RPL_MASK;
-            Context->SegEs = KGDT64_R3_DATA | RPL_MASK;
-            Context->SegFs = KGDT64_R3_CMTEB | RPL_MASK;
-            Context->SegGs = KGDT64_R3_DATA | RPL_MASK;
-        }
-        else
-        {
-            /* Copy selectors */
-            Context->SegDs = TrapFrame->SegDs;
-            Context->SegEs = TrapFrame->SegEs;
-            Context->SegFs = TrapFrame->SegFs;
-            Context->SegGs = TrapFrame->SegGs;
-        }
+        /* Set valid selectors */
+        Context->SegDs = KGDT64_R3_DATA | RPL_MASK;
+        Context->SegEs = KGDT64_R3_DATA | RPL_MASK;
+        Context->SegFs = KGDT64_R3_CMTEB | RPL_MASK;
+        Context->SegGs = KGDT64_R3_DATA | RPL_MASK;
     }
 
     /* Handle debug registers */
