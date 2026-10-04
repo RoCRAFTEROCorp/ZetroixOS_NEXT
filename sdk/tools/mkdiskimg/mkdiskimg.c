@@ -16,6 +16,13 @@
 #define MBR_PARTITION_TABLE_OFFSET 446
 #define MBR_SIGNATURE_OFFSET 510
 #define MAX_MBR_PARTITIONS 4
+#define MAX_RAW_BLOBS 8
+#define GPT_ENTRY_COUNT 128
+#define GPT_ENTRY_SIZE 128
+#define GPT_ENTRY_SECTORS 32
+#define GPT_HEADER_SIZE 92
+#define GPT_FIRST_USABLE_SECTOR 34
+#define GPT_NAME_LENGTH 36
 
 /* FAT/FAT32 BPB field offsets (from start of VBR) */
 #define FAT_BPB_BYTES_PER_SECTOR_OFFSET 11
@@ -75,6 +82,9 @@ typedef struct _PARTITION_INPUT
 {
     const char* Path;
     int Blank;
+    int Data;
+    unsigned int ReservedSectors;
+    const char* Name;
     unsigned int StartSector;
     unsigned char Type;
     FILE* File;
@@ -82,6 +92,14 @@ typedef struct _PARTITION_INPUT
     unsigned int SectorCount;
     unsigned char BootSector[SECTOR_SIZE];
 } PARTITION_INPUT;
+
+typedef struct _RAW_BLOB
+{
+    const char* Path;
+    unsigned int StartSector;
+    unsigned char* Data;
+    long Size;
+} RAW_BLOB;
 
 #pragma pack(push, 1)
 typedef struct _PARTITION_ENTRY
@@ -97,14 +115,20 @@ typedef struct _PARTITION_ENTRY
 
 static void print_usage(const char* name)
 {
-    printf("Usage: %s -o <output> [-mbr <mbr.bin>] {-partition <part.img>|-blank <sectors>} [-start <sector>] [-type <hex>] ... [-format <raw|vhd>] [-vhd]\n\n", name);
+    printf("Usage: %s -o <output> [-gpt] [-mbr <mbr.bin>] {-partition <part.img>|-data <file>|-blank <sectors>} [-start <sector>] [-type <hex>] [-size <sectors>] [-name <label>] ... [-raw <file> -at <sector>] ... [-format <raw|vhd>] [-vhd]\n\n", name);
+    printf("  -gpt                Write a GUID partition table behind a protective MBR\n");
     printf("  -o <output>         Output image file\n");
-    printf("  -mbr <mbr.bin>      MBR boot code binary (first 440 bytes used).\n");
+    printf("  -mbr <mbr.bin>      MBR boot code binary (first 440 bytes used; shorter files are zero-padded).\n");
     printf("                      Optional; omit on UEFI-only platforms to leave the boot code area zeroed.\n");
     printf("  -partition <img>    Raw FAT, exFAT, or NTFS partition image (up to four)\n");
+    printf("  -data <file>        Partition holding <file> verbatim, zero-padded to whole sectors\n");
     printf("  -blank <sectors>    Zero-filled partition with no filesystem (up to four)\n");
     printf("  -start <sector>     Start sector for the preceding partition (first defaults to %d)\n", DEFAULT_START_SECTOR);
     printf("  -type <hex>         Type ID for the preceding partition (first defaults to 0x%02X)\n", DEFAULT_PARTITION_TYPE);
+    printf("  -size <sectors>     Sectors reserved for the preceding -data partition\n");
+    printf("  -name <label>       GPT name of the preceding partition\n");
+    printf("  -raw <file>         Data written outside the partitions at the sector given by -at\n");
+    printf("  -at <sector>        Start sector of the preceding -raw data (not sector 0)\n");
     printf("  -format <raw|vhd>   Output container format (default: raw)\n");
     printf("  -vhd                Shorthand for -format vhd\n");
 }
@@ -148,6 +172,48 @@ static int initialize_zeroed_file(FILE* file, long size)
      * semantics while allowing filesystems that support holes to keep it sparse. */
     if (size <= 0 || fseek(file, size - 1, SEEK_SET) != 0 || fputc(0, file) == EOF)
         return -1;
+    return 0;
+}
+
+static unsigned int crc32_update(unsigned int crc, const unsigned char* data, size_t size)
+{
+    size_t i;
+    int bit;
+
+    crc = ~crc;
+    for (i = 0; i < size; i++)
+    {
+        crc ^= data[i];
+        for (bit = 0; bit < 8; bit++)
+            crc = (crc >> 1) ^ (0xEDB88320U & (0U - (crc & 1)));
+    }
+    return ~crc;
+}
+
+static int read_whole_file(const char* path, unsigned char** data, long* size)
+{
+    FILE* file = fopen(path, "rb");
+    long length;
+
+    *data = NULL;
+    *size = 0;
+    if (!file)
+        return -1;
+    if (fseek(file, 0, SEEK_END) != 0 || (length = ftell(file)) < 0 || fseek(file, 0, SEEK_SET) != 0)
+    {
+        fclose(file);
+        return -1;
+    }
+    *data = malloc(length > 0 ? (size_t)length : 1);
+    if (!*data || (length > 0 && fread(*data, 1, (size_t)length, file) != (size_t)length))
+    {
+        free(*data);
+        *data = NULL;
+        fclose(file);
+        return -1;
+    }
+    fclose(file);
+    *size = length;
     return 0;
 }
 
@@ -238,6 +304,87 @@ static void write_le64(unsigned char* ptr, unsigned long long value)
 {
     write_le32(ptr, (unsigned int)value);
     write_le32(ptr + 4, (unsigned int)(value >> 32));
+}
+
+static const unsigned char gpt_type_esp[16] =
+    {0x28, 0x73, 0x2A, 0xC1, 0x1F, 0xF8, 0xD2, 0x11, 0xBA, 0x4B, 0x00, 0xA0, 0xC9, 0x3E, 0xC9, 0x3B};
+static const unsigned char gpt_type_basic_data[16] =
+    {0xA2, 0xA0, 0xD0, 0xEB, 0xE5, 0xB9, 0x33, 0x44, 0x87, 0xC0, 0x68, 0xB6, 0xB7, 0x26, 0x99, 0xC7};
+static const unsigned char gpt_type_linux_data[16] =
+    {0xAF, 0x3D, 0xC6, 0x0F, 0x83, 0x84, 0x72, 0x47, 0x8E, 0x79, 0x3D, 0x69, 0xD8, 0x47, 0x7D, 0xE4};
+
+static void make_gpt_guid(unsigned char guid[16], unsigned int index, const PARTITION_INPUT* partition)
+{
+    unsigned char seed[16];
+    unsigned int value = 0x4C624E54U ^ index;
+    int i;
+
+    memset(seed, 0, sizeof(seed));
+    write_le32(seed, index);
+    if (partition)
+    {
+        write_le32(seed + 4, partition->StartSector);
+        write_le32(seed + 8, partition->SectorCount);
+        write_le32(seed + 12, partition->Type);
+    }
+    for (i = 0; i < 4; i++)
+    {
+        value = crc32_update(value, seed, sizeof(seed));
+        if (partition && partition->Name)
+            value = crc32_update(value, (const unsigned char*)partition->Name, strlen(partition->Name));
+        write_le32(guid + 4 * i, value);
+    }
+    guid[7] = (unsigned char)((guid[7] & 0x0F) | 0x40);
+    guid[8] = (unsigned char)((guid[8] & 0x3F) | 0x80);
+}
+
+static void build_gpt_entries(unsigned char* entries, const PARTITION_INPUT* partitions, unsigned int partition_count)
+{
+    unsigned int index;
+
+    memset(entries, 0, GPT_ENTRY_COUNT * GPT_ENTRY_SIZE);
+    for (index = 0; index < partition_count; index++)
+    {
+        const PARTITION_INPUT* partition = &partitions[index];
+        unsigned char* entry = entries + index * GPT_ENTRY_SIZE;
+        const unsigned char* type = gpt_type_linux_data;
+        const char* name = partition->Name ? partition->Name : "";
+        size_t i;
+
+        if (partition->Type == 0xEF)
+            type = gpt_type_esp;
+        else if (partition->Type == 0x07 || partition->Type == 0x0B || partition->Type == 0x0C)
+            type = gpt_type_basic_data;
+        memcpy(entry, type, 16);
+        make_gpt_guid(entry + 16, index + 1, partition);
+        write_le64(entry + 32, partition->StartSector);
+        write_le64(entry + 40, (unsigned long long)partition->StartSector + partition->SectorCount - 1);
+        for (i = 0; name[i] != 0 && i < GPT_NAME_LENGTH; i++)
+            entry[56 + 2 * i] = (unsigned char)name[i];
+    }
+}
+
+static void build_gpt_header(unsigned char sector[SECTOR_SIZE],
+                             unsigned long long current_lba,
+                             unsigned long long other_lba,
+                             unsigned long long entries_lba,
+                             unsigned long long last_lba,
+                             const unsigned char* entries)
+{
+    memset(sector, 0, SECTOR_SIZE);
+    memcpy(sector, "EFI PART", 8);
+    write_le32(sector + 8, 0x00010000U);
+    write_le32(sector + 12, GPT_HEADER_SIZE);
+    write_le64(sector + 24, current_lba);
+    write_le64(sector + 32, other_lba);
+    write_le64(sector + 40, GPT_FIRST_USABLE_SECTOR);
+    write_le64(sector + 48, last_lba - GPT_ENTRY_SECTORS - 1);
+    make_gpt_guid(sector + 56, 0, NULL);
+    write_le64(sector + 72, entries_lba);
+    write_le32(sector + 80, GPT_ENTRY_COUNT);
+    write_le32(sector + 84, GPT_ENTRY_SIZE);
+    write_le32(sector + 88, crc32_update(0, entries, GPT_ENTRY_COUNT * GPT_ENTRY_SIZE));
+    write_le32(sector + 16, crc32_update(0, sector, GPT_HEADER_SIZE));
 }
 
 static int patch_fat_partition(FILE* output, const PARTITION_INPUT* partition)
@@ -856,6 +1003,11 @@ int main(int argc, char* argv[])
     PARTITION_INPUT partitions[MAX_MBR_PARTITIONS];
     unsigned int partition_count = 0;
     int current_partition = -1;
+    RAW_BLOB blobs[MAX_RAW_BLOBS];
+    unsigned int blob_count = 0;
+    int current_blob = -1;
+    int gpt = 0;
+    unsigned char* gpt_entries = NULL;
     OUTPUT_FORMAT output_format = OUTPUT_FORMAT_RAW;
     FILE* f_output = NULL;
     FILE* f_final = NULL;
@@ -868,6 +1020,7 @@ int main(int argc, char* argv[])
     int ret = 1;
 
     memset(partitions, 0, sizeof(partitions));
+    memset(blobs, 0, sizeof(blobs));
 
     for (i = 1; i < argc; i++)
     {
@@ -879,9 +1032,11 @@ int main(int argc, char* argv[])
         {
             mbr_path = argv[++i];
         }
-        else if ((strcmp(argv[i], "-partition") == 0 || strcmp(argv[i], "-blank") == 0) && i + 1 < argc)
+        else if ((strcmp(argv[i], "-partition") == 0 || strcmp(argv[i], "-blank") == 0 ||
+                  strcmp(argv[i], "-data") == 0) && i + 1 < argc)
         {
             const int blank = strcmp(argv[i], "-blank") == 0;
+            const int data = strcmp(argv[i], "-data") == 0;
             const char* value = argv[++i];
             PARTITION_INPUT* partition;
 
@@ -892,8 +1047,10 @@ int main(int argc, char* argv[])
             }
 
             current_partition = (int)partition_count++;
+            current_blob = -1;
             partition = &partitions[current_partition];
             partition->Blank = blank;
+            partition->Data = data;
             partition->StartSector = current_partition == 0 ? DEFAULT_START_SECTOR : 0;
             partition->Type = current_partition == 0 ? DEFAULT_PARTITION_TYPE : 0x07;
             if (blank)
@@ -932,6 +1089,50 @@ int main(int argc, char* argv[])
                 goto cleanup;
             }
             partitions[current_partition].Type = (unsigned char)type;
+        }
+        else if (strcmp(argv[i], "-size") == 0 && i + 1 < argc)
+        {
+            if (current_partition < 0 || !partitions[current_partition].Data ||
+                parse_unsigned(argv[++i], 10, 0xFFFFFFFFU,
+                               &partitions[current_partition].ReservedSectors) != 0 ||
+                partitions[current_partition].ReservedSectors == 0)
+            {
+                fprintf(stderr, "Error: -size needs a positive sector count after -data.\n");
+                goto cleanup;
+            }
+        }
+        else if (strcmp(argv[i], "-raw") == 0 && i + 1 < argc)
+        {
+            if (blob_count == MAX_RAW_BLOBS)
+            {
+                fprintf(stderr, "Error: At most %d -raw blobs are supported.\n", MAX_RAW_BLOBS);
+                goto cleanup;
+            }
+            current_blob = (int)blob_count++;
+            blobs[current_blob].Path = argv[++i];
+        }
+        else if (strcmp(argv[i], "-at") == 0 && i + 1 < argc)
+        {
+            if (current_blob < 0 ||
+                parse_unsigned(argv[++i], 10, 0xFFFFFFFFU, &blobs[current_blob].StartSector) != 0 ||
+                blobs[current_blob].StartSector == 0)
+            {
+                fprintf(stderr, "Error: -at needs a non-zero sector after -raw.\n");
+                goto cleanup;
+            }
+        }
+        else if (strcmp(argv[i], "-name") == 0 && i + 1 < argc)
+        {
+            if (current_partition < 0 || strlen(argv[i + 1]) == 0 || strlen(argv[i + 1]) > GPT_NAME_LENGTH)
+            {
+                fprintf(stderr, "Error: -name needs a label of at most %d characters after a partition.\n", GPT_NAME_LENGTH);
+                goto cleanup;
+            }
+            partitions[current_partition].Name = argv[++i];
+        }
+        else if (strcmp(argv[i], "-gpt") == 0)
+        {
+            gpt = 1;
         }
         else if (strcmp(argv[i], "-format") == 0 && i + 1 < argc)
         {
@@ -976,7 +1177,7 @@ int main(int argc, char* argv[])
             fprintf(stderr, "Error: Cannot open MBR file '%s'.\n", mbr_path);
             goto cleanup;
         }
-        if (fread(mbr_sector, 1, MBR_BOOT_CODE_SIZE, f_mbr) != MBR_BOOT_CODE_SIZE)
+        if (fread(mbr_sector, 1, MBR_BOOT_CODE_SIZE, f_mbr) == 0)
         {
             fprintf(stderr, "Error: Cannot read MBR boot code from '%s'.\n", mbr_path);
             goto cleanup;
@@ -995,6 +1196,11 @@ int main(int argc, char* argv[])
         if (partition->StartSector == 0)
         {
             fprintf(stderr, "Error: No start sector specified for partition %u.\n", index + 1);
+            goto cleanup;
+        }
+        if (gpt && partition->StartSector < GPT_FIRST_USABLE_SECTOR)
+        {
+            fprintf(stderr, "Error: Partition %u starts inside the GPT.\n", index + 1);
             goto cleanup;
         }
 
@@ -1017,7 +1223,8 @@ int main(int argc, char* argv[])
                 fprintf(stderr, "Error: Cannot open partition image '%s'.\n", partition->Path);
                 goto cleanup;
             }
-            if (fseek(partition->File, 0, SEEK_END) != 0 || (partition->Size = ftell(partition->File)) <= 0 || partition->Size % SECTOR_SIZE != 0 || fseek(partition->File, 0, SEEK_SET) != 0)
+            if (fseek(partition->File, 0, SEEK_END) != 0 || (partition->Size = ftell(partition->File)) <= 0 ||
+                (!partition->Data && partition->Size % SECTOR_SIZE != 0) || fseek(partition->File, 0, SEEK_SET) != 0)
             {
                 fprintf(stderr, "Error: Partition image '%s' has an invalid size.\n", partition->Path);
                 goto cleanup;
@@ -1028,7 +1235,17 @@ int main(int argc, char* argv[])
                 goto cleanup;
             }
 
-            partition->SectorCount = (unsigned int)(partition->Size / SECTOR_SIZE);
+            partition->SectorCount = (unsigned int)((partition->Size + SECTOR_SIZE - 1) / SECTOR_SIZE);
+            if (partition->Data && partition->ReservedSectors)
+            {
+                if (partition->ReservedSectors < partition->SectorCount)
+                {
+                    fprintf(stderr, "Error: '%s' does not fit in %u sectors.\n",
+                            partition->Path, partition->ReservedSectors);
+                    goto cleanup;
+                }
+                partition->SectorCount = partition->ReservedSectors;
+            }
         }
         end_sector = (unsigned long long)partition->StartSector + partition->SectorCount;
         if (end_sector == 0 || end_sector - 1 > 0xFFFFFFFFULL)
@@ -1057,6 +1274,9 @@ int main(int argc, char* argv[])
         if (end_sector > total_sectors)
             total_sectors = end_sector;
 
+        if (gpt)
+            continue;
+
         entry = (PARTITION_ENTRY*)(mbr_sector + MBR_PARTITION_TABLE_OFFSET) + index;
         entry->Status = index == 0 ? 0x80 : 0;
         entry->Type = partition->Type;
@@ -1064,6 +1284,73 @@ int main(int argc, char* argv[])
         entry->LBASize = partition->SectorCount;
         write_chs(partition->StartSector, entry->CHSFirst);
         write_chs((unsigned int)(end_sector - 1), entry->CHSLast);
+    }
+
+    for (index = 0; index < blob_count; index++)
+    {
+        RAW_BLOB* blob = &blobs[index];
+        unsigned long long blob_end;
+        unsigned int other;
+
+        if (blob->StartSector == 0)
+        {
+            fprintf(stderr, "Error: No -at sector given for '%s'.\n", blob->Path);
+            goto cleanup;
+        }
+        if (read_whole_file(blob->Path, &blob->Data, &blob->Size) != 0 || blob->Size <= 0)
+        {
+            fprintf(stderr, "Error: Cannot read raw data '%s'.\n", blob->Path);
+            goto cleanup;
+        }
+
+        blob_end = (unsigned long long)blob->StartSector +
+                   ((unsigned long long)blob->Size + SECTOR_SIZE - 1) / SECTOR_SIZE;
+        for (other = 0; other < partition_count; other++)
+        {
+            unsigned long long part_end = (unsigned long long)partitions[other].StartSector +
+                                          partitions[other].SectorCount;
+
+            if (blob->StartSector < part_end && partitions[other].StartSector < blob_end)
+            {
+                fprintf(stderr, "Error: '%s' overlaps partition %u.\n", blob->Path, other + 1);
+                goto cleanup;
+            }
+        }
+        for (other = 0; other < index; other++)
+        {
+            unsigned long long other_end = (unsigned long long)blobs[other].StartSector +
+                ((unsigned long long)blobs[other].Size + SECTOR_SIZE - 1) / SECTOR_SIZE;
+
+            if (blob->StartSector < other_end && blobs[other].StartSector < blob_end)
+            {
+                fprintf(stderr, "Error: '%s' overlaps '%s'.\n", blob->Path, blobs[other].Path);
+                goto cleanup;
+            }
+        }
+        if (gpt && blob->StartSector < GPT_FIRST_USABLE_SECTOR)
+        {
+            fprintf(stderr, "Error: '%s' overlaps the GPT.\n", blob->Path);
+            goto cleanup;
+        }
+        if (blob_end > total_sectors)
+            total_sectors = blob_end;
+    }
+
+    if (gpt)
+    {
+        PARTITION_ENTRY* entry = (PARTITION_ENTRY*)(mbr_sector + MBR_PARTITION_TABLE_OFFSET);
+
+        total_sectors += GPT_ENTRY_SECTORS + 1;
+        entry->Status = 0;
+        entry->CHSFirst[0] = 0x00;
+        entry->CHSFirst[1] = 0x02;
+        entry->CHSFirst[2] = 0x00;
+        entry->Type = 0xEE;
+        entry->CHSLast[0] = 0xFF;
+        entry->CHSLast[1] = 0xFF;
+        entry->CHSLast[2] = 0xFF;
+        entry->LBAStart = 1;
+        entry->LBASize = total_sectors - 1 > 0xFFFFFFFFULL ? 0xFFFFFFFFU : (unsigned int)(total_sectors - 1);
     }
 
     if (total_sectors > (unsigned long long)LONG_MAX / SECTOR_SIZE)
@@ -1118,8 +1405,44 @@ int main(int argc, char* argv[])
             fprintf(stderr, "Error: Cannot write partition image '%s'.\n", partition->Path);
             goto cleanup;
         }
-        if (patch_partition(f_output, partition) != 0)
+        if (!partition->Data && patch_partition(f_output, partition) != 0)
             goto cleanup;
+    }
+
+    if (gpt)
+    {
+        unsigned char header[SECTOR_SIZE];
+        unsigned long long last_lba = total_sectors - 1;
+
+        gpt_entries = malloc(GPT_ENTRY_COUNT * GPT_ENTRY_SIZE);
+        if (!gpt_entries)
+            goto cleanup;
+        build_gpt_entries(gpt_entries, partitions, partition_count);
+        build_gpt_header(header, 1, last_lba, 2, last_lba, gpt_entries);
+        if (write_data_at(f_output, SECTOR_SIZE, header, sizeof(header)) != 0 ||
+            write_data_at(f_output, 2 * SECTOR_SIZE, gpt_entries, GPT_ENTRY_COUNT * GPT_ENTRY_SIZE) != 0)
+        {
+            fprintf(stderr, "Error: Cannot write the GPT.\n");
+            goto cleanup;
+        }
+        build_gpt_header(header, last_lba, 1, last_lba - GPT_ENTRY_SECTORS, last_lba, gpt_entries);
+        if (write_data_at(f_output, (long)(last_lba - GPT_ENTRY_SECTORS) * SECTOR_SIZE, gpt_entries, GPT_ENTRY_COUNT * GPT_ENTRY_SIZE) != 0 ||
+            write_data_at(f_output, (long)last_lba * SECTOR_SIZE, header, sizeof(header)) != 0)
+        {
+            fprintf(stderr, "Error: Cannot write the backup GPT.\n");
+            goto cleanup;
+        }
+    }
+
+    for (index = 0; index < blob_count; index++)
+    {
+        if (write_data_at(f_output, (long)blobs[index].StartSector * SECTOR_SIZE,
+                          blobs[index].Data, (size_t)blobs[index].Size) != 0 ||
+            fflush(f_output) != 0)
+        {
+            fprintf(stderr, "Error: Cannot write '%s'.\n", blobs[index].Path);
+            goto cleanup;
+        }
     }
 
     if (output_format == OUTPUT_FORMAT_VHD)
@@ -1160,5 +1483,8 @@ cleanup:
         if (partitions[index].File)
             fclose(partitions[index].File);
     }
+    for (index = 0; index < blob_count; index++)
+        free(blobs[index].Data);
+    free(gpt_entries);
     return ret;
 }
