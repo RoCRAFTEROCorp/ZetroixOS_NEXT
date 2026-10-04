@@ -381,3 +381,57 @@ RtlCopyExtendedContext(RTL_CONTEXT_EX *Destination,
     }
     return STATUS_SUCCESS;
 }
+
+NTSTATUS
+NTAPI
+RtlCopyContext(PCONTEXT Destination,
+               ULONG ContextFlags,
+               PCONTEXT Source)
+{
+    static const ULONG ArchMask = CONTEXT_i386 | CONTEXT_AMD64;
+    const struct context_parameters *Parameters;
+    PUCHAR DestinationBytes = (PUCHAR)Destination;
+    PUCHAR SourceBytes = (PUCHAR)Source;
+    ULONG ArchFlag, ContextSize, FlagsOffset, DestinationFlags, SourceFlags;
+
+    if ((ContextFlags & 0x40) && !RtlGetEnabledExtendedFeatures(~(ULONG64)0))
+        return STATUS_NOT_SUPPORTED;
+
+    ArchFlag = ContextFlags & ArchMask;
+    switch (ArchFlag)
+    {
+        case CONTEXT_i386:
+            ContextSize = sizeof(I386_CONTEXT);
+            FlagsOffset = FIELD_OFFSET(I386_CONTEXT, ContextFlags);
+            break;
+        case CONTEXT_AMD64:
+            ContextSize = sizeof(AMD64_CONTEXT);
+            FlagsOffset = FIELD_OFFSET(AMD64_CONTEXT, ContextFlags);
+            break;
+        default:
+            return STATUS_INVALID_PARAMETER;
+    }
+
+    DestinationFlags = *(PULONG)(DestinationBytes + FlagsOffset);
+    SourceFlags = *(PULONG)(SourceBytes + FlagsOffset);
+    if ((DestinationFlags & ArchMask) != ArchFlag || (SourceFlags & ArchMask) != ArchFlag)
+        return STATUS_INVALID_PARAMETER;
+
+    ContextFlags &= SourceFlags;
+    if (ContextFlags & ~DestinationFlags & 0x40)
+        return STATUS_BUFFER_OVERFLOW;
+
+    if (ContextFlags & 0x40)
+    {
+        return RtlCopyExtendedContext((RTL_CONTEXT_EX *)(DestinationBytes + ContextSize),
+                                      ContextFlags,
+                                      (RTL_CONTEXT_EX *)(SourceBytes + ContextSize));
+    }
+
+    Parameters = RtlpGetContextParameters(ContextFlags);
+    if (!Parameters)
+        return STATUS_INVALID_PARAMETER;
+
+    RtlpCopyContextRanges(DestinationBytes, ContextFlags, SourceBytes, Parameters);
+    return STATUS_SUCCESS;
+}

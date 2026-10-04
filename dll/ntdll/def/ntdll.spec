@@ -756,6 +756,7 @@
 @ stdcall RtlCopyLuid(ptr ptr)
 @ stdcall RtlCopyLuidAndAttributesArray(long ptr ptr)
 @ stdcall RtlCopyMappedMemory(ptr ptr long)
+@ stdcall -version=0xA00+ -arch=win64 RtlCopyContext(ptr long ptr)
 @ stdcall -version=0x600+ -arch=win64 RtlCopyExtendedContext(ptr long ptr)
 @ cdecl -version=0x600+ -arch=x86_64,riscv64 RtlCopyMemory(ptr ptr long) memmove
 @ cdecl -version=0x600+ -arch=arm64 RtlCopyMemory(ptr ptr long) RtlpUserMemmove
