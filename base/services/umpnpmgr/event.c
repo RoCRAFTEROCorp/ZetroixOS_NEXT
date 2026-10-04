@@ -248,7 +248,7 @@ ProcessTargetDeviceEvent(
     }
     else if (UuidEqual(&PnpEvent->EventGuid, (UUID*)&GUID_DEVICE_REMOVE_PENDING, &RpcStatus))
     {
-        DPRINT1("Removal pending: %S\n", PnpEvent->TargetDevice.DeviceIds);
+        DPRINT("Removal pending: %S\n", PnpEvent->TargetDevice.DeviceIds);
     }
     else
     {

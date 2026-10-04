@@ -133,7 +133,7 @@ VOID DealWithDeviceEvent(VOID)
     /* First, try to get a multicast MAC address */
     if (!getMacAddress(UuidSeed))
     {
-        DPRINT1("Failed finding a proper MAC address, will generate seed\n");
+        DPRINT("Failed finding a proper MAC address, will generate seed\n");
         CookupNodeId(UuidSeed);
     }
 

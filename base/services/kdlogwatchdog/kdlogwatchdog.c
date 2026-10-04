@@ -12,6 +12,7 @@
 #include <winbase.h>
 #include <winreg.h>
 #include <winsvc.h>
+#define NDEBUG
 #include <debug.h>
 
 #ifndef KD_LOG_WATCHDOG_DEFAULT_SECONDS
@@ -195,7 +196,7 @@ static VOID WINAPI ServiceMain(_In_ DWORD ArgumentCount, _In_reads_(ArgumentCoun
     if (TimeoutSeconds == 0)
     {
         HeartbeatMilliseconds = 0;
-        DPRINT1("KDLOGWD: heartbeat service disabled for this boot\n");
+        DPRINT("KDLOGWD: heartbeat service disabled for this boot\n");
         goto Stop;
     }
 

@@ -379,7 +379,7 @@ InstallDevice(PCWSTR DeviceInstance, BOOL ShowWizard)
         return TRUE;
     }
 
-    DPRINT1("Installing: %S\n", DeviceInstance);
+    DPRINT("Installing: %S\n", DeviceInstance);
 
     /* Create a random UUID for the named pipe & event*/
     UuidCreate(&RandomUuid);
@@ -552,7 +552,7 @@ InstallDevicesBatchChild(PCWSTR MultiSzDeviceList, DWORD DeviceCount)
     WCHAR PipeName[74];
     WCHAR UuidString[39];
 
-    DPRINT1("Installing: batch[%lu devices]\n", DeviceCount);
+    DPRINT("Installing: batch[%lu devices]\n", DeviceCount);
 
     ZeroMemory(&ProcessInfo, sizeof(ProcessInfo));
 
@@ -687,7 +687,7 @@ InstallDevicesBatchChild(PCWSTR MultiSzDeviceList, DWORD DeviceCount)
          * this is what the serial log used to show before we hand control to
          * rundll32, keeping "where is the installs?" answerable in batch mode
          * without dragging DbgPrint into newdev.dll. */
-        DPRINT1("Installing: %S\n", currentDev);
+        DPRINT("Installing: %S\n", currentDev);
 
         Value = (lstrlenW(currentDev) + 1) * sizeof(WCHAR);
         if (!WriteToInstallPipe(hPipe, ProcessInfo.hProcess, &Value, sizeof(Value)) ||
@@ -824,7 +824,7 @@ InstallDevicesBatch(PCWSTR MultiSzDeviceList, DWORD DeviceCount)
             *Cursor[i] = UNICODE_NULL;
     }
 
-    DPRINT1("Installing: %lu device(s) across %lu batch process(es)\n", DeviceCount, ShardCount);
+    DPRINT("Installing: %lu device(s) across %lu batch process(es)\n", DeviceCount, ShardCount);
 
     for (i = 1; i < ShardCount; i++)
     {
@@ -1235,7 +1235,7 @@ DeviceInstallThread(LPVOID lpParameter)
         *outCursor = UNICODE_NULL; /* multi-sz terminator */
     }
 
-    DPRINT1("Boot device install: %lu candidate(s), %lu need install\n",
+    DPRINT("Boot device install: %lu candidate(s), %lu need install\n",
             totalCount, filteredCount);
 
     if (filteredList != NULL && filteredCount != 0)

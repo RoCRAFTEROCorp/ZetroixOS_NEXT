@@ -17,6 +17,7 @@
 #define NTOS_MODE_USER
 #include <ndk/mmtypes.h>
 #include <reactos/dump.h>
+#define NDEBUG
 #include <debug.h>
 
 #define DIAGDATA_KEY L"SOFTWARE\\LiberNT\\DiagnosticData"
@@ -1286,7 +1287,7 @@ static VOID WINAPI ServiceMain(_In_ DWORD ArgumentCount, _In_reads_(ArgumentCoun
     if (!ReadText(DiagDataKey, NULL, L"Endpoint", DiagDataState.Endpoint, ARRAYSIZE(DiagDataState.Endpoint)))
         lstrcpynW(DiagDataState.Endpoint, DIAGDATA_ENDPOINT, ARRAYSIZE(DiagDataState.Endpoint));
 
-    DPRINT1("DIAGDATA: previous shutdown %s\n", DiagDataState.PreviousShutdown);
+    DPRINT("DIAGDATA: previous shutdown %s\n", DiagDataState.PreviousShutdown);
     UpdateServiceStatus(SERVICE_RUNNING);
     Thread = CreateThread(NULL, 0, ReportThread, NULL, 0, NULL);
     if (Thread != NULL)

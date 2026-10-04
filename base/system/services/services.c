@@ -61,7 +61,7 @@ CheckForLiveCD(VOID)
     DWORD dwSize;
     DWORD dwError;
 
-    DPRINT1("CheckSetup()\n");
+    DPRINT("CheckSetup()\n");
 
     /* Open the Setup key */
     dwError = RegOpenKeyExW(HKEY_LOCAL_MACHINE,
@@ -105,7 +105,7 @@ CheckForLiveCD(VOID)
     /* Check for the '-mini' option */
     if (wcsstr(CommandLine, L" -mini") != NULL)
     {
-        DPRINT1("Running on LiveCD\n");
+        DPRINT("Running on LiveCD\n");
         ScmLiveSetup = TRUE;
     }
 
@@ -127,7 +127,7 @@ CheckForLiveCD(VOID)
 
     if (dwSetupInProgress == 1)
     {
-        DPRINT1("LiberNT Setup currently in progress!\n");
+        DPRINT("LiberNT Setup currently in progress!\n");
         ScmSetupInProgress = TRUE;
     }
 
@@ -182,7 +182,7 @@ ScmLogEvent(DWORD dwEventId,
                                 L"Service Control Manager");
     if (hLog == NULL)
     {
-        DPRINT1("ScmLogEvent: RegisterEventSourceW failed %lu\n", GetLastError());
+        DPRINT("ScmLogEvent: RegisterEventSourceW failed %lu\n", GetLastError());
         return;
     }
 

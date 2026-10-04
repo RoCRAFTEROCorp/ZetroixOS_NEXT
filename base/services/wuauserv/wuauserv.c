@@ -41,7 +41,7 @@ UpdateServiceStatus(DWORD dwState)
         ServiceStatus.dwControlsAccepted = SERVICE_ACCEPT_STOP | SERVICE_ACCEPT_SHUTDOWN;
 
     SetServiceStatus(ServiceStatusHandle, &ServiceStatus);
-    DPRINT1("WU UpdateServiceStatus(%lu) called\n", dwState);
+    DPRINT("WU UpdateServiceStatus(%lu) called\n", dwState);
 }
 
 static DWORD WINAPI

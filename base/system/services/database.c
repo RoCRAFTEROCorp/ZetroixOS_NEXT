@@ -481,7 +481,7 @@ ScmEnableBackupRestorePrivileges(
     }
     else if (GetLastError() == ERROR_NOT_ALL_ASSIGNED)
     {
-        DPRINT1("AdjustTokenPrivileges() succeeded, but with not all privileges assigned\n");
+        DPRINT("AdjustTokenPrivileges() succeeded, but with not all privileges assigned\n");
         bRet = FALSE;
     }
 
@@ -761,7 +761,7 @@ done:
 VOID
 ScmRemoveServiceImage(PSERVICE_IMAGE pServiceImage)
 {
-    DPRINT1("ScmRemoveServiceImage() called\n");
+    DPRINT("ScmRemoveServiceImage() called\n");
 
     /* FIXME: Terminate the process */
 

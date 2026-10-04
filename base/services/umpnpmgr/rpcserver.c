@@ -4031,7 +4031,7 @@ PNP_QueryRemove(
     NTSTATUS Status;
     DWORD ret = CR_SUCCESS;
 
-    DPRINT1("PNP_QueryRemove(%p %S %p %p %lu 0x%lx)\n",
+    DPRINT("PNP_QueryRemove(%p %S %p %p %lu 0x%lx)\n",
             hBinding, pszDeviceID, pVetoType, pszVetoName,
             ulNameLength, ulFlags);
 

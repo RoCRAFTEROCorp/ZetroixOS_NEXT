@@ -91,7 +91,7 @@ WlanSvcPopulateInterfacesLocked(VOID)
     dwResult = NwifiEnumInterfaces(&list);
     if (dwResult != ERROR_SUCCESS || list == NULL)
     {
-        DPRINT1("NwifiEnumInterfaces failed (0x%lx)\n", dwResult);
+        DPRINT("NwifiEnumInterfaces failed (0x%lx)\n", dwResult);
         return;
     }
 
