@@ -10,7 +10,9 @@ list(APPEND CRT_FLOAT_SOURCE
 )
 
 if(ARCH STREQUAL "i386")
+    list(REMOVE_ITEM CRT_FLOAT_SOURCE float/fpclass.c)
     list(APPEND CRT_FLOAT_SOURCE
+        float/i386/fpclass.c
         float/i386/clearfp.c
         float/i386/cntrlfp.c
         float/i386/fpreset.c
