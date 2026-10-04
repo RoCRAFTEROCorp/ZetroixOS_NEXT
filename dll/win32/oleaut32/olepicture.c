@@ -1182,6 +1182,70 @@ end:
     return hr;
 }
 
+#ifdef __REACTOS__
+static void OLEPictureImpl_PackIndexedBitmap(OLEPictureImpl *This, UINT colors)
+{
+    struct
+    {
+        BITMAPINFOHEADER bmiHeader;
+        RGBQUAD bmiColors[16];
+    } info;
+    DIBSECTION dib;
+    HBITMAP hbmp, old;
+    HDC hdc;
+    BYTE *src, *dst;
+    UINT bpp, x, y, width, height, src_stride, dst_stride;
+
+    if (colors > 16)
+        return;
+    if (GetObjectW(This->desc.bmp.hbitmap, sizeof(dib), &dib) != sizeof(dib) || dib.dsBm.bmBitsPixel != 8)
+        return;
+
+    bpp = (colors <= 2) ? 1 : 4;
+    width = dib.dsBm.bmWidth;
+    height = dib.dsBm.bmHeight;
+
+    memset(&info, 0, sizeof(info));
+    hdc = CreateCompatibleDC(0);
+    old = SelectObject(hdc, This->desc.bmp.hbitmap);
+    GetDIBColorTable(hdc, 0, 1 << bpp, info.bmiColors);
+    SelectObject(hdc, old);
+    DeleteDC(hdc);
+
+    info.bmiHeader.biSize = sizeof(info.bmiHeader);
+    info.bmiHeader.biWidth = width;
+    info.bmiHeader.biHeight = (dib.dsBmih.biHeight < 0) ? -(LONG)height : (LONG)height;
+    info.bmiHeader.biPlanes = 1;
+    info.bmiHeader.biBitCount = bpp;
+    info.bmiHeader.biCompression = BI_RGB;
+    info.bmiHeader.biXPelsPerMeter = dib.dsBmih.biXPelsPerMeter;
+    info.bmiHeader.biYPelsPerMeter = dib.dsBmih.biYPelsPerMeter;
+
+    hbmp = CreateDIBSection(0, (BITMAPINFO *)&info, DIB_RGB_COLORS, (void **)&dst, NULL, 0);
+    if (!hbmp)
+        return;
+
+    src = dib.dsBm.bmBits;
+    src_stride = get_dib_stride(width, 8);
+    dst_stride = get_dib_stride(width, bpp);
+    for (y = 0; y < height; y++)
+    {
+        for (x = 0; x < width; x++)
+        {
+            BYTE index = src[y * src_stride + x];
+
+            if (bpp == 1)
+                dst[y * dst_stride + x / 8] |= (index & 1) << (7 - (x & 7));
+            else
+                dst[y * dst_stride + x / 2] |= (index & 0xf) << ((x & 1) ? 0 : 4);
+        }
+    }
+
+    DeleteObject(This->desc.bmp.hbitmap);
+    This->desc.bmp.hbitmap = hbmp;
+}
+
+#endif
 static HRESULT OLEPictureImpl_LoadWICDecoder(OLEPictureImpl *This, REFGUID format_guid, BYTE *xbuf, ULONG xread)
 {
     HRESULT hr;
@@ -1220,6 +1284,21 @@ static HRESULT OLEPictureImpl_LoadWICDecoder(OLEPictureImpl *This, REFGUID forma
     if (SUCCEEDED(hr)) /* got framedecode */
     {
         hr = OLEPictureImpl_LoadWICSource(This, factory, (IWICBitmapSource*)framedecode);
+#ifdef __REACTOS__
+        if (SUCCEEDED(hr) && IsEqualGUID(format_guid, &GUID_ContainerFormatGif))
+        {
+            IWICPalette *palette;
+            UINT colors;
+
+            if (SUCCEEDED(IWICImagingFactory_CreatePalette(factory, &palette)))
+            {
+                if (SUCCEEDED(IWICBitmapFrameDecode_CopyPalette(framedecode, palette)) &&
+                    SUCCEEDED(IWICPalette_GetColorCount(palette, &colors)))
+                    OLEPictureImpl_PackIndexedBitmap(This, colors);
+                IWICPalette_Release(palette);
+            }
+        }
+#endif
         IWICBitmapFrameDecode_Release(framedecode);
     }
 
