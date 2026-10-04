@@ -1004,8 +1004,8 @@ GuiGetLargestConsoleWindowSize(IN OUT PFRONTEND This,
     if (Width  < 0) Width  = 0;
     if (Height < 0) Height = 0;
 
-    pSize->X = (SHORT)(Width  / (int)WidthUnit ) /* HACK */ + 2;
-    pSize->Y = (SHORT)(Height / (int)HeightUnit) /* HACK */ + 1;
+    pSize->X = (SHORT)(Width  / (int)WidthUnit );
+    pSize->Y = (SHORT)(Height / (int)HeightUnit);
 }
 
 static BOOL NTAPI
