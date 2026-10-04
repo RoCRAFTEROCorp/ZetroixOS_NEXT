@@ -1982,7 +1982,11 @@ static UINT get_physical_processor_count( const char *buf, UINT len, UINT *num_l
     while ((hdr = find_smbios_entry( SMBIOS_TYPE_PROCESSOR, package_count, buf, len )))
     {
         proc = (const struct smbios_processor *)hdr;
+#ifdef __REACTOS__
+        thread_count += (hdr->length >= sizeof(*proc)) ? proc->thread_count2 : proc->thread_count;
+#else
         thread_count += proc->thread_count2;
+#endif
         package_count++;
     }
     if (num_logical) *num_logical = thread_count;
@@ -4104,7 +4108,12 @@ static enum fill_status fill_processor( struct table *table, const struct expr *
 
     for (i = 0; i < num_packages; i++)
     {
+#ifdef __REACTOS__
+        if (!(hdr = find_smbios_entry( SMBIOS_TYPE_PROCESSOR, i, buf, len )) ||
+            hdr->length < FIELD_OFFSET(struct smbios_processor, family2))
+#else
         if (!(hdr = find_smbios_entry( SMBIOS_TYPE_PROCESSOR, i, buf, len )) || hdr->length < sizeof(*proc))
+#endif
             continue;
         proc = (const struct smbios_processor *)hdr;
 
@@ -4123,8 +4132,13 @@ static enum fill_status fill_processor( struct table *table, const struct expr *
         rec->manufacturer           = get_processor_manufacturer( i, buf, len );
         rec->maxclockspeed          = get_processor_maxclockspeed( i );
         rec->name                   = get_processor_name( i, buf, len );
+#ifdef __REACTOS__
+        rec->num_cores              = (hdr->length >= sizeof(*proc)) ? proc->core_count2 : proc->core_count;
+        rec->num_logical_processors = (hdr->length >= sizeof(*proc)) ? proc->thread_count2 : proc->thread_count;
+#else
         rec->num_cores              = proc->core_count2;
         rec->num_logical_processors = proc->thread_count2;
+#endif
         swprintf( processor_id, ARRAY_SIZE( processor_id ), L"%016I64X", proc->id );
         rec->processor_id           = wcsdup( processor_id );
         rec->processortype          = proc->type;
