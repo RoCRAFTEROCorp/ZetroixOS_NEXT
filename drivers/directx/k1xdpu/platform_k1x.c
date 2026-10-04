@@ -29,6 +29,12 @@
 #define K1X_EDID_MAX                     256
 #define K1X_DDC_TIMEOUT_US               50000
 
+#define K1X_APMU_BASE                    0xD4282800ULL
+#define K1X_APMU_SIZE                    0x100
+#define K1X_APMU_POWER_STATUS            0xF0
+#define K1X_APMU_POWER_LCD               (1UL << 12)
+#define K1X_APMU_POWER_HDMI              (1UL << 15)
+
 #define K1X_DPU_INT_OFFSET               0x900
 #define K1X_DPU_INT_SIZE                 0x100
 #define K1X_DPU_INT_ONLINE2_STATUS       0x38
@@ -163,31 +169,84 @@ K1xReadEdid(_Inout_ PK1XDPU_CONTEXT Context)
             (ULONG)(Timing[0] | (Timing[1] << 8)) * 10);
 }
 
+static ULONG
+K1xReadPowerStatus(VOID)
+{
+    PHYSICAL_ADDRESS Address;
+    PUCHAR Apmu;
+    ULONG Status;
+
+    Address.QuadPart = K1X_APMU_BASE;
+    Apmu = MmMapIoSpace(Address, K1X_APMU_SIZE, MmNonCached);
+    if (!Apmu)
+        return 0;
+    Status = K1xRead(Apmu, K1X_APMU_POWER_STATUS);
+    MmUnmapIoSpace(Apmu, K1X_APMU_SIZE);
+    return Status;
+}
+
+static ULONG
+K1xFindRegName(_In_ PDEVICE_OBJECT PhysicalDeviceObject, _In_z_ const CHAR *Wanted)
+{
+    UCHAR Storage[FIELD_OFFSET(KEY_VALUE_PARTIAL_INFORMATION, Data) + 64];
+    PKEY_VALUE_PARTIAL_INFORMATION Information = (PKEY_VALUE_PARTIAL_INFORMATION)Storage;
+    UNICODE_STRING Name = RTL_CONSTANT_STRING(L"reg-names");
+    ULONG Result, Offset = 0, Index = 0, Found = MAXULONG;
+    SIZE_T WantedLength = strlen(Wanted);
+    HANDLE Key;
+
+    if (!NT_SUCCESS(IoOpenDeviceRegistryKey(PhysicalDeviceObject, PLUGPLAY_REGKEY_DEVICE, KEY_READ, &Key)))
+        return MAXULONG;
+    if (NT_SUCCESS(ZwQueryValueKey(Key, &Name, KeyValuePartialInformation, Information, sizeof(Storage), &Result)))
+    {
+        while (Offset < Information->DataLength)
+        {
+            const UCHAR *Entry = Information->Data + Offset;
+            ULONG Length = 0;
+
+            while (Offset + Length < Information->DataLength && Entry[Length])
+                Length++;
+            if (Length == WantedLength && RtlEqualMemory(Entry, Wanted, Length))
+            {
+                Found = Index;
+                break;
+            }
+            Offset += Length + 1;
+            Index++;
+        }
+    }
+    ZwClose(Key);
+    return Found;
+}
+
 static PUCHAR
-K1xMapDpuInterrupts(_In_ PDXGK_INTERFACE DxgkInterface)
+K1xMapDpuInterrupts(_In_ PDXGK_INTERFACE DxgkInterface, _In_z_ const CHAR *Output)
 {
     PCM_PARTIAL_RESOURCE_DESCRIPTOR Descriptor, Dpu = NULL;
     DXGK_DEVICE_INFO Information;
     PHYSICAL_ADDRESS Address;
-    ULONG Index;
+    ULONG Index, Wanted, Memory = 0;
 
     if (!DxgkInterface->DxgkCbGetDeviceInformation ||
         !NT_SUCCESS(DxgkInterface->DxgkCbGetDeviceInformation(DxgkInterface->DeviceHandle, &Information)) ||
-        !Information.TranslatedResourceList || !Information.TranslatedResourceList->Count)
+        !Information.TranslatedResourceList || !Information.TranslatedResourceList->Count ||
+        !Information.PhysicalDeviceObject)
     {
         return NULL;
     }
+    Wanted = K1xFindRegName(Information.PhysicalDeviceObject, Output);
     for (Index = 0; Index < Information.TranslatedResourceList->List[0].PartialResourceList.Count; ++Index)
     {
         Descriptor = &Information.TranslatedResourceList->List[0].PartialResourceList.PartialDescriptors[Index];
-        if (Descriptor->Type == CmResourceTypeMemory &&
-            Descriptor->u.Memory.Length >= K1X_DPU_INT_OFFSET + K1X_DPU_INT_SIZE &&
-            (!Dpu || Descriptor->u.Memory.Start.QuadPart > Dpu->u.Memory.Start.QuadPart))
+        if (Descriptor->Type != CmResourceTypeMemory)
+            continue;
+        if (Memory++ == Wanted)
         {
             Dpu = Descriptor;
+            break;
         }
     }
-    if (!Dpu)
+    if (!Dpu || Dpu->u.Memory.Length < K1X_DPU_INT_OFFSET + K1X_DPU_INT_SIZE)
         return NULL;
     Address.QuadPart = Dpu->u.Memory.Start.QuadPart + K1X_DPU_INT_OFFSET;
     return MmMapIoSpace(Address, K1X_DPU_INT_SIZE, MmNonCached);
@@ -226,6 +285,7 @@ SoftGpuPlatformQueryStart(
     PHYSICAL_ADDRESS Address;
     PK1XDPU_CONTEXT Context;
     SIZE_T WorkingSetSize;
+    ULONG PowerStatus;
     NTSTATUS Status;
 
     if (Device == NULL || DxgkInterface == NULL || Config == NULL)
@@ -263,9 +323,17 @@ SoftGpuPlatformQueryStart(
     Context = ExAllocatePoolZero(NonPagedPool, sizeof(*Context), K1XDPU_TAG);
     if (!Context)
         return STATUS_INSUFFICIENT_RESOURCES;
-    Address.QuadPart = K1X_HDMI_BASE;
-    Context->Hdmi = MmMapIoSpace(Address, K1X_HDMI_SIZE, MmNonCached);
-    Context->DpuInterrupts = K1xMapDpuInterrupts(DxgkInterface);
+    PowerStatus = K1xReadPowerStatus();
+    if (PowerStatus & K1X_APMU_POWER_HDMI)
+    {
+        Address.QuadPart = K1X_HDMI_BASE;
+        Context->Hdmi = MmMapIoSpace(Address, K1X_HDMI_SIZE, MmNonCached);
+        Context->DpuInterrupts = K1xMapDpuInterrupts(DxgkInterface, "hdmi");
+    }
+    else if (PowerStatus & K1X_APMU_POWER_LCD)
+    {
+        Context->DpuInterrupts = K1xMapDpuInterrupts(DxgkInterface, "dsi");
+    }
     if (Context->Hdmi)
         K1xReadEdid(Context);
     Device->PlatformContext = Context;
