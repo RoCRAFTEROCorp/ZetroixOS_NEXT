@@ -2913,6 +2913,9 @@ float CDECL MSVCRT_atanhf(float x)
  */
 double CDECL _scalb(double num, __msvcrt_long power)
 {
+#if defined(__REACTOS__) && _MSVCR_VER == 0
+  if (isnan(num)) *_errno() = EDOM;
+#endif
   return ldexp(num, power);
 }
 
