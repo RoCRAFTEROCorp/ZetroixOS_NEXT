@@ -318,7 +318,7 @@ static HRESULT WINAPI ClassMoniker_Enum(IMoniker* iface,BOOL fForward, IEnumMoni
     TRACE("(%p,%d,%p)\n",iface,fForward,ppenumMoniker);
 
     if (ppenumMoniker == NULL)
-        return E_POINTER;
+        return E_INVALIDARG;
 
     *ppenumMoniker = NULL;
 

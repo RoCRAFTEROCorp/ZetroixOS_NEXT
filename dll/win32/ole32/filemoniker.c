@@ -808,7 +808,7 @@ FileMonikerImpl_Enum(IMoniker* iface,BOOL fForward, IEnumMoniker** ppenumMoniker
     TRACE("(%p,%d,%p)\n",iface,fForward,ppenumMoniker);
 
     if (ppenumMoniker == NULL)
-        return E_POINTER;
+        return E_INVALIDARG;
 
     *ppenumMoniker = NULL;
 
