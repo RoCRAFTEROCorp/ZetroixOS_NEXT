@@ -3333,6 +3333,8 @@ PNP_CreateDevInst(
             return ret;
     }
 
+    _wcsupr(pszDeviceID);
+
     /* Try to open the device instance key */
     RegOpenKeyEx(hEnumKey, pszDeviceID, 0, KEY_READ | KEY_WRITE, &hKey);
 
