@@ -55,6 +55,7 @@ static NTSTATUS OpenLocalMachineKey (PHANDLE KeyHandle);
 static NTSTATUS OpenUsersKey (PHANDLE KeyHandle);
 static NTSTATUS OpenCurrentConfigKey(PHANDLE KeyHandle);
 
+NTSTATUS WINAPI RemapPredefinedHandleInternal(HKEY hkey, HKEY override);
 
 /* FUNCTIONS ****************************************************************/
 /* check if value type needs string conversion (Ansi<->Unicode) */
@@ -376,6 +377,11 @@ RegOverridePredefKey(IN HKEY hKey,
     {
         PHANDLE Handle;
         ULONG Index;
+        NTSTATUS RemapStatus;
+
+        RemapStatus = RemapPredefinedHandleInternal(hKey, hNewHKey);
+        if (!NT_SUCCESS(RemapStatus))
+            return RtlNtStatusToDosError(RemapStatus);
 
         Index = GetPredefKeyIndex(hKey);
         Handle = &DefaultHandleTable[Index];
