@@ -1284,7 +1284,14 @@ HRESULT WINAPI SafeArrayDestroyData(SAFEARRAY *psa)
       psa->pvData = NULL;
     }
     else
+#ifdef __REACTOS__
+    {
+      psa->fFeatures &= ~FADF_CREATEVECTOR;
+      psa->pvData = NULL;
+    }
+#else
       psa->fFeatures |= FADF_DATADELETED; /* Mark the data deleted */
+#endif
 
   }
   return S_OK;
