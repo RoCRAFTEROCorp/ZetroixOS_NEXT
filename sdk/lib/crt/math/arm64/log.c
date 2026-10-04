@@ -33,7 +33,7 @@ double log(double x)
     if ((ix << 1) == 0)
         return __acrt_report_math_error(0, "log", x, 0, -1.0 / (x * x), ERANGE);
     if (ix >> 63)
-        return isnan(x) ? x + x : __acrt_report_math_error(0, "log", x, 0, (x - x) / (x - x), EDOM);
+        return isnan(x) ? x + x : __acrt_report_math_error(0, "log", x, 0, -fabs((x - x) / (x - x)), EDOM);
     if (ix < 0x0010000000000000ULL) {
         k -= 54;
         x *= 0x1p54;
