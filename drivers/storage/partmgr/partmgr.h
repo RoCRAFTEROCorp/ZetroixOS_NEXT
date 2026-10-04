@@ -12,6 +12,7 @@
 #include <mountdev.h>
 #include <ntddvol.h>
 #include <ntdddisk.h>
+#include <diskguid.h>
 #include <ntintsafe.h>
 #include <ndk/psfuncs.h>
 #include <ndk/section_attribs.h>

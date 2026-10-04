@@ -194,6 +194,12 @@ PartitionHandleStartDevice(
         return status;
     }
 
+    if (fdoExtension->DiskData.PartitionStyle == PARTITION_STYLE_GPT &&
+        IsEqualGUID(&PartExt->Gpt.PartitionType, &PARTITION_MSFT_RESERVED_GUID))
+    {
+        return STATUS_SUCCESS;
+    }
+
     status = IoRegisterDeviceInterface(PartExt->DeviceObject,
                                        &GUID_DEVINTERFACE_VOLUME,
                                        NULL,
