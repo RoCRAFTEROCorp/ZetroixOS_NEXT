@@ -41,11 +41,24 @@ typedef struct _RISCV_SBI_RETURN
     ULONG_PTR Value;
 } RISCV_SBI_RETURN;
 
+#define RISCV_DMA_MAX_WINDOWS 4
+
+typedef struct _RISCV_DMA_TOPOLOGY
+{
+    BOOLEAN Coherent;
+    ULONG WindowCount;
+    ULONG64 CpuBase[RISCV_DMA_MAX_WINDOWS];
+    ULONG64 BusBase[RISCV_DMA_MAX_WINDOWS];
+    ULONG64 Size[RISCV_DMA_MAX_WINDOWS];
+} RISCV_DMA_TOPOLOGY;
+
 extern volatile ULONG HalpRiscvInitializationPhase;
 extern volatile ULONG HalpRiscvInitializationFailure;
 extern ULONG HalpRiscvSbiVersion;
 extern ULONG_PTR HalpRiscvSbiImplementationId;
 extern ULONG64 HalpRiscvTimebaseFrequency;
+extern const VOID *HalpRiscvDeviceTree;
+extern SIZE_T HalpRiscvDeviceTreeSize;
 extern ULONG64 HalpRiscvBootCounter;
 extern ULONG HalpRiscvCurrentTimeIncrement;
 extern ULONG_PTR HalpRiscvHartIds[MAXIMUM_PROCESSORS];
@@ -61,6 +74,9 @@ BOOLEAN HalpRiscvSbiExtensionAvailable(ULONG_PTR Extension);
 /* Kernel imports (ntoskrnl.exe, listed in CMakeLists.txt IMPORTS). */
 VOID NTAPI KiRiscvSetInterruptEnabled(_In_ ULONG_PTR Mask, _In_ BOOLEAN Enable);
 ULONG NTAPI KiRiscvQueryFeatureFlags(VOID);
+ULONG NTAPI KiRiscvQueryCacheBlockSize(VOID);
+BOOLEAN NTAPI KiRiscvIsPhysicalCached(_In_ ULONG64 PhysicalAddress);
+BOOLEAN NTAPI KiRiscvFlushDmaRange(_In_ ULONG64 PhysicalAddress, _In_ SIZE_T Length, _In_ BOOLEAN Invalidate);
 VOID NTAPI KeSetDmaIoCoherency(_In_ ULONG Coherency);
 VOID FASTCALL KeUpdateSystemTime(_In_ PKTRAP_FRAME TrapFrame, _In_ ULONG Increment, _In_ KIRQL Irql);
 
@@ -81,6 +97,12 @@ BOOLEAN HalpRiscvGetPciResource(_Out_ PCM_PARTIAL_RESOURCE_DESCRIPTOR Resource);
 BOOLEAN NTAPI HalpRiscvGetPciBusRange(_Out_ PULONG FirstBus, _Out_ PULONG LastBus);
 BOOLEAN HalpRiscvPciDmaCoherent(VOID);
 NTSTATUS NTAPI HaliInitPnpDriver(VOID);
+VOID HalpRiscvInitializeDma(_In_ struct _LOADER_PARAMETER_BLOCK *LoaderBlock);
+PDMA_ADAPTER HalpRiscvCreateDmaAdapter(_In_ PDEVICE_DESCRIPTION Description,
+                                       _In_ const RISCV_DMA_TOPOLOGY *Topology,
+                                       _Out_opt_ PULONG NumberOfMapRegisters);
+BOOLEAN HalpRiscvGetPlatformDmaTopology(_In_opt_ PDEVICE_OBJECT PhysicalDeviceObject,
+                                        _Out_ RISCV_DMA_TOPOLOGY *Topology);
 BOOLEAN HalpRiscvInitializeRtc(const VOID *DeviceTree, SIZE_T DeviceTreeSize);
 BOOLEAN HalpRiscvMapRtc(VOID);
 ULONG64 HalpRiscvReadTime(VOID);
