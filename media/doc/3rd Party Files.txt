@@ -208,6 +208,20 @@ License: GPL-2.0-or-later (https://spdx.org/licenses/GPL-2.0-or-later.html)
 URL: https://pci-ids.ucw.cz/
 URL: https://github.com/pciutils/pciids
 
+Title: SpacemiT K1 U-Boot (FSBL/SPL, U-Boot FIT, SD boot header)
+Path: media/boot/spacemit-k1/bootinfo_sd.bin
+Path: media/boot/spacemit-k1/FSBL.bin
+Path: media/boot/spacemit-k1/u-boot.itb
+Used Version: branch k1-bl-v2.2.y, git commit 7f51f4453f9811eeaafbdd839b1bf1b0cc27a413 (k1_defconfig, unmodified)
+License: GPL-2.0-or-later (https://spdx.org/licenses/GPL-2.0-or-later.html), media/boot/spacemit-k1/LICENCE.u-boot
+URL: https://github.com/spacemit-com/uboot-2022.10
+
+Title: SpacemiT K1 OpenSBI
+Path: media/boot/spacemit-k1/fw_dynamic.itb
+Used Version: branch k1-bl-v2.2.y, git commit fc02b891b17b8bdc1273a39f80aa374cd99ba9a2 (PLATFORM=generic, k1_defconfig, unmodified)
+License: BSD-2-Clause (https://spdx.org/licenses/BSD-2-Clause.html), media/boot/spacemit-k1/LICENCE.opensbi
+URL: https://github.com/spacemit-com/opensbi
+
 Title: DejaVu Fonts
 Path: media/fonts
 Used Version: 2.37

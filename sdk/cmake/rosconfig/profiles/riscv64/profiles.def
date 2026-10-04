@@ -3,7 +3,15 @@ config PROFILE_RISCV64
     type choice
     var ROSCONFIG_PROFILE
     value generic "Generic RISC-V"
+    value profile_spacemit_k1 "SpacemiT K1 (Banana Pi BPI-F3)"
     default generic
     depends ARCH=riscv64
     help
-      Select the generic RISC-V target without board-specific packages.
+      Generic builds the architecture-independent RISC-V target.
+
+      SpacemiT K1 (Banana Pi BPI-F3) builds ReactOS.img as an SD card the K1
+      boot ROM starts: U-Boot SPL, OpenSBI and U-Boot, which runs FreeLoader
+      from the FAT boot partition.
+      It compiles for the RVA22U64 profile, lets user-mode modules use
+      misaligned scalar accesses, which the K1's X60 harts perform in
+      hardware, and binds msvcrt to its vector (V) string routines.
