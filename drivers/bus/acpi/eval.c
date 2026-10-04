@@ -821,6 +821,115 @@ EvalEvaluateObjectWithHandle(
     return AcpiEvaluateObject(AcpiHandle, MethodName, ParamList, ReturnBuffer);
 }
 
+static
+ACPI_STATUS
+EvalProcessorObjectMethod(
+    _In_ ACPI_HANDLE Handle,
+    _In_ PCSTR MethodName,
+    _Out_ ACPI_BUFFER *ReturnBuffer)
+{
+    ACPI_OBJECT Processor;
+    ACPI_BUFFER Buffer = { sizeof(Processor), &Processor };
+    ACPI_OBJECT_TYPE Type;
+    ACPI_TABLE_HEADER *Table;
+    ACPI_SUBTABLE_HEADER *Entry, *Match;
+    ACPI_OBJECT *Result;
+    ACPI_STATUS Status;
+    struct acpi_device *Device;
+    unsigned long long DeviceUid;
+    BOOLEAN MatchEnabled;
+    PUCHAR TableEnd;
+    UINT32 Uid;
+
+    if (ACPI_FAILURE(AcpiGetType(Handle, &Type)))
+        return AE_NOT_FOUND;
+    if (Type == ACPI_TYPE_PROCESSOR)
+    {
+        if (ACPI_FAILURE(AcpiEvaluateObject(Handle, NULL, NULL, &Buffer)) || Processor.Type != ACPI_TYPE_PROCESSOR)
+            return AE_NOT_FOUND;
+        Uid = Processor.Processor.ProcId;
+        if (strcmp(MethodName, "_UID") == 0)
+        {
+            Result = AcpiOsAllocate(sizeof(*Result));
+            if (!Result)
+                return AE_NO_MEMORY;
+            Result->Type = ACPI_TYPE_INTEGER;
+            Result->Integer.Value = Uid;
+            ReturnBuffer->Pointer = Result;
+            ReturnBuffer->Length = sizeof(*Result);
+            return AE_OK;
+        }
+    }
+    else if (Type == ACPI_TYPE_DEVICE)
+    {
+        if (acpi_bus_get_device(Handle, &Device) || !Device->pnp.hardware_id ||
+            strcmp(Device->pnp.hardware_id, "ACPI0007") != 0 ||
+            ACPI_FAILURE(acpi_evaluate_integer(Handle, "_UID", NULL, &DeviceUid)) || DeviceUid > MAXULONG)
+            return AE_NOT_FOUND;
+        Uid = (UINT32)DeviceUid;
+    }
+    else
+    {
+        return AE_NOT_FOUND;
+    }
+    if (strcmp(MethodName, "_MAT") != 0)
+        return AE_NOT_FOUND;
+
+    if (ACPI_FAILURE(AcpiGetTable(ACPI_SIG_MADT, 0, &Table)) || !Table)
+        return AE_NOT_FOUND;
+    Match = NULL;
+    MatchEnabled = FALSE;
+    if (Table->Length >= sizeof(ACPI_TABLE_MADT))
+    {
+        Entry = (ACPI_SUBTABLE_HEADER *)((PUCHAR)Table + sizeof(ACPI_TABLE_MADT));
+        TableEnd = (PUCHAR)Table + Table->Length;
+        while ((PUCHAR)Entry + sizeof(*Entry) <= TableEnd && Entry->Length >= sizeof(*Entry) &&
+               (PUCHAR)Entry + Entry->Length <= TableEnd)
+        {
+            BOOLEAN Matches = FALSE;
+            BOOLEAN Enabled = FALSE;
+
+            if (Entry->Type == ACPI_MADT_TYPE_LOCAL_APIC && Entry->Length >= sizeof(ACPI_MADT_LOCAL_APIC))
+            {
+                Matches = ((ACPI_MADT_LOCAL_APIC *)Entry)->ProcessorId == Uid;
+                Enabled = (((ACPI_MADT_LOCAL_APIC *)Entry)->LapicFlags & ACPI_MADT_ENABLED) != 0;
+            }
+            else if (Entry->Type == ACPI_MADT_TYPE_LOCAL_X2APIC && Entry->Length >= sizeof(ACPI_MADT_LOCAL_X2APIC))
+            {
+                Matches = ((ACPI_MADT_LOCAL_X2APIC *)Entry)->Uid == Uid;
+                Enabled = (((ACPI_MADT_LOCAL_X2APIC *)Entry)->LapicFlags & ACPI_MADT_ENABLED) != 0;
+            }
+            if (Matches && (!Match || (Enabled && !MatchEnabled)))
+            {
+                Match = Entry;
+                MatchEnabled = Enabled;
+            }
+            Entry = (ACPI_SUBTABLE_HEADER *)((PUCHAR)Entry + Entry->Length);
+        }
+    }
+    Status = AE_NOT_FOUND;
+    if (Match)
+    {
+        Result = AcpiOsAllocate(sizeof(*Result) + Match->Length);
+        if (!Result)
+        {
+            Status = AE_NO_MEMORY;
+        }
+        else
+        {
+            Result->Type = ACPI_TYPE_BUFFER;
+            Result->Buffer.Length = Match->Length;
+            Result->Buffer.Pointer = (UINT8 *)(Result + 1);
+            RtlCopyMemory(Result->Buffer.Pointer, Match, Match->Length);
+            ReturnBuffer->Pointer = Result;
+            ReturnBuffer->Length = sizeof(*Result) + Match->Length;
+            Status = AE_OK;
+        }
+    }
+    AcpiPutTable(Table);
+    return Status;
+}
+
 /* IOCTL handlers for asynchronous evaluation requests must not be paged */
 NTSTATUS
 NTAPI
@@ -843,6 +952,15 @@ Bus_PDO_EvalMethod(
         return Status;
 
     AcpiStatus = EvalEvaluateObject(DeviceData, EvalInputBuffer, &ParamList, &ReturnBuffer);
+
+    if (AcpiStatus == AE_NOT_FOUND && ParamList.Count == 0)
+    {
+        CHAR MethodName[ACPI_OBJECT_NAME_LENGTH];
+
+        RtlCopyMemory(MethodName, EvalInputBuffer->MethodName, ACPI_OBJECT_NAME_LENGTH - 1);
+        MethodName[ACPI_OBJECT_NAME_LENGTH - 1] = ANSI_NULL;
+        AcpiStatus = EvalProcessorObjectMethod(DeviceData->AcpiHandle, MethodName, &ReturnBuffer);
+    }
 
     if (ParamList.Count != 0)
         EvalFreeParametersList(&ParamList);
