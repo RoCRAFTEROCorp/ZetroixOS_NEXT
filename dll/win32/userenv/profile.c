@@ -2148,7 +2148,7 @@ LoadUserProfileW(
     }
     else
     {
-        DPRINT1("Loading profile %S\n", SidString.Buffer);
+        DPRINT("Loading profile %S\n", SidString.Buffer);
 
         /*
          * NOTE: lpProfilePath specifies the path to a *roaming* user profile,

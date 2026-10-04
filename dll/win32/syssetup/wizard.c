@@ -1489,7 +1489,7 @@ EnableVisualTheme(
         }
     }
 
-    DPRINT1("Applying visual %s '%S'\n",
+    DPRINT("Applying visual %s '%S'\n",
             (fType == THEME_FILE) ? "theme" : "style",
             ThemeFile ? ThemeFile : L"(Classic)");
 

@@ -59,7 +59,7 @@ DiskClassInstaller(
     PROPSHEETPAGE Page;
     HPROPSHEETPAGE PageHandle;
 
-    DPRINT1("DiskClassInstaller(%u %p %p)\n",
+    DPRINT("DiskClassInstaller(%u %p %p)\n",
            InstallFunction, DeviceInfoSet, DeviceInfoData);
 
     if (InstallFunction == DIF_ADDPROPERTYPAGE_ADVANCED)

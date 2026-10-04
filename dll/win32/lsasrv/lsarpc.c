@@ -1447,7 +1447,7 @@ LsarpOpenAccount(
                               DesiredAccess,
                               PolicyObject->Trusted,
                               AccountObject);
-    if (!NT_SUCCESS(Status))
+    if (!NT_SUCCESS(Status) && Status != STATUS_OBJECT_NAME_NOT_FOUND)
     {
         ERR("LsapOpenDbObject(Accounts/%S) failed (Status 0x%08lx)\n", SidString, Status);
     }
