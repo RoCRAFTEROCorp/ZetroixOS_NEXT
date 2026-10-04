@@ -1519,8 +1519,6 @@ D3DKMTDestroyAllocation2(
         return STATUS_INVALID_PARAMETER;
     if ((Captured.Flags.Value & ~0x3u) != 0)
         return STATUS_INVALID_PARAMETER;
-    if ((Captured.Flags.Value & 0x2u) != 0)
-        return STATUS_NOT_SUPPORTED;
 
     Status = WddmBridgeCaptureArray(Captured.phAllocationList, Captured.AllocationCount, sizeof(*AllocationList), D3DKMT_BRIDGE_MAX_ALLOCATIONS, TRUE, FALSE, (PVOID *)&AllocationList, &AllocationListSize);
     if (!NT_SUCCESS(Status))
