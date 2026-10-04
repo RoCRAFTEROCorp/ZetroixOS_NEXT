@@ -1846,7 +1846,11 @@ static HRESULT set_clipboard_formats(ole_clipbrd *clipbrd, IDataObject *data)
     priv_data->unk2 = 1;
     priv_data->count = count;
     priv_data->unk3[0] = 0;
+#ifdef __REACTOS__
+    priv_data->unk3[1] = sizeof(void *) == 8;
+#else
     priv_data->unk3[1] = 0;
+#endif
 
     IEnumFORMATETC_Reset(enum_fmt);
 
@@ -2238,6 +2242,9 @@ HRESULT WINAPI OleGetClipboard(IDataObject **obj)
     HRESULT hr;
     ole_clipbrd *clipbrd;
     DWORD seq_no;
+#ifdef __REACTOS__
+    HWND wnd;
+#endif
 
     TRACE("(%p)\n", obj);
 
@@ -2245,6 +2252,11 @@ HRESULT WINAPI OleGetClipboard(IDataObject **obj)
     *obj = NULL;
 
     if(FAILED(hr = get_ole_clipbrd(&clipbrd))) return hr;
+#ifdef __REACTOS__
+    if(FAILED(hr = get_clipbrd_window(clipbrd, &wnd))) return hr;
+    if(!OpenClipboard(wnd)) return CLIPBRD_E_CANT_OPEN;
+    CloseClipboard();
+#endif
 
     seq_no = GetClipboardSequenceNumber();
     EnterCriticalSection(&latest_snapshot_cs);
