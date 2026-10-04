@@ -91,6 +91,12 @@ HRESULT WINAPI
 D3DUmdRtRotateResourceIdentities(HANDLE hRuntimeDevice, CONST HANDLE *RuntimeResources,
                                 UINT Count);
 
+HRESULT WINAPI
+D3DUmdRtSignalFence(HANDLE hDevice, D3DKMT_HANDLE hSyncObject, UINT64 Value);
+
+HRESULT WINAPI
+D3DUmdRtWaitFence(HANDLE hDevice, D3DKMT_HANDLE hSyncObject, UINT64 Value);
+
 #ifdef __cplusplus
 }
 #endif

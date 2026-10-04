@@ -3011,6 +3011,104 @@ D3DUmdRtEnqueueSetEvent(HANDLE hDevice, HANDLE Event)
 #endif
 }
 
+static HRESULT
+D3DUmdRtFenceOperation(HANDLE hDevice, D3DKMT_HANDLE hSyncObject, UINT64 Value, BOOL Wait)
+{
+#if (D3D_UMD_INTERFACE_VERSION >= D3D_UMD_INTERFACE_VERSION_WDDM2_0)
+    PD3DUMDRT_DEVICE Device = D3DUmdRtDevice(hDevice);
+    PD3DUMDRT_CONTEXT Context, Captured[D3DDDI_MAX_BROADCAST_CONTEXT];
+    D3DKMT_HANDLE Contexts[D3DDDI_MAX_BROADCAST_CONTEXT];
+    UINT Count = 0, Index;
+    HRESULT Result = S_OK;
+
+    if (Device == NULL || hSyncObject == 0)
+        return E_INVALIDARG;
+    EnterCriticalSection(&D3DUmdRtDeviceLock);
+    for (Context = Device->Contexts; Context != NULL; Context = Context->Next)
+    {
+        if (Context->Destroying || Count == ARRAYSIZE(Captured))
+        {
+            LeaveCriticalSection(&D3DUmdRtDeviceLock);
+            return E_NOTIMPL;
+        }
+        Captured[Count++] = Context;
+    }
+    for (Index = 0; Index < Count; ++Index)
+    {
+        ++Captured[Index]->SyncTokenReferences;
+        Contexts[Index] = Captured[Index]->hContext;
+    }
+    LeaveCriticalSection(&D3DUmdRtDeviceLock);
+
+    if (Wait)
+    {
+        if (pfnWaitForSynchronizationObjectFromGpu == NULL)
+            Result = E_NOTIMPL;
+        for (Index = 0; Index < Count && SUCCEEDED(Result); ++Index)
+        {
+            D3DKMT_WAITFORSYNCHRONIZATIONOBJECTFROMGPU WaitData;
+
+            ZeroMemory(&WaitData, sizeof(WaitData));
+            WaitData.hContext = Contexts[Index];
+            WaitData.ObjectCount = 1;
+            WaitData.ObjectHandleArray = &hSyncObject;
+            WaitData.MonitoredFenceValueArray = &Value;
+            Result = D3DUmdRtStatusToHresult(
+                         pfnWaitForSynchronizationObjectFromGpu(&WaitData));
+        }
+    }
+    else if (Count != 0)
+    {
+        D3DKMT_SIGNALSYNCHRONIZATIONOBJECTFROMGPU2 Signal;
+
+        ZeroMemory(&Signal, sizeof(Signal));
+        Signal.ObjectCount = 1;
+        Signal.ObjectHandleArray = &hSyncObject;
+        Signal.BroadcastContextCount = Count;
+        Signal.BroadcastContextArray = Contexts;
+        Signal.MonitoredFenceValueArray = &Value;
+        Result = pfnSignalSynchronizationObjectFromGpu2 == NULL ? E_NOTIMPL :
+            D3DUmdRtStatusToHresult(pfnSignalSynchronizationObjectFromGpu2(&Signal));
+    }
+    else
+    {
+        D3DKMT_SIGNALSYNCHRONIZATIONOBJECTFROMCPU Signal;
+
+        ZeroMemory(&Signal, sizeof(Signal));
+        Signal.hDevice = Device->hDevice;
+        Signal.ObjectCount = 1;
+        Signal.ObjectHandleArray = &hSyncObject;
+        Signal.FenceValueArray = &Value;
+        Result = pfnSignalSynchronizationObjectFromCpu == NULL ? E_NOTIMPL :
+            D3DUmdRtStatusToHresult(pfnSignalSynchronizationObjectFromCpu(&Signal));
+    }
+
+    EnterCriticalSection(&D3DUmdRtDeviceLock);
+    for (Index = 0; Index < Count; ++Index)
+        --Captured[Index]->SyncTokenReferences;
+    LeaveCriticalSection(&D3DUmdRtDeviceLock);
+    return Result;
+#else
+    UNREFERENCED_PARAMETER(hDevice);
+    UNREFERENCED_PARAMETER(hSyncObject);
+    UNREFERENCED_PARAMETER(Value);
+    UNREFERENCED_PARAMETER(Wait);
+    return E_NOTIMPL;
+#endif
+}
+
+HRESULT WINAPI
+D3DUmdRtSignalFence(HANDLE hDevice, D3DKMT_HANDLE hSyncObject, UINT64 Value)
+{
+    return D3DUmdRtFenceOperation(hDevice, hSyncObject, Value, FALSE);
+}
+
+HRESULT WINAPI
+D3DUmdRtWaitFence(HANDLE hDevice, D3DKMT_HANDLE hSyncObject, UINT64 Value)
+{
+    return D3DUmdRtFenceOperation(hDevice, hSyncObject, Value, TRUE);
+}
+
 #if (D3D_UMD_INTERFACE_VERSION >= D3D_UMD_INTERFACE_VERSION_WDDM2_0)
 
 static HRESULT APIENTRY

@@ -8,3 +8,5 @@
 @ stdcall D3DUmdRtRotateResourceIdentities(ptr ptr long)
 @ stdcall D3DUmdRtGetSingleResourceAllocation(ptr ptr ptr)
 @ stdcall D3DUmdRtEnqueueSetEvent(ptr ptr)
+@ stdcall D3DUmdRtSignalFence(ptr long int64)
+@ stdcall D3DUmdRtWaitFence(ptr long int64)
