@@ -608,7 +608,6 @@ PortQueryDeviceProperty(
     _In_ ULONG OutputLength)
 {
     PINQUIRYDATA InquiryData;
-    PSTORAGE_DESCRIPTOR_HEADER Header;
     PSTORAGE_DEVICE_DESCRIPTOR Descriptor;
     PUCHAR Buffer;
     ULONG DescriptorLength;
@@ -639,18 +638,13 @@ PortQueryDeviceProperty(
         return STATUS_BUFFER_TOO_SMALL;
     }
 
-    Header = Irp->AssociatedIrp.SystemBuffer;
-    Header->Version = sizeof(STORAGE_DEVICE_DESCRIPTOR);
-    Header->Size = DescriptorLength;
-    Irp->IoStatus.Information = sizeof(STORAGE_DESCRIPTOR_HEADER);
-
-    if (OutputLength < DescriptorLength)
+    Descriptor = ExAllocatePoolWithTag(NonPagedPool, DescriptorLength, TAG_INQUIRY_DATA);
+    if (Descriptor == NULL)
     {
-        return STATUS_SUCCESS;
+        return STATUS_INSUFFICIENT_RESOURCES;
     }
 
     InquiryData = PdoExtension->InquiryBuffer;
-    Descriptor = Irp->AssociatedIrp.SystemBuffer;
     RtlZeroMemory(Descriptor, DescriptorLength);
 
     Descriptor->Version = sizeof(STORAGE_DEVICE_DESCRIPTOR);
@@ -681,7 +675,9 @@ PortQueryDeviceProperty(
     Descriptor->RawPropertiesLength = DescriptorLength -
                                       FIELD_OFFSET(STORAGE_DEVICE_DESCRIPTOR, RawDeviceProperties);
 
-    Irp->IoStatus.Information = DescriptorLength;
+    Irp->IoStatus.Information = min(OutputLength, DescriptorLength);
+    RtlCopyMemory(Irp->AssociatedIrp.SystemBuffer, Descriptor, Irp->IoStatus.Information);
+    ExFreePoolWithTag(Descriptor, TAG_INQUIRY_DATA);
     return STATUS_SUCCESS;
 }
 
