@@ -86,6 +86,8 @@ RegisterService(VOID)
                               SERVICE_ERROR_NORMAL,
                               L"%SystemRoot%\\system32\\svchost.exe -k LocalService",
                               L"Time", NULL, NULL, L"NT AUTHORITY\\LocalService", NULL);
+    if (hService == NULL && GetLastError() == ERROR_SERVICE_EXISTS)
+        hService = OpenServiceW(hServiceManager, L"W32Time", SERVICE_CHANGE_CONFIG);
     if (hService == NULL)
     {
         DPRINT1("CreateService() failed!\n");
