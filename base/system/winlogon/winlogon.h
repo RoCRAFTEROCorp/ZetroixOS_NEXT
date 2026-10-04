@@ -385,6 +385,11 @@ BOOL
 AllowAccessOnSession(
     _In_ PWLSESSION Session);
 
+BOOL
+UpdateNamedObjectAccess(
+    _In_ HANDLE UserToken,
+    _In_ BOOL Grant);
+
 /* setup.c */
 DWORD
 GetSetupType(VOID);

@@ -811,6 +811,7 @@ cleanup:
         // (revert what security.c!AllowAccessOnSession() does).
         SetWindowStationUser(Session->InteractiveWindowStation,
                              &LuidNone, NULL, 0);
+        UpdateNamedObjectAccess(Session->UserToken, FALSE);
 
         /* Switch back to default SYSTEM user */
         CloseHandle(Session->UserToken);
@@ -1194,6 +1195,7 @@ HandleLogoff(
 
     // TODO: Remove session access to window station
     // (revert what security.c!AllowAccessOnSession() does).
+    UpdateNamedObjectAccess(Session->UserToken, FALSE);
 
     /* Switch back to default SYSTEM user */
     CloseHandle(Session->UserToken);

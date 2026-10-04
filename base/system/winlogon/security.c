@@ -8,6 +8,7 @@
 /* INCLUDES *****************************************************************/
 
 #include "winlogon.h"
+#include <ndk/obfuncs.h>
 
 /* DEFINES ******************************************************************/
 
@@ -1375,6 +1376,137 @@ Quit:
     return Success;
 }
 
+BOOL
+UpdateNamedObjectAccess(
+    _In_ HANDLE UserToken,
+    _In_ BOOL Grant)
+{
+    WCHAR Buffer[64];
+    UNICODE_STRING Name;
+    OBJECT_ATTRIBUTES ObjectAttributes;
+    HANDLE Directory = NULL;
+    DWORD SessionId, Length = 0, Index;
+    PTOKEN_USER User = NULL;
+    PTOKEN_GROUPS Groups = NULL;
+    PSID UserSid, LogonSid = NULL;
+    PSECURITY_DESCRIPTOR Sd = NULL;
+    SECURITY_DESCRIPTOR NewSd;
+    PACL OldDacl = NULL, NewDacl = NULL;
+    BOOLEAN DaclPresent = FALSE, DaclDefaulted;
+    ULONG SdLength = 0, AclLength;
+    PACE_HEADER Ace;
+    NTSTATUS Status;
+    BOOL Success = FALSE;
+
+    if (!ProcessIdToSessionId(GetCurrentProcessId(), &SessionId) || SessionId == 0)
+        return TRUE;
+
+    GetTokenInformation(UserToken, TokenUser, NULL, 0, &Length);
+    User = RtlAllocateHeap(RtlGetProcessHeap(), 0, Length);
+    if (!User || !GetTokenInformation(UserToken, TokenUser, User, Length, &Length))
+        goto Quit;
+    UserSid = User->User.Sid;
+
+    Length = 0;
+    GetTokenInformation(UserToken, TokenGroups, NULL, 0, &Length);
+    Groups = RtlAllocateHeap(RtlGetProcessHeap(), 0, Length);
+    if (!Groups || !GetTokenInformation(UserToken, TokenGroups, Groups, Length, &Length))
+        goto Quit;
+    for (Index = 0; Index < Groups->GroupCount; Index++)
+    {
+        if ((Groups->Groups[Index].Attributes & SE_GROUP_LOGON_ID) == SE_GROUP_LOGON_ID)
+        {
+            LogonSid = Groups->Groups[Index].Sid;
+            break;
+        }
+    }
+    if (!LogonSid)
+        goto Quit;
+
+    StringCchPrintfW(Buffer, ARRAYSIZE(Buffer), L"\\Sessions\\%lu\\BaseNamedObjects", SessionId);
+    RtlInitUnicodeString(&Name, Buffer);
+    InitializeObjectAttributes(&ObjectAttributes, &Name, OBJ_CASE_INSENSITIVE, NULL, NULL);
+    Status = NtOpenDirectoryObject(&Directory, READ_CONTROL | WRITE_DAC, &ObjectAttributes);
+    if (!NT_SUCCESS(Status))
+    {
+        ERR("UpdateNamedObjectAccess(): Failed to open %wZ (Status 0x%08lx)\n", &Name, Status);
+        goto Quit;
+    }
+
+    Status = NtQuerySecurityObject(Directory, DACL_SECURITY_INFORMATION, NULL, 0, &SdLength);
+    if (Status != STATUS_BUFFER_TOO_SMALL)
+        goto Quit;
+    Sd = RtlAllocateHeap(RtlGetProcessHeap(), 0, SdLength);
+    if (!Sd)
+        goto Quit;
+    Status = NtQuerySecurityObject(Directory, DACL_SECURITY_INFORMATION, Sd, SdLength, &SdLength);
+    if (!NT_SUCCESS(Status))
+        goto Quit;
+    Status = RtlGetDaclSecurityDescriptor(Sd, &DaclPresent, &OldDacl, &DaclDefaulted);
+    if (!NT_SUCCESS(Status) || !DaclPresent || !OldDacl)
+        goto Quit;
+
+    AclLength = OldDacl->AclSize +
+                3 * (sizeof(ACCESS_ALLOWED_ACE) + max(GetLengthSid(UserSid), GetLengthSid(LogonSid)));
+    NewDacl = RtlAllocateHeap(RtlGetProcessHeap(), 0, AclLength);
+    if (!NewDacl || !NT_SUCCESS(RtlCreateAcl(NewDacl, AclLength, ACL_REVISION)))
+        goto Quit;
+
+    for (Index = 0; Index < OldDacl->AceCount; Index++)
+    {
+        if (!NT_SUCCESS(RtlGetAce(OldDacl, Index, (PVOID*)&Ace)))
+            goto Quit;
+        if (Ace->AceType == ACCESS_ALLOWED_ACE_TYPE &&
+            (RtlEqualSid(&((PACCESS_ALLOWED_ACE)Ace)->SidStart, UserSid) ||
+             RtlEqualSid(&((PACCESS_ALLOWED_ACE)Ace)->SidStart, LogonSid)))
+        {
+            continue;
+        }
+        if (!NT_SUCCESS(RtlAddAce(NewDacl, ACL_REVISION, MAXULONG, Ace, Ace->AceSize)))
+            goto Quit;
+    }
+
+    if (Grant &&
+        (!NT_SUCCESS(RtlAddAccessAllowedAce(NewDacl, ACL_REVISION, DIRECTORY_ALL_ACCESS, UserSid)) ||
+         !NT_SUCCESS(RtlAddAccessAllowedAceEx(NewDacl, ACL_REVISION,
+                                              OBJECT_INHERIT_ACE | CONTAINER_INHERIT_ACE | INHERIT_ONLY_ACE,
+                                              GENERIC_ALL, LogonSid)) ||
+         !NT_SUCCESS(RtlAddAccessAllowedAce(NewDacl, ACL_REVISION,
+                                            READ_CONTROL | DIRECTORY_QUERY | DIRECTORY_TRAVERSE |
+                                            DIRECTORY_CREATE_OBJECT | DIRECTORY_CREATE_SUBDIRECTORY,
+                                            LogonSid))))
+    {
+        goto Quit;
+    }
+
+    if (!NT_SUCCESS(RtlCreateSecurityDescriptor(&NewSd, SECURITY_DESCRIPTOR_REVISION)) ||
+        !NT_SUCCESS(RtlSetDaclSecurityDescriptor(&NewSd, TRUE, NewDacl, FALSE)))
+    {
+        goto Quit;
+    }
+    Status = NtSetSecurityObject(Directory, DACL_SECURITY_INFORMATION, &NewSd);
+    if (!NT_SUCCESS(Status))
+    {
+        ERR("UpdateNamedObjectAccess(): Failed to set the DACL (Status 0x%08lx)\n", Status);
+        goto Quit;
+    }
+
+    Success = TRUE;
+
+Quit:
+    if (Directory)
+        NtClose(Directory);
+    if (NewDacl)
+        RtlFreeHeap(RtlGetProcessHeap(), 0, NewDacl);
+    if (Sd)
+        RtlFreeHeap(RtlGetProcessHeap(), 0, Sd);
+    if (Groups)
+        RtlFreeHeap(RtlGetProcessHeap(), 0, Groups);
+    if (User)
+        RtlFreeHeap(RtlGetProcessHeap(), 0, User);
+    return Success;
+}
+
 /**
  * @brief
  * Assigns both window station and desktop access
@@ -1459,6 +1591,9 @@ AllowAccessOnSession(
         ERR("AllowAccessOnSession(): Failed to allow application desktop access to the logon user!\n");
         goto Quit;
     }
+
+    if (!UpdateNamedObjectAccess(Session->UserToken, TRUE))
+        WARN("AllowAccessOnSession(): Failed to allow named object access to the logon user\n");
 
     /* Get the length of this logon SID */
     SidLength = GetLengthSid(LogonSid);
