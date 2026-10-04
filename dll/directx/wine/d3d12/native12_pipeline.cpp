@@ -665,6 +665,7 @@ HRESULT Native12PipelineState::InitializeGraphics(const D3D12_GRAPHICS_PIPELINE_
     HRESULT hr;
 
     if (input->NumRenderTargets > D3D12_SIMULTANEOUS_RENDER_TARGET_COUNT) return E_INVALIDARG;
+    if (!input->VS.pShaderBytecode || !input->VS.BytecodeLength) return E_INVALIDARG;
     if ((input->HS.pShaderBytecode || input->DS.pShaderBytecode)
             && input->PrimitiveTopologyType != D3D12_PRIMITIVE_TOPOLOGY_TYPE_PATCH)
         return E_INVALIDARG;

@@ -980,9 +980,24 @@ HRESULT STDMETHODCALLTYPE Native12Device::CheckFeatureSupport(D3D12_FEATURE feat
                 caps->PlaneCount = 1;
                 return S_OK;
             }
-            if (!Native12GetFormatInfo(caps->Format, &info) || !info.block_bytes) return E_INVALIDARG;
-            caps->PlaneCount = static_cast<UINT8>(info.planes);
-            return S_OK;
+            if (Native12GetFormatInfo(caps->Format, &info) && info.block_bytes)
+            {
+                caps->PlaneCount = static_cast<UINT8>(info.planes);
+                return S_OK;
+            }
+            switch (caps->Format)
+            {
+                case DXGI_FORMAT_NV12: case DXGI_FORMAT_P010: case DXGI_FORMAT_P016: case DXGI_FORMAT_NV11:
+                    caps->PlaneCount = 2;
+                    return S_OK;
+                case DXGI_FORMAT_AYUV: case DXGI_FORMAT_Y410: case DXGI_FORMAT_Y416: case DXGI_FORMAT_420_OPAQUE:
+                case DXGI_FORMAT_YUY2: case DXGI_FORMAT_Y210: case DXGI_FORMAT_Y216: case DXGI_FORMAT_AI44:
+                case DXGI_FORMAT_IA44: case DXGI_FORMAT_P8: case DXGI_FORMAT_A8P8:
+                    caps->PlaneCount = 1;
+                    return S_OK;
+                default:
+                    return E_INVALIDARG;
+            }
         }
         case D3D12_FEATURE_D3D12_OPTIONS2:
         {

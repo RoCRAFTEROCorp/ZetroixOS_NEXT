@@ -239,6 +239,12 @@ static void Native12HeapPlacement(Native12Device *device, const D3D12_HEAP_PROPE
     heap->VisibleNodeMask = properties->VisibleNodeMask ? properties->VisibleNodeMask : 1;
 }
 
+static UINT64 Native12DefaultAlignment(const D3D12_RESOURCE_DESC *desc)
+{
+    return desc->SampleDesc.Count > 1 && desc->Layout == D3D12_TEXTURE_LAYOUT_UNKNOWN
+            ? D3D12_DEFAULT_MSAA_RESOURCE_PLACEMENT_ALIGNMENT : D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT;
+}
+
 static UINT16 Native12MipLevels(const D3D12_RESOURCE_DESC *desc)
 {
     if (desc->MipLevels) return desc->MipLevels;
@@ -287,6 +293,7 @@ HRESULT Native12Resource::Initialize(const D3D12_HEAP_PROPERTIES *properties, D3
     desc = *input;
     desc.MipLevels = Native12MipLevels(input);
     if (!desc.SampleDesc.Count) desc.SampleDesc.Count = 1;
+    if (!desc.Alignment) desc.Alignment = Native12DefaultAlignment(&desc);
     heap_properties = *properties;
     if (!heap_properties.CreationNodeMask) heap_properties.CreationNodeMask = 1;
     if (!heap_properties.VisibleNodeMask) heap_properties.VisibleNodeMask = 1;
@@ -608,6 +615,7 @@ HRESULT Native12Resource::InitializeReserved(const D3D12_RESOURCE_DESC *input, D
     desc = *input;
     desc.MipLevels = Native12MipLevels(input);
     if (!desc.SampleDesc.Count) desc.SampleDesc.Count = 1;
+    if (!desc.Alignment) desc.Alignment = Native12DefaultAlignment(&desc);
     reserved = true;
     heap_properties.Type = D3D12_HEAP_TYPE_DEFAULT;
     identity = reinterpret_cast<HANDLE>(static_cast<ULONG_PTR>(InterlockedIncrement64(&device->resource_sequence)));
@@ -654,6 +662,7 @@ HRESULT Native12Resource::InitializePlaced(Native12Heap *parent, UINT64 offset, 
     desc = *input;
     desc.MipLevels = Native12MipLevels(input);
     if (!desc.SampleDesc.Count) desc.SampleDesc.Count = 1;
+    if (!desc.Alignment) desc.Alignment = Native12DefaultAlignment(&desc);
     heap = parent;
     heap->AddInternal();
     heap_offset = offset;
@@ -1047,6 +1056,35 @@ static bool Native12ValidResourceState(D3D12_RESOURCE_STATES state)
     return true;
 }
 
+static bool Native12SmallTexture(const D3D12_RESOURCE_DESC *desc, const Native12FormatInfo &format)
+{
+    UINT64 tile_width, tile_height, tile_depth = 1, tiles;
+    UINT tile_texels = D3D12_SMALL_RESOURCE_PLACEMENT_ALIGNMENT / format.block_bytes;
+
+    if (desc->Layout != D3D12_TEXTURE_LAYOUT_UNKNOWN
+            || (desc->Flags & (D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET | D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL)))
+        return false;
+    if (desc->Dimension == D3D12_RESOURCE_DIMENSION_TEXTURE1D)
+    {
+        tile_width = tile_texels;
+        tile_height = 1;
+    }
+    else
+    {
+        UINT log_size = 0, log_depth, log_height;
+        while ((2u << log_size) <= tile_texels) ++log_size;
+        log_depth = desc->Dimension == D3D12_RESOURCE_DIMENSION_TEXTURE3D ? log_size / 3 : 0;
+        log_height = (log_size - log_depth) / 2;
+        tile_width = (1ull << (log_size - log_depth - log_height)) * format.block_width;
+        tile_height = (1ull << log_height) * format.block_height;
+        tile_depth = 1ull << log_depth;
+    }
+    tiles = ((desc->Width + tile_width - 1) / tile_width) * ((desc->Height + tile_height - 1) / tile_height);
+    if (desc->Dimension == D3D12_RESOURCE_DIMENSION_TEXTURE3D)
+        tiles *= (desc->DepthOrArraySize + tile_depth - 1) / tile_depth;
+    return tiles <= D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT / D3D12_SMALL_RESOURCE_PLACEMENT_ALIGNMENT;
+}
+
 HRESULT Native12ValidateResourceDesc(const D3D12_RESOURCE_DESC *desc)
 {
     Native12FormatInfo format = {};
@@ -1075,6 +1113,7 @@ HRESULT Native12ValidateResourceDesc(const D3D12_RESOURCE_DESC *desc)
     if (desc->Format == DXGI_FORMAT_UNKNOWN || !Native12GetFormatInfo(desc->Format, &format) || !format.block_bytes)
         return E_INVALIDARG;
     if (desc->Layout == D3D12_TEXTURE_LAYOUT_64KB_UNDEFINED_SWIZZLE && format.planes > 1) return E_INVALIDARG;
+    if (desc->Layout == D3D12_TEXTURE_LAYOUT_64KB_STANDARD_SWIZZLE) return E_INVALIDARG;
     if (desc->Dimension == D3D12_RESOURCE_DIMENSION_TEXTURE1D && format.block_height > 1) return E_INVALIDARG;
     if (desc->Alignment)
     {
@@ -1082,9 +1121,11 @@ HRESULT Native12ValidateResourceDesc(const D3D12_RESOURCE_DESC *desc)
                 && desc->Alignment != D3D12_SMALL_RESOURCE_PLACEMENT_ALIGNMENT
                 && (desc->SampleDesc.Count == 1 || desc->Alignment != D3D12_DEFAULT_MSAA_RESOURCE_PLACEMENT_ALIGNMENT))
             return E_INVALIDARG;
-        if (desc->Alignment < D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT
-                && desc->Width * desc->Height * format.block_bytes / (format.block_width * format.block_height)
-                > D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT)
+        if (desc->Layout == D3D12_TEXTURE_LAYOUT_64KB_UNDEFINED_SWIZZLE
+                && desc->Alignment != D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT)
+            return E_INVALIDARG;
+        if (desc->Alignment == D3D12_SMALL_RESOURCE_PLACEMENT_ALIGNMENT
+                && (desc->SampleDesc.Count > 1 || !Native12SmallTexture(desc, format)))
             return E_INVALIDARG;
     }
     return S_OK;
@@ -1115,7 +1156,9 @@ HRESULT STDMETHODCALLTYPE Native12Device::CreateCommittedResource(const D3D12_HE
 {
     if (!properties || !desc) return E_INVALIDARG;
     if (out) *out = NULL;
-    HRESULT hr = Native12ValidateResource(properties->Type, desc, initial_state, clear_value);
+    HRESULT hr = ValidateHeapProperties(properties);
+    if (FAILED(hr)) return hr;
+    hr = Native12ValidateResource(properties->Type, desc, initial_state, clear_value);
     if (FAILED(hr))
     {
         WARN("Invalid committed resource, dimension %u, format %#x, state %#x.\n", desc->Dimension, desc->Format,
@@ -1140,6 +1183,7 @@ D3D12_RESOURCE_ALLOCATION_INFO *STDMETHODCALLTYPE Native12Device::GetResourceAll
         D3D12DDIARG_CREATERESOURCE_0109 args;
         D3D12_RESOURCE_DESC desc = descs[i];
         desc.MipLevels = Native12MipLevels(&descs[i]);
+        if (!desc.Alignment) desc.Alignment = Native12DefaultAlignment(&desc);
         if (FAILED(Native12ValidateResourceDesc(&desc)))
         {
             out->SizeInBytes = ~(UINT64)0;
@@ -1156,8 +1200,7 @@ D3D12_RESOURCE_ALLOCATION_INFO *STDMETHODCALLTYPE Native12Device::GetResourceAll
             out->Alignment = D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT;
             return out;
         }
-        UINT64 requested = desc.Alignment ? desc.Alignment : D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT;
-        if (info.ResourceDataAlignment < requested) info.ResourceDataAlignment = static_cast<UINT32>(requested);
+        if (info.ResourceDataAlignment < desc.Alignment) info.ResourceDataAlignment = static_cast<UINT32>(desc.Alignment);
         if (info.ResourceDataAlignment > out->Alignment) out->Alignment = info.ResourceDataAlignment;
         out->SizeInBytes = (out->SizeInBytes + info.ResourceDataAlignment - 1)
                 & ~static_cast<UINT64>(info.ResourceDataAlignment - 1);
@@ -1166,6 +1209,27 @@ D3D12_RESOURCE_ALLOCATION_INFO *STDMETHODCALLTYPE Native12Device::GetResourceAll
     if (out->Alignment)
         out->SizeInBytes = (out->SizeInBytes + out->Alignment - 1) & ~(out->Alignment - 1);
     return out;
+}
+
+HRESULT Native12Device::ValidateHeapProperties(const D3D12_HEAP_PROPERTIES *properties)
+{
+    switch (properties->Type)
+    {
+        case D3D12_HEAP_TYPE_DEFAULT:
+        case D3D12_HEAP_TYPE_UPLOAD:
+        case D3D12_HEAP_TYPE_READBACK:
+            return properties->CPUPageProperty == D3D12_CPU_PAGE_PROPERTY_UNKNOWN
+                    && properties->MemoryPoolPreference == D3D12_MEMORY_POOL_UNKNOWN ? S_OK : E_INVALIDARG;
+        case D3D12_HEAP_TYPE_CUSTOM:
+            if (properties->CPUPageProperty == D3D12_CPU_PAGE_PROPERTY_UNKNOWN
+                    || properties->CPUPageProperty > D3D12_CPU_PAGE_PROPERTY_WRITE_BACK)
+                return E_INVALIDARG;
+            if (properties->MemoryPoolPreference == D3D12_MEMORY_POOL_L0) return S_OK;
+            if (properties->MemoryPoolPreference != D3D12_MEMORY_POOL_L1 || memory.UMA) return E_INVALIDARG;
+            return properties->CPUPageProperty == D3D12_CPU_PAGE_PROPERTY_NOT_AVAILABLE ? S_OK : E_INVALIDARG;
+        default:
+            return E_INVALIDARG;
+    }
 }
 
 D3D12_HEAP_PROPERTIES *STDMETHODCALLTYPE Native12Device::GetCustomHeapProperties(D3D12_HEAP_PROPERTIES *out,

@@ -151,8 +151,7 @@ HRESULT STDMETHODCALLTYPE Native12Device::CreatePipelineState(const D3D12_PIPELI
     HRESULT hr;
     if (compute_shader.BytecodeLength)
     {
-        if (graphics.VS.BytecodeLength || graphics.PS.BytecodeLength || graphics.DS.BytecodeLength
-                || graphics.HS.BytecodeLength || graphics.GS.BytecodeLength)
+        if (graphics.VS.BytecodeLength)
         {
             pipeline->Release();
             return E_INVALIDARG;
