@@ -209,3 +209,22 @@ NtSetLdtEntries(IN ULONG Selector1,
     //
     return STATUS_NOT_IMPLEMENTED;
 }
+
+VOID
+NTAPI
+KiQueryProcessorTopology(
+    _Out_writes_to_opt_(MaxRecords, *RecordCount) PKI_CACHE_RECORD Records,
+    _In_ ULONG MaxRecords,
+    _Out_ PULONG RecordCount,
+    _Out_writes_to_opt_(MaxSets, *SetCount) PKAFFINITY Sets,
+    _In_ ULONG MaxSets,
+    _Out_ PULONG SetCount)
+{
+    UNREFERENCED_PARAMETER(Records);
+    UNREFERENCED_PARAMETER(MaxRecords);
+    UNREFERENCED_PARAMETER(Sets);
+    UNREFERENCED_PARAMETER(MaxSets);
+
+    *RecordCount = 0;
+    *SetCount = 0;
+}

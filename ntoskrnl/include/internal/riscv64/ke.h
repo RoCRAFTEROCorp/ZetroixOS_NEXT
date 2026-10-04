@@ -201,6 +201,9 @@ typedef struct _KI_RISCV_PROCESSOR_FEATURES
     ULONG SbiSpecVersion;
     ULONG_PTR SbiImplId;
     ULONG_PTR SbiImplVersion;
+    ULONG_PTR MachineVendorId;
+    ULONG_PTR MachineArchId;
+    ULONG_PTR MachineImplId;
     ULONG64 TimebaseFrequency;
     ULONG64 HartId;
     /* Space-separated extension names as advertised by firmware. */
@@ -235,6 +238,7 @@ VOID NTAPI KiRiscvConsoleWrite(_In_reads_bytes_(Length) PCCH Buffer, _In_ SIZE_T
 BOOLEAN NTAPI KiRiscvConsoleGetByte(_Out_ PUCHAR Byte);
 VOID NTAPI KiRiscvIdentifyProcessor(_In_ PLOADER_PARAMETER_BLOCK LoaderBlock);
 VOID NTAPI KiRiscvReportProcessorFeatures(VOID);
+VOID NTAPI KiRiscvSaveProcessorClock(_In_ PKPRCB Prcb);
 extern ULONG64 KiRiscvVectorLength;
 VOID NTAPI KiRiscvInitializeVector(VOID);
 PVOID NTAPI KiRiscvInitializeVectorArea(_Inout_ PKTHREAD Thread, _In_ PVOID StackTop);
@@ -243,6 +247,8 @@ VOID NTAPI KiRiscvSaveVectorState(_In_ PKTHREAD Thread);
 VOID NTAPI KiRiscvRestoreVectorState(_In_ PKTHREAD Thread);
 BOOLEAN NTAPI KiRiscvHandleVectorFirstUse(_Inout_ PKTRAP_FRAME TrapFrame);
 VOID NTAPI KiRiscvRundownVectorState(_In_ PKTHREAD Thread);
+struct _RISCV_FDT;
+VOID NTAPI KiRiscvCaptureCacheTopology(_In_ const struct _RISCV_FDT *Fdt, _In_ ULONG Cpus);
 ULONG NTAPI KiRiscvQueryFeatureFlags(VOID);
 ULONG NTAPI KiRiscvQueryCacheBlockSize(VOID);
 BOOLEAN NTAPI KiRiscvIsPhysicalCached(_In_ ULONG64 PhysicalAddress);
