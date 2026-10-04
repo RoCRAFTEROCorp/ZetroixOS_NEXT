@@ -2810,8 +2810,7 @@ Bus_PDO_PnP (
                                                NULL,
                                                &DeviceData->InterfaceName);
         }
-        else if (device->flags.hardware_id &&
-                 strstr(device->pnp.hardware_id, ACPI_PROCESSOR_HID))
+        else if (device->flags.hardware_id && BuspIsProcessorDevice(device))
         {
             status = IoRegisterDeviceInterface(DeviceData->Common.Self,
                                                &GUID_DEVICE_PROCESSOR,
