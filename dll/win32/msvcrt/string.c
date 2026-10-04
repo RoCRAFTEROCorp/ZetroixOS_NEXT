@@ -1331,7 +1331,7 @@ int __cdecl strncpy_s( char *dst, size_t elem, const char *src, size_t count )
 /*********************************************************************
  *      strcpy (MSVCRT.@)
  */
-#ifndef _M_ARM64
+#ifndef MSVCRT_ARCH_STRCPY
 char* CDECL strcpy(char *dst, const char *src)
 {
     char *ret = dst;
@@ -1591,7 +1591,7 @@ int CDECL _atoldbl(_LDOUBLE *value, char *str)
 /*********************************************************************
  *              strlen (MSVCRT.@)
  */
-#ifndef _M_ARM64
+#ifndef MSVCRT_ARCH_STRLEN
 size_t __cdecl strlen(const char *str)
 {
     const char *s = str;
@@ -2796,6 +2796,7 @@ static inline int memcmp_blocks(const void *ptr1, const void *ptr2, size_t size)
 /*********************************************************************
  *                  memcmp (MSVCRT.@)
  */
+#ifndef MSVCRT_ARCH_MEMCMP
 int __cdecl memcmp(const void *ptr1, const void *ptr2, size_t n)
 {
     const unsigned char *p1 = ptr1, *p2 = ptr2;
@@ -2816,6 +2817,7 @@ int __cdecl memcmp(const void *ptr1, const void *ptr2, size_t n)
 
     return memcmp_blocks(p1, p2, n);
 }
+#endif
 
 #ifndef __REACTOS__
 #if defined(__i386__) || (defined(__x86_64__) && !defined(__arm64ec__))
@@ -3191,10 +3193,12 @@ void * __cdecl memmove(void *dst, const void *src, size_t n)
 /*********************************************************************
  *                  memcpy   (MSVCRT.@)
  */
+#ifndef MSVCRT_ARCH_MEMCPY
 void * __cdecl memcpy(void *dst, const void *src, size_t n)
 {
     return memmove(dst, src, n);
 }
+#endif
 
 /*********************************************************************
  *                  _memccpy   (MSVCRT.@)
@@ -3224,6 +3228,7 @@ static inline void memset_aligned_32(unsigned char *d, uint64_t v, size_t n)
 /*********************************************************************
  *		    memset (MSVCRT.@)
  */
+#ifndef MSVCRT_ARCH_MEMSET
 void *__cdecl memset(void *dst, int c, size_t n)
 {
     typedef uint64_t DECLSPEC_ALIGN(1) unaligned_ui64;
@@ -3276,11 +3281,12 @@ void *__cdecl memset(void *dst, int c, size_t n)
     }
     return dst;
 }
+#endif
 
 /*********************************************************************
  *		    strchr (MSVCRT.@)
  */
-#ifndef _M_ARM64
+#ifndef MSVCRT_ARCH_STRCHR
 char* __cdecl strchr(const char *str, int c)
 {
     do
@@ -3294,7 +3300,7 @@ char* __cdecl strchr(const char *str, int c)
 /*********************************************************************
  *                  strrchr (MSVCRT.@)
  */
-#ifndef _M_ARM64
+#ifndef MSVCRT_ARCH_STRRCHR
 char* __cdecl strrchr(const char *str, int c)
 {
     char *ret = NULL;
@@ -3317,6 +3323,7 @@ void* __cdecl memchr(const void *ptr, int c, size_t n)
 /*********************************************************************
  *                  strcmp (MSVCRT.@)
  */
+#ifndef MSVCRT_ARCH_STRCMP
 int __cdecl strcmp(const char *str1, const char *str2)
 {
     while (*str1 && *str1 == *str2) { str1++; str2++; }
@@ -3324,6 +3331,7 @@ int __cdecl strcmp(const char *str1, const char *str2)
     if ((unsigned char)*str1 < (unsigned char)*str2) return -1;
     return 0;
 }
+#endif
 
 /*********************************************************************
  *                  strncmp   (MSVCRT.@)
