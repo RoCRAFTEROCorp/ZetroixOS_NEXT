@@ -78,6 +78,9 @@ MiWaitForMemory(
     if (++*Attempts > 64 || KeGetCurrentIrql() > APC_LEVEL)
         return STATUS_NO_MEMORY;
 
+    if (MiPfnAvailablePages(&MiSystem.Pfn) >= MiProcessManager.AvailableLow)
+        return STATUS_NO_MEMORY;
+
     if (MiBalanceMemory(&MiSystem, &MiProcessManager) != 0)
         return STATUS_SUCCESS;
 
