@@ -2222,8 +2222,18 @@ INT CDECL wcrtomb_s(size_t *len, char *mbchar,
  */
 size_t CDECL wcrtomb( char *dst, wchar_t ch, mbstate_t *s)
 {
+#ifdef __REACTOS__
+    int len;
+#endif
     if(s)
         *s = 0;
+#ifdef __REACTOS__
+    if(!dst)
+    {
+        _wctomb_s_l(&len, NULL, 0, ch, NULL);
+        return len;
+    }
+#endif
     return wctomb(dst, ch);
 }
 

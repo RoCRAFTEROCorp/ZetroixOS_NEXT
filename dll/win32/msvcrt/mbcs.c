@@ -56,6 +56,10 @@ static struct cp_extra_info_t g_cpextrainfo[] =
     {0, {1, 255, 0, 0}}       /* match all with FIXME */
 };
 
+#ifdef __REACTOS__
+static BYTE johab_lead_bytes[MAX_LEADBYTES] = {0x81, 0xd3, 0xd8, 0xde, 0xe0, 0xf9, 0, 0};
+#endif
+
 /* Maps cp932 single byte character to multi byte character */
 static const unsigned char mbbtombc_932[] = {
   0x40,0x49,0x68,0x94,0x90,0x93,0x95,0x66,0x69,0x6a,0x96,0x7b,0x43,0x7c,0x44,0x5e,
@@ -287,6 +291,10 @@ threadmbcinfo* create_mbcinfo(int cp, LCID lcid, threadmbcinfo *old_mbcinfo)
   memset(mbcinfo->mbcasemap, 0, sizeof(unsigned char[256]));
 
   bytes = cpi.LeadByte;
+#ifdef __REACTOS__
+  if (newcp == 1361)
+    bytes = johab_lead_bytes;
+#endif
   while (bytes[0] || bytes[1])
   {
     for (i = bytes[0]; i <= bytes[1]; i++)
