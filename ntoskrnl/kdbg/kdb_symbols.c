@@ -963,9 +963,10 @@ KdbSymProcessSymbols(
     /* Tell our worker thread to read from it */
     KeAcquireSpinLock(&SymbolsToLoadLock, &OldIrql);
     InsertTailList(&SymbolsToLoad, &LdrEntry->InInitializationOrderLinks);
-    KeReleaseSpinLock(&SymbolsToLoadLock, OldIrql);
+    KeReleaseSpinLockFromDpcLevel(&SymbolsToLoadLock);
 
     KeSetEvent(&SymbolsToLoadEvent, IO_NO_INCREMENT, FALSE);
+    KeLowerIrql(OldIrql);
 }
 
 
