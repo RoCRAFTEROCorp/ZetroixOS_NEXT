@@ -3737,6 +3737,16 @@ NTSTATUS NTAPI ChpeAutoRtlCopyMappedMemory(PVOID a0, const void * a1, SIZE_T a2)
 _Static_assert(__builtin_types_compatible_p(__typeof__(&ChpeAutoRtlCopyMappedMemory), __typeof__(&RtlCopyMappedMemory)), "RtlCopyMappedMemory bridge signature mismatch");
 
 /* Native definition: dll/ntdll/rtl/xstate_wow64.c */
+#ifdef RtlCopyContext
+#undef RtlCopyContext
+#endif
+NTSTATUS NTAPI RtlCopyContext(PVOID a0, ULONG a1, PVOID a2);
+NTSTATUS NTAPI ChpeAutoRtlCopyContext(PVOID a0, ULONG a1, PVOID a2)
+{
+    return RtlCopyContext(a0, a1, a2);
+}
+
+/* Native definition: dll/ntdll/rtl/xstate_wow64.c */
 #ifdef RtlCopyExtendedContext
 #undef RtlCopyExtendedContext
 #endif
@@ -4576,6 +4586,12 @@ PVOID NTAPI ChpeAutoRtlLocateLegacyContext(PVOID a0, PVOID a1)
 {
     return RtlLocateLegacyContext(a0, a1);
 }
+
+BOOL NTAPI ChpeAutoRtlQueryUnbiasedInterruptTime(PULONGLONG a0)
+{
+    return RtlQueryUnbiasedInterruptTime(a0);
+}
+_Static_assert(__builtin_types_compatible_p(__typeof__(&ChpeAutoRtlQueryUnbiasedInterruptTime), __typeof__(&RtlQueryUnbiasedInterruptTime)), "RtlQueryUnbiasedInterruptTime bridge signature mismatch");
 
 /* Native definition: dll/ntdll/rtl/exit.c */
 #ifdef RtlExitUserProcess
@@ -5949,7 +5965,7 @@ ULONG_PTR NTAPI ChpeStubRtlPrepareForProcessCloning(VOID)
     return 0;
 }
 
-VOID NTAPI ChpeAutoRtlProcessFlsData(PVOID a0, ULONG a1)
+void NTAPI ChpeAutoRtlProcessFlsData(PVOID a0, ULONG a1)
 {
     RtlProcessFlsData(a0, a1);
 }
@@ -10345,11 +10361,23 @@ int NTAPI ChpeAuto_vsnprintf(char * a0, size_t a1, const char * a2, va_list a3)
 }
 _Static_assert(__builtin_types_compatible_p(__typeof__(&ChpeAuto_vsnprintf), __typeof__(&_vsnprintf)), "_vsnprintf bridge signature mismatch");
 
+int NTAPI ChpeAuto_vsnprintf_s(char * a0, size_t a1, size_t a2, const char * a3, va_list a4)
+{
+    return _vsnprintf_s(a0, a1, a2, a3, a4);
+}
+_Static_assert(__builtin_types_compatible_p(__typeof__(&ChpeAuto_vsnprintf_s), __typeof__(&_vsnprintf_s)), "_vsnprintf_s bridge signature mismatch");
+
 int NTAPI ChpeAuto_vsnwprintf(wchar_t * a0, size_t a1, const wchar_t * a2, va_list a3)
 {
     return _vsnwprintf(a0, a1, a2, a3);
 }
 _Static_assert(__builtin_types_compatible_p(__typeof__(&ChpeAuto_vsnwprintf), __typeof__(&_vsnwprintf)), "_vsnwprintf bridge signature mismatch");
+
+int NTAPI ChpeAuto_vsnwprintf_s(wchar_t * a0, size_t a1, size_t a2, const wchar_t * a3, va_list a4)
+{
+    return _vsnwprintf_s(a0, a1, a2, a3, a4);
+}
+_Static_assert(__builtin_types_compatible_p(__typeof__(&ChpeAuto_vsnwprintf_s), __typeof__(&_vsnwprintf_s)), "_vsnwprintf_s bridge signature mismatch");
 
 ULONG_PTR CDECL ChpeStub_vswprintf(PVOID a0, PCWSTR a1, PVOID a2)
 {
@@ -10656,13 +10684,13 @@ errno_t NTAPI ChpeAutostrncpy_s(char * a0, size_t a1, const char * a2, size_t a3
 }
 _Static_assert(__builtin_types_compatible_p(__typeof__(&ChpeAutostrncpy_s), __typeof__(&strncpy_s)), "strncpy_s bridge signature mismatch");
 
-unsigned long long NTAPI ChpeAutostrcspn(const char * a0, const char * a1)
+size_t NTAPI ChpeAutostrcspn(const char * a0, const char * a1)
 {
     return strcspn(a0, a1);
 }
 _Static_assert(__builtin_types_compatible_p(__typeof__(&ChpeAutostrcspn), __typeof__(&strcspn)), "strcspn bridge signature mismatch");
 
-unsigned long long NTAPI ChpeAutostrlen(const char * a0)
+size_t NTAPI ChpeAutostrlen(const char * a0)
 {
     return strlen(a0);
 }
@@ -10698,7 +10726,7 @@ char * NTAPI ChpeAutostrrchr(const char * a0, int a1)
 }
 _Static_assert(__builtin_types_compatible_p(__typeof__(&ChpeAutostrrchr), __typeof__(&strrchr)), "strrchr bridge signature mismatch");
 
-unsigned long long NTAPI ChpeAutostrspn(const char * a0, const char * a1)
+size_t NTAPI ChpeAutostrspn(const char * a0, const char * a1)
 {
     return strspn(a0, a1);
 }
@@ -10788,7 +10816,7 @@ size_t NTAPI ChpeAutowcscspn(const wchar_t * a0, const wchar_t * a1)
 }
 _Static_assert(__builtin_types_compatible_p(__typeof__(&ChpeAutowcscspn), __typeof__(&wcscspn)), "wcscspn bridge signature mismatch");
 
-unsigned long long NTAPI ChpeAutowcslen(const wchar_t * a0)
+size_t NTAPI ChpeAutowcslen(const wchar_t * a0)
 {
     return wcslen(a0);
 }
