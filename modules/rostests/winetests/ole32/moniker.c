@@ -4080,7 +4080,11 @@ static void test_pointer_moniker(void)
 static void test_objref_moniker(void)
 {
     IMoniker *moniker, *moniker2, *prefix, *inverse, *anti;
+#ifdef __REACTOS__
+    static struct test_factory factory;
+#else
     struct test_factory factory;
+#endif
     IEnumMoniker *enummoniker;
     DWORD hash, size;
     HRESULT hr;
