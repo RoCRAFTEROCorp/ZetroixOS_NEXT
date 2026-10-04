@@ -642,6 +642,13 @@ RPC_STATUS WINAPI RpcStringBindingParseA( RPC_CSTR StringBinding, RPC_CSTR *ObjU
   else if (NetworkAddr) 
     *NetworkAddr = unescape_string_binding_component(data, -1);
 
+#ifdef __REACTOS__
+  if (ObjUuid && !*ObjUuid) *ObjUuid = calloc(1, 1);
+  if (Protseq && !*Protseq) *Protseq = calloc(1, 1);
+  if (NetworkAddr && !*NetworkAddr) *NetworkAddr = calloc(1, 1);
+  if (Endpoint && !*Endpoint) *Endpoint = calloc(1, 1);
+  if (Options && !*Options) *Options = calloc(1, 1);
+#endif
   return RPC_S_OK;
 
 fail:
@@ -752,6 +759,13 @@ RPC_STATUS WINAPI RpcStringBindingParseW( RPC_WSTR StringBinding, RPC_WSTR *ObjU
   } else if (NetworkAddr) 
     *NetworkAddr = unescape_string_binding_componentW(data, -1);
 
+#ifdef __REACTOS__
+  if (ObjUuid && !*ObjUuid) *ObjUuid = calloc(1, sizeof(WCHAR));
+  if (Protseq && !*Protseq) *Protseq = calloc(1, sizeof(WCHAR));
+  if (NetworkAddr && !*NetworkAddr) *NetworkAddr = calloc(1, sizeof(WCHAR));
+  if (Endpoint && !*Endpoint) *Endpoint = calloc(1, sizeof(WCHAR));
+  if (Options && !*Options) *Options = calloc(1, sizeof(WCHAR));
+#endif
   return RPC_S_OK;
 
 fail:
@@ -831,6 +845,11 @@ RPC_STATUS WINAPI RpcBindingFromStringBindingA( RPC_CSTR StringBinding, RPC_BIND
   ret = RpcStringBindingParseA(StringBinding, &ObjectUuid, &Protseq,
                               &NetworkAddr, &Endpoint, &Options);
   if (ret != RPC_S_OK) return ret;
+#ifdef __REACTOS__
+  if (ObjectUuid && !*ObjectUuid) RpcStringFreeA(&ObjectUuid);
+  if (Endpoint && !*Endpoint) RpcStringFreeA(&Endpoint);
+  if (Options && !*Options) RpcStringFreeA(&Options);
+#endif
 
   ret = UuidFromStringA(ObjectUuid, &Uuid);
 
@@ -871,6 +890,11 @@ RPC_STATUS WINAPI RpcBindingFromStringBindingW( RPC_WSTR StringBinding, RPC_BIND
   ret = RpcStringBindingParseW(StringBinding, &ObjectUuid, &Protseq,
                               &NetworkAddr, &Endpoint, &Options);
   if (ret != RPC_S_OK) return ret;
+#ifdef __REACTOS__
+  if (ObjectUuid && !*ObjectUuid) RpcStringFreeW(&ObjectUuid);
+  if (Endpoint && !*Endpoint) RpcStringFreeW(&Endpoint);
+  if (Options && !*Options) RpcStringFreeW(&Options);
+#endif
 
   ret = UuidFromStringW(ObjectUuid, &Uuid);
 
