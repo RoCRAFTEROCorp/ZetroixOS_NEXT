@@ -26,6 +26,11 @@
 #include "wine/debug.h"
 
 #include "errorrep.h"
+#ifdef __REACTOS__
+#include "winver.h"
+#include "rpc.h"
+#include <stdio.h>
+#endif
 
 WINE_DEFAULT_DEBUG_CHANNEL(faultrep);
 
@@ -98,8 +103,140 @@ BOOL WINAPI AddERExcludedApplicationA(LPCSTR lpAppFileName)
 /*************************************************************************
  * ReportFault  [FAULTREP.@]
  */
+#ifdef __REACTOS__
+static void report_fault_version(const WCHAR *path, WCHAR *text, DWORD size)
+{
+    VS_FIXEDFILEINFO *info;
+    UINT info_size;
+    DWORD handle, length;
+    void *data;
+
+    lstrcpynW(text, L"0.0.0.0", size);
+    if (!path[0] || !(length = GetFileVersionInfoSizeW(path, &handle)))
+        return;
+    if (!(data = HeapAlloc(GetProcessHeap(), 0, length)))
+        return;
+    if (GetFileVersionInfoW(path, 0, length, data) && VerQueryValueW(data, L"\\", (void **)&info, &info_size) && info_size >= sizeof(*info))
+    {
+        _snwprintf(text, size, L"%u.%u.%u.%u", HIWORD(info->dwFileVersionMS), LOWORD(info->dwFileVersionMS),
+                   HIWORD(info->dwFileVersionLS), LOWORD(info->dwFileVersionLS));
+        text[size - 1] = 0;
+    }
+    HeapFree(GetProcessHeap(), 0, data);
+}
+
+static DWORD report_fault_timestamp(HMODULE module)
+{
+    const IMAGE_DOS_HEADER *dos = (const IMAGE_DOS_HEADER *)module;
+    const IMAGE_NT_HEADERS *nt;
+
+    if (!module || dos->e_magic != IMAGE_DOS_SIGNATURE)
+        return 0;
+    nt = (const IMAGE_NT_HEADERS *)((const BYTE *)module + dos->e_lfanew);
+    if (nt->Signature != IMAGE_NT_SIGNATURE)
+        return 0;
+    return nt->FileHeader.TimeDateStamp;
+}
+
+static const WCHAR *report_fault_name(const WCHAR *path)
+{
+    const WCHAR *name = wcsrchr(path, '\\');
+
+    return name ? name + 1 : path;
+}
+
+static PSID report_fault_user(BYTE *buffer, DWORD size)
+{
+    HANDLE token;
+    DWORD needed;
+    BOOL ok;
+
+    if (!OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &token))
+        return NULL;
+    ok = GetTokenInformation(token, TokenUser, buffer, size, &needed);
+    CloseHandle(token);
+    return ok ? ((TOKEN_USER *)buffer)->User.Sid : NULL;
+}
+
+EFaultRepRetVal WINAPI ReportFault(LPEXCEPTION_POINTERS pep, DWORD dwOpt)
+{
+    WCHAR app_path[MAX_PATH], module_path[MAX_PATH], app_version[32], module_version[32];
+    WCHAR app_stamp[16], module_stamp[16], code[16], offset[32], pid[16], start[32], report_id[40];
+    BYTE user[sizeof(TOKEN_USER) + SECURITY_MAX_SID_SIZE];
+    const WCHAR *strings[15];
+    FILETIME creation, exit_time, kernel_time, user_time;
+    ULARGE_INTEGER created;
+    HMODULE module = NULL;
+    ULONG_PTR address;
+    RPC_WSTR uuid_text;
+    HANDLE source;
+    UUID uuid;
+    BOOL ok;
+
+    TRACE("%p 0x%lx\n", pep, dwOpt);
+    if (!pep || !pep->ExceptionRecord)
+        return frrvErrNoDW;
+
+    address = (ULONG_PTR)pep->ExceptionRecord->ExceptionAddress;
+    if (!GetModuleFileNameW(NULL, app_path, ARRAYSIZE(app_path)))
+        app_path[0] = 0;
+    if (!GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT, (LPCWSTR)address, &module) ||
+        !GetModuleFileNameW(module, module_path, ARRAYSIZE(module_path)))
+    {
+        module = NULL;
+        lstrcpyW(module_path, L"unknown");
+    }
+
+    report_fault_version(app_path, app_version, ARRAYSIZE(app_version));
+    if (module)
+        report_fault_version(module_path, module_version, ARRAYSIZE(module_version));
+    else
+        lstrcpyW(module_version, L"0.0.0.0");
+    _snwprintf(app_stamp, ARRAYSIZE(app_stamp), L"%08lx", report_fault_timestamp(GetModuleHandleW(NULL)));
+    _snwprintf(module_stamp, ARRAYSIZE(module_stamp), L"%08lx", report_fault_timestamp(module));
+    _snwprintf(code, ARRAYSIZE(code), L"%08lx", pep->ExceptionRecord->ExceptionCode);
+    _snwprintf(offset, ARRAYSIZE(offset), L"%0*Ix", (int)(sizeof(ULONG_PTR) * 2), module ? address - (ULONG_PTR)module : address);
+    _snwprintf(pid, ARRAYSIZE(pid), L"0x%lx", GetCurrentProcessId());
+    created.QuadPart = 0;
+    if (GetProcessTimes(GetCurrentProcess(), &creation, &exit_time, &kernel_time, &user_time))
+    {
+        created.LowPart = creation.dwLowDateTime;
+        created.HighPart = creation.dwHighDateTime;
+    }
+    _snwprintf(start, ARRAYSIZE(start), L"0x%I64x", created.QuadPart);
+    report_id[0] = 0;
+    if (UuidCreate(&uuid) == RPC_S_OK && UuidToStringW(&uuid, &uuid_text) == RPC_S_OK)
+    {
+        lstrcpynW(report_id, (WCHAR *)uuid_text, ARRAYSIZE(report_id));
+        RpcStringFreeW(&uuid_text);
+    }
+
+    strings[0] = report_fault_name(app_path);
+    strings[1] = app_version;
+    strings[2] = app_stamp;
+    strings[3] = report_fault_name(module_path);
+    strings[4] = module_version;
+    strings[5] = module_stamp;
+    strings[6] = code;
+    strings[7] = offset;
+    strings[8] = pid;
+    strings[9] = start;
+    strings[10] = app_path;
+    strings[11] = module_path;
+    strings[12] = report_id;
+    strings[13] = L"";
+    strings[14] = L"";
+
+    if (!(source = RegisterEventSourceW(NULL, L"Application Error")))
+        return frrvErrNoDW;
+    ok = ReportEventW(source, EVENTLOG_ERROR_TYPE, 100, 1000, report_fault_user(user, sizeof(user)), ARRAYSIZE(strings), 0, strings, NULL);
+    DeregisterEventSource(source);
+    return ok ? frrvOkQueued : frrvErrNoDW;
+}
+#else
 EFaultRepRetVal WINAPI ReportFault(LPEXCEPTION_POINTERS pep, DWORD dwOpt)
 {
     FIXME("%p 0x%lx stub\n", pep, dwOpt);
     return frrvOk;
 }
+#endif

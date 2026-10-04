@@ -9,6 +9,6 @@ list(APPEND SOURCE
 add_library(faultrep MODULE ${SOURCE})
 set_module_type(faultrep win32dll)
 target_link_libraries(faultrep wine)
-add_importlibs(faultrep advapi32 msvcrt kernel32 ntdll)
+add_importlibs(faultrep advapi32 version rpcrt4 msvcrt kernel32 ntdll)
 add_cd_file(TARGET faultrep DESTINATION reactos/system32 FOR all)
 set_wine_module(faultrep)
