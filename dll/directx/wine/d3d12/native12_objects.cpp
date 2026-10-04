@@ -178,6 +178,7 @@ HRESULT STDMETHODCALLTYPE Native12CommandList::Reset(ID3D12CommandAllocator *poo
     D3D12DDI_HRESOURCE no_buffer = {};
     table->pfnSetPredication(driver, no_buffer, 0, D3D12DDI_PREDICATION_OP_EQUAL_ZERO);
     graphics_bound = compute_bound = false;
+    ZeroMemory(root_arguments, sizeof(root_arguments));
     if (initial_state) SetPipelineState(initial_state);
     else SetDefaultPipelineState();
     return error;
@@ -187,6 +188,7 @@ void STDMETHODCALLTYPE Native12CommandList::ClearState(ID3D12PipelineState *pipe
 {
     table->pfnClearRootArguments(driver);
     graphics_bound = compute_bound = false;
+    ZeroMemory(root_arguments, sizeof(root_arguments));
     if (pipeline_state) SetPipelineState(pipeline_state);
     else SetDefaultPipelineState();
 }
@@ -376,6 +378,7 @@ void STDMETHODCALLTYPE Native12CommandList::ExecuteBundle(ID3D12GraphicsCommandL
 {
     if (!command_list) return;
     table->pfnExecuteBundle(driver, static_cast<Native12CommandList *>(command_list)->driver);
+    ZeroMemory(root_arguments, sizeof(root_arguments));
 }
 
 void STDMETHODCALLTYPE Native12CommandList::SetDescriptorHeaps(UINT count, ID3D12DescriptorHeap *const *heaps)
@@ -388,87 +391,178 @@ void STDMETHODCALLTYPE Native12CommandList::SetDescriptorHeaps(UINT count, ID3D1
     table->pfnSetDescriptorHeaps(driver, count, handles);
 }
 
+void Native12CommandList::ApplyRootArgument(UINT bind_point, UINT index)
+{
+    Native12RootArguments &arguments = root_arguments[bind_point];
+    bool compute = bind_point == 1;
+    D3D12_GPU_DESCRIPTOR_HANDLE table_handle;
+
+    switch (arguments.types[index])
+    {
+        case D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE:
+            table_handle.ptr = arguments.values[index];
+            if (compute) table->pfnSetComputeRootDescriptorTable(driver, index, Native12GpuHandle(table_handle));
+            else table->pfnSetGraphicsRootDescriptorTable(driver, index, Native12GpuHandle(table_handle));
+            break;
+        case D3D12_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS:
+            if (compute) table->pfnSetComputeRoot32BitConstants(driver, index, arguments.constant_counts[index],
+                    &arguments.constants[arguments.constant_offsets[index]], 0);
+            else table->pfnSetGraphicsRoot32BitConstants(driver, index, arguments.constant_counts[index],
+                    &arguments.constants[arguments.constant_offsets[index]], 0);
+            break;
+        case D3D12_ROOT_PARAMETER_TYPE_CBV:
+            if (compute) table->pfnSetComputeRootConstantBufferView(driver, index, arguments.values[index]);
+            else table->pfnSetGraphicsRootConstantBufferView(driver, index, arguments.values[index]);
+            break;
+        case D3D12_ROOT_PARAMETER_TYPE_SRV:
+            if (compute) table->pfnSetComputeRootShaderResourceView(driver, index, arguments.values[index]);
+            else table->pfnSetGraphicsRootShaderResourceView(driver, index, arguments.values[index]);
+            break;
+        case D3D12_ROOT_PARAMETER_TYPE_UAV:
+            if (compute) table->pfnSetComputeRootUnorderedAccessView(driver, index, arguments.values[index]);
+            else table->pfnSetGraphicsRootUnorderedAccessView(driver, index, arguments.values[index]);
+            break;
+    }
+}
+
+void Native12CommandList::BindRootSignature(UINT bind_point, Native12RootSignature *signature)
+{
+    Native12RootArguments &arguments = root_arguments[bind_point];
+    D3D12DDI_HROOTSIGNATURE handle = {};
+    UINT kept = 0;
+
+    if (signature && signature->driver.pDrvPrivate == arguments.bound) return;
+    if (signature)
+    {
+        handle = signature->driver;
+        while (kept < arguments.count && kept < signature->parameter_count
+                && arguments.keys[kept] == signature->parameter_keys[kept])
+            ++kept;
+    }
+    if (bind_point == 1) table->pfnSetComputeRootSignature(driver, handle);
+    else table->pfnSetGraphicsRootSignature(driver, handle);
+
+    arguments.set &= kept >= D3D12_MAX_ROOT_COST ? ~0ull : (1ull << kept) - 1;
+    arguments.bound = handle.pDrvPrivate;
+    arguments.count = signature ? signature->parameter_count : 0;
+    for (UINT i = 0; i < arguments.count; ++i)
+    {
+        arguments.keys[i] = signature->parameter_keys[i];
+        arguments.types[i] = signature->parameter_types[i];
+        arguments.constant_counts[i] = signature->parameter_constants[i];
+        arguments.constant_offsets[i] = signature->constant_offsets[i];
+    }
+    for (UINT i = 0; i < kept; ++i)
+        if (arguments.set & (1ull << i)) ApplyRootArgument(bind_point, i);
+}
+
+void Native12CommandList::RecordRootValue(UINT bind_point, UINT index, UINT64 value)
+{
+    Native12RootArguments &arguments = root_arguments[bind_point];
+    if (index >= arguments.count) return;
+    arguments.values[index] = value;
+    arguments.set |= 1ull << index;
+}
+
+void Native12CommandList::RecordRootConstants(UINT bind_point, UINT index, UINT count, const void *data, UINT offset)
+{
+    Native12RootArguments &arguments = root_arguments[bind_point];
+    if (index >= arguments.count || arguments.types[index] != D3D12_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS
+            || offset > arguments.constant_counts[index] || count > arguments.constant_counts[index] - offset)
+        return;
+    memcpy(&arguments.constants[arguments.constant_offsets[index] + offset], data, count * sizeof(UINT));
+    arguments.set |= 1ull << index;
+}
+
 void STDMETHODCALLTYPE Native12CommandList::SetComputeRootSignature(ID3D12RootSignature *root_signature)
 {
-    D3D12DDI_HROOTSIGNATURE handle = {};
-    if (root_signature) handle = static_cast<Native12RootSignature *>(root_signature)->driver;
-    table->pfnSetComputeRootSignature(driver, handle);
+    BindRootSignature(1, static_cast<Native12RootSignature *>(root_signature));
 }
 
 void STDMETHODCALLTYPE Native12CommandList::SetGraphicsRootSignature(ID3D12RootSignature *root_signature)
 {
-    D3D12DDI_HROOTSIGNATURE handle = {};
-    if (root_signature) handle = static_cast<Native12RootSignature *>(root_signature)->driver;
-    table->pfnSetGraphicsRootSignature(driver, handle);
+    BindRootSignature(0, static_cast<Native12RootSignature *>(root_signature));
 }
 
 void STDMETHODCALLTYPE Native12CommandList::SetComputeRootDescriptorTable(UINT index,
         D3D12_GPU_DESCRIPTOR_HANDLE base_descriptor)
 {
+    RecordRootValue(1, index, base_descriptor.ptr);
     table->pfnSetComputeRootDescriptorTable(driver, index, Native12GpuHandle(base_descriptor));
 }
 
 void STDMETHODCALLTYPE Native12CommandList::SetGraphicsRootDescriptorTable(UINT index,
         D3D12_GPU_DESCRIPTOR_HANDLE base_descriptor)
 {
+    RecordRootValue(0, index, base_descriptor.ptr);
     table->pfnSetGraphicsRootDescriptorTable(driver, index, Native12GpuHandle(base_descriptor));
 }
 
 void STDMETHODCALLTYPE Native12CommandList::SetComputeRoot32BitConstant(UINT index, UINT data, UINT dst_offset)
 {
+    RecordRootConstants(1, index, 1, &data, dst_offset);
     table->pfnSetComputeRoot32BitConstant(driver, index, data, dst_offset);
 }
 
 void STDMETHODCALLTYPE Native12CommandList::SetGraphicsRoot32BitConstant(UINT index, UINT data, UINT dst_offset)
 {
+    RecordRootConstants(0, index, 1, &data, dst_offset);
     table->pfnSetGraphicsRoot32BitConstant(driver, index, data, dst_offset);
 }
 
 void STDMETHODCALLTYPE Native12CommandList::SetComputeRoot32BitConstants(UINT index, UINT count,
         const void *data, UINT dst_offset)
 {
+    RecordRootConstants(1, index, count, data, dst_offset);
     table->pfnSetComputeRoot32BitConstants(driver, index, count, data, dst_offset);
 }
 
 void STDMETHODCALLTYPE Native12CommandList::SetGraphicsRoot32BitConstants(UINT index, UINT count,
         const void *data, UINT dst_offset)
 {
+    RecordRootConstants(0, index, count, data, dst_offset);
     table->pfnSetGraphicsRoot32BitConstants(driver, index, count, data, dst_offset);
 }
 
 void STDMETHODCALLTYPE Native12CommandList::SetComputeRootConstantBufferView(UINT index,
         D3D12_GPU_VIRTUAL_ADDRESS address)
 {
+    RecordRootValue(1, index, address);
     table->pfnSetComputeRootConstantBufferView(driver, index, address);
 }
 
 void STDMETHODCALLTYPE Native12CommandList::SetGraphicsRootConstantBufferView(UINT index,
         D3D12_GPU_VIRTUAL_ADDRESS address)
 {
+    RecordRootValue(0, index, address);
     table->pfnSetGraphicsRootConstantBufferView(driver, index, address);
 }
 
 void STDMETHODCALLTYPE Native12CommandList::SetComputeRootShaderResourceView(UINT index,
         D3D12_GPU_VIRTUAL_ADDRESS address)
 {
+    RecordRootValue(1, index, address);
     table->pfnSetComputeRootShaderResourceView(driver, index, address);
 }
 
 void STDMETHODCALLTYPE Native12CommandList::SetGraphicsRootShaderResourceView(UINT index,
         D3D12_GPU_VIRTUAL_ADDRESS address)
 {
+    RecordRootValue(0, index, address);
     table->pfnSetGraphicsRootShaderResourceView(driver, index, address);
 }
 
 void STDMETHODCALLTYPE Native12CommandList::SetComputeRootUnorderedAccessView(UINT index,
         D3D12_GPU_VIRTUAL_ADDRESS address)
 {
+    RecordRootValue(1, index, address);
     table->pfnSetComputeRootUnorderedAccessView(driver, index, address);
 }
 
 void STDMETHODCALLTYPE Native12CommandList::SetGraphicsRootUnorderedAccessView(UINT index,
         D3D12_GPU_VIRTUAL_ADDRESS address)
 {
+    RecordRootValue(0, index, address);
     table->pfnSetGraphicsRootUnorderedAccessView(driver, index, address);
 }
 

@@ -240,6 +240,11 @@ public:
     Native12RootSignature *next_cached = NULL;
     BYTE *cached_bytecode = NULL;
     SIZE_T cached_size = 0;
+    UINT parameter_count = 0;
+    UINT64 parameter_keys[D3D12_MAX_ROOT_COST] = {};
+    BYTE parameter_types[D3D12_MAX_ROOT_COST] = {};
+    BYTE parameter_constants[D3D12_MAX_ROOT_COST] = {};
+    BYTE constant_offsets[D3D12_MAX_ROOT_COST] = {};
 
     using Native12Child::Native12Child;
     ~Native12RootSignature();
@@ -310,9 +315,27 @@ struct Native12PassResolve
     D3D12_RESOLVE_MODE mode;
 };
 
+struct Native12RootArguments
+{
+    void *bound;
+    UINT count;
+    UINT64 set;
+    UINT64 keys[D3D12_MAX_ROOT_COST];
+    BYTE types[D3D12_MAX_ROOT_COST];
+    BYTE constant_counts[D3D12_MAX_ROOT_COST];
+    BYTE constant_offsets[D3D12_MAX_ROOT_COST];
+    UINT64 values[D3D12_MAX_ROOT_COST];
+    UINT constants[D3D12_MAX_ROOT_COST];
+};
+
 class Native12CommandList final : public Native12Child<ID3D12GraphicsCommandList4>
 {
 public:
+    Native12RootArguments root_arguments[2] = {};
+    void BindRootSignature(UINT bind_point, Native12RootSignature *signature);
+    void RecordRootValue(UINT bind_point, UINT index, UINT64 value);
+    void RecordRootConstants(UINT bind_point, UINT index, UINT count, const void *data, UINT offset);
+    void ApplyRootArgument(UINT bind_point, UINT index);
     Native12PassResolve pass_resolves[D3D12_SIMULTANEOUS_RENDER_TARGET_COUNT + 2] = {};
     UINT pass_resolve_count = 0;
     D3D12_RENDER_PASS_FLAGS pass_flags = D3D12_RENDER_PASS_FLAG_NONE;

@@ -150,6 +150,47 @@ HRESULT Native12RootSignature::Initialize(const void *bytecode, SIZE_T length)
         return hr;
     }
     flags = source->Flags;
+    UINT constant_offset = 0;
+    parameter_count = source->NumParameters < D3D12_MAX_ROOT_COST ? source->NumParameters : D3D12_MAX_ROOT_COST;
+    for (UINT i = 0; i < parameter_count; ++i)
+    {
+        const D3D12_ROOT_PARAMETER1 &parameter = source->pParameters[i];
+        UINT64 key = 0xcbf29ce484222325ull;
+        auto mix = [&key](UINT value) { key = (key ^ value) * 0x100000001b3ull; };
+        mix(parameter.ParameterType);
+        mix(parameter.ShaderVisibility);
+        parameter_types[i] = static_cast<BYTE>(parameter.ParameterType);
+        switch (parameter.ParameterType)
+        {
+            case D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE:
+                mix(parameter.DescriptorTable.NumDescriptorRanges);
+                for (UINT j = 0; j < parameter.DescriptorTable.NumDescriptorRanges; ++j)
+                {
+                    const D3D12_DESCRIPTOR_RANGE1 &range = parameter.DescriptorTable.pDescriptorRanges[j];
+                    mix(range.RangeType);
+                    mix(range.NumDescriptors);
+                    mix(range.BaseShaderRegister);
+                    mix(range.RegisterSpace);
+                    mix(range.Flags);
+                    mix(range.OffsetInDescriptorsFromTableStart);
+                }
+                break;
+            case D3D12_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS:
+                mix(parameter.Constants.ShaderRegister);
+                mix(parameter.Constants.RegisterSpace);
+                mix(parameter.Constants.Num32BitValues);
+                parameter_constants[i] = static_cast<BYTE>(parameter.Constants.Num32BitValues);
+                constant_offsets[i] = static_cast<BYTE>(constant_offset);
+                constant_offset += parameter.Constants.Num32BitValues;
+                break;
+            default:
+                mix(parameter.Descriptor.ShaderRegister);
+                mix(parameter.Descriptor.RegisterSpace);
+                mix(parameter.Descriptor.Flags);
+                break;
+        }
+        parameter_keys[i] = key;
+    }
     D3D12DDI_STATIC_SAMPLER_0100 *samplers = NULL;
     if (source->NumStaticSamplers)
     {
