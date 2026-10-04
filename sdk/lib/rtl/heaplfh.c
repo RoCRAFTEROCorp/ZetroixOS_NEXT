@@ -551,6 +551,9 @@ RtlpLfhReAllocate(PHEAP Heap, ULONG Flags, PVOID Ptr, SIZE_T Size)
 
     if (Flags & HEAP_REALLOC_IN_PLACE_ONLY)
     {
+        if (Size == OldSize)
+            return Ptr;
+
         if (Flags & HEAP_GENERATE_EXCEPTIONS)
         {
             ExceptionRecord.ExceptionCode = STATUS_NO_MEMORY;

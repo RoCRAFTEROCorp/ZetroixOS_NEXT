@@ -741,13 +741,35 @@ RtlpFindAndCommitPages(PHEAP Heap,
     while (Current != &Segment->UCRSegmentList)
     {
         PHEAP_UCR_DESCRIPTOR UcrDescriptor = CONTAINING_RECORD(Current, HEAP_UCR_DESCRIPTOR, SegmentEntry);
+        SIZE_T CommitSize = *Size;
+
+        if (!AddressRequested)
+        {
+            PHEAP_ENTRY UcrGuard = (PHEAP_ENTRY)UcrDescriptor->Address - 1;
+            PHEAP_ENTRY BeforeEntry = UcrGuard - UcrGuard->PreviousSize;
+
+            if (BeforeEntry != UcrGuard && !(BeforeEntry->Flags & HEAP_ENTRY_BUSY))
+            {
+                SIZE_T BeforeSize = (SIZE_T)BeforeEntry->Size << HEAP_ENTRY_SHIFT;
+
+                if (BeforeSize < *Size)
+                {
+                    SIZE_T Reduced = ROUND_UP(*Size - BeforeSize, PAGE_SIZE);
+
+                    if (((BeforeSize + Reduced) >> HEAP_ENTRY_SHIFT) + 1 <= HEAP_MAX_BLOCK_SIZE)
+                        CommitSize = Reduced;
+                }
+            }
+        }
 
         /* Check if we can use that one right away */
-        if (UcrDescriptor->Size >= *Size &&
+        if (UcrDescriptor->Size >= CommitSize &&
             (UcrDescriptor->Address == AddressRequested || !AddressRequested))
         {
             PHEAP_ENTRY GuardEntry, FreeEntry;
             PVOID Address = UcrDescriptor->Address;
+
+            *Size = CommitSize;
 
             /* Commit it */
             if (Heap->CommitRoutine)
@@ -869,6 +891,9 @@ RtlpFindAndCommitPages(PHEAP Heap,
     return NULL;
 }
 
+VOID NTAPI
+RtlpDestroyHeapSegment(PHEAP_SEGMENT Segment);
+
 static
 VOID
 RtlpDeCommitFreeBlock(PHEAP Heap,
@@ -894,6 +919,36 @@ RtlpDeCommitFreeBlock(PHEAP Heap,
 
     /* Get the segment */
     Segment = RtlpHeapSegmentFromAddress(Heap, FreeEntry);
+
+    if ((PVOID)Segment != (PVOID)Heap &&
+        !(Segment->SegmentFlags & HEAP_USER_ALLOCATED) &&
+        (PHEAP_ENTRY)FreeEntry == Segment->FirstEntry &&
+        RtlpIsLastCommittedEntry((PHEAP_ENTRY)FreeEntry))
+    {
+        BOOLEAN Empty = FALSE;
+
+        if (FreeEntry->Flags & HEAP_ENTRY_LAST_ENTRY)
+        {
+            Empty = (Segment->NumberOfUnCommittedRanges == 0);
+        }
+        else if (Segment->NumberOfUnCommittedRanges == 1)
+        {
+            UcrDescriptor = CONTAINING_RECORD(Segment->UCRSegmentList.Flink, HEAP_UCR_DESCRIPTOR, SegmentEntry);
+            Empty = ((ULONG_PTR)UcrDescriptor->Address + UcrDescriptor->Size == (ULONG_PTR)Segment->LastValidEntry);
+        }
+
+        if (Empty)
+        {
+            while (!IsListEmpty(&Segment->UCRSegmentList))
+            {
+                UcrDescriptor = CONTAINING_RECORD(RemoveHeadList(&Segment->UCRSegmentList), HEAP_UCR_DESCRIPTOR, SegmentEntry);
+                RtlpDestroyUnCommittedRange(Segment, UcrDescriptor);
+            }
+            RemoveEntryList(&Segment->SegmentListEntry);
+            RtlpDestroyHeapSegment(Segment);
+            return;
+        }
+    }
 
     /* Get the preceding entry */
     DecommitBase = ROUND_UP(FreeEntry, PAGE_SIZE);
@@ -1623,6 +1678,9 @@ RtlCreateHeap(ULONG Flags,
 
         if (NtGlobalFlags & FLG_USER_STACK_TRACE_DB)
             Flags |= HEAP_CAPTURE_STACK_BACKTRACES;
+
+        if (NtGlobalFlags & FLG_HEAP_ENABLE_TAGGING)
+            Flags |= HEAP_BREAK_WHEN_OUT_OF_VM;
     }
 
     /* Set tunable parameters */
