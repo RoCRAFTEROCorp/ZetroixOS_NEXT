@@ -325,6 +325,7 @@ add_custom_target(bootcdregtest
 file(WRITE ${CMAKE_CURRENT_BINARY_DIR}/livecd.cmake.lst "${CMAKE_CURRENT_BINARY_DIR}/empty\n")
 # Create TEMP directory
 file(APPEND ${CMAKE_CURRENT_BINARY_DIR}/livecd.cmake.lst "reactos/TEMP=${CMAKE_CURRENT_BINARY_DIR}/empty\n")
+file(APPEND ${CMAKE_CURRENT_BINARY_DIR}/livecd.cmake.lst "reactos/system32/Tasks=${CMAKE_CURRENT_BINARY_DIR}/empty\n")
 
 # Create user profile directories
 add_allusers_profile_dirs(${CMAKE_CURRENT_BINARY_DIR}/livecd.cmake.lst "Users")
@@ -448,6 +449,7 @@ endif()
 
 # Create TEMP dir
 file(APPEND ${CMAKE_CURRENT_BINARY_DIR}/preinstall.cmake.lst "reactos/TEMP=${CMAKE_CURRENT_BINARY_DIR}/empty\n")
+file(APPEND ${CMAKE_CURRENT_BINARY_DIR}/preinstall.cmake.lst "reactos/system32/Tasks=${CMAKE_CURRENT_BINARY_DIR}/empty\n")
 
 # Create installed-system directories that second-stage setup normally creates.
 file(APPEND ${CMAKE_CURRENT_BINARY_DIR}/preinstall.cmake.lst "Program Files=${CMAKE_CURRENT_BINARY_DIR}/empty\n")

@@ -38,6 +38,7 @@ _1 = %cdname%,%cdtagfile%,,""
 5 = media
 6 = Fonts
 7 = bin
+8 = system32\Tasks
 
 [DiskSpaceRequirements]
 ; Required free system partition disk space in MB
