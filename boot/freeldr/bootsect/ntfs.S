@@ -310,6 +310,7 @@ BootFlagSignature:
 #define FILE_MAGIC HEX(454c4946)
 #define INDX_MAGIC HEX(58444e49)
 #define NTFS_FILE_ROOT 5
+#define MFT_RECORD_SEGMENT HEX(8000)
 StartSearch:
     // Compute MFT start sector
     mov   eax, dword ptr [MftLocation]
@@ -346,6 +347,27 @@ StartSearch:
     SearchNext:
     mov   bp, sp
     sub   sp, HEX(10)
+
+    mov   ax, MFT_RECORD_SEGMENT
+    mov   es, ax
+    xor   bx, bx
+    mov   eax, dword ptr [MFTStartSector]
+    xor   edx, edx
+    mov   cx, word ptr [SectsPerMFT]
+    call  ReadSectors
+    cmp   dword ptr es:[bx], FILE_MAGIC
+    jnz   PrintFileSystemError
+    call  ApplyFixups
+    xor   ax, ax
+    mov   ebx, ATTRIBUTE_DATA
+    call  FindAttributeHdr
+    test  ax, ax
+    jz    PrintFileSystemError
+    mov   si, ax
+    cmp   byte ptr es:[si + 8], 1
+    jnz   PrintFileSystemError
+    add   ax, word ptr es:[si + HEX(20)]
+    mov   word ptr [MftRunList], ax
 
     // Read Root Directory MFT into [2000:0]
     mov   ax, HEX(2000)
@@ -627,28 +649,81 @@ ReadCluster:
 //  - ES:[BX] : address to read
 ReadInode:
     push  ecx
-    push  si
+    push  esi
     push  di
+    push  bx
 
-    push  edx
-    mov   cx, word ptr [SectsPerMFT]       // Get the correct number of sectors for the FILE entry
-    movzx ecx, cx
+    movzx ecx, word ptr [SectsPerMFT]
     mul   ecx
-    movzx eax, ax
-    add   eax, dword ptr [MFTStartSector]  // Add it to the start of the MFT
-    mov   cx, word ptr [SectsPerMFT]
-    movzx ecx, cx
-    pop   edx
-    call  ReadSectors
-    
+    mov   esi, eax
+    mov   di, word ptr [SectsPerMFT]
+    ReadInodeSector:
+        xor   edx, edx
+        mov   eax, esi
+        movzx ecx, byte ptr [SectsPerCluster]
+        div   ecx
+        push  edx
+        mov   ecx, eax
+        call  MftVcnToLcn
+        pop   edx
+        jc    PrintFileSystemError
+        push  edx
+        movzx ecx, byte ptr [SectsPerCluster]
+        mul   ecx
+        pop   ecx
+        add   eax, ecx
+        adc   edx, 0
+        mov   cx, 1
+        call  ReadSectors
+        add   bx, word ptr [BytesPerSector]
+        inc   esi
+        dec   di
+        jnz   ReadInodeSector
+
+    pop   bx
     cmp   dword ptr es:[bx], FILE_MAGIC // Ensure we get a valid FILE record
     jnz   PrintFileSystemError
 
     call  ApplyFixups
 
     pop   di
-    pop   si
+    pop   esi
     pop   ecx
+    ret
+
+MftVcnToLcn:
+    push  es
+    push  si
+    push  ebx
+    push  edx
+    push  ecx
+    mov   edx, ecx
+    xor   ebx, ebx
+    push  MFT_RECORD_SEGMENT
+    pop   es
+    mov   si, word ptr [MftRunList]
+    MftVcnLoop:
+        cmp   byte ptr es:[si], 0
+        je    MftVcnNotFound
+        call  UnpackRun
+        add   ebx, eax
+        cmp   edx, ecx
+        jb    MftVcnFound
+        sub   edx, ecx
+        jmp   MftVcnLoop
+    MftVcnFound:
+    mov   eax, ebx
+    add   eax, edx
+    clc
+    jmp   MftVcnDone
+    MftVcnNotFound:
+    stc
+    MftVcnDone:
+    pop   ecx
+    pop   edx
+    pop   ebx
+    pop   si
+    pop   es
     ret
 
 #define UpdateSequenceOffset 4
@@ -890,6 +965,8 @@ msgLoading:
     .ascii "Loading FreeLoader...", CR, LF, NUL
 msgFreeldrCompressed:
     .ascii "freeldr.sys is a sparse, compressed or encrypted file, cannot boot", CR, LF, NUL
+MftRunList:
+    .word 0
 .endcode16
 
 END
