@@ -188,6 +188,7 @@ struct StorageBaseImpl
   IPropertySetStorage IPropertySetStorage_iface; /* interface for adding a properties stream */
   IDirectWriterLock IDirectWriterLock_iface;
   LONG ref;
+  LONG enumRef;
 
   /*
    * Stream tracking list
