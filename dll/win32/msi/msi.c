@@ -3230,6 +3230,11 @@ UINT WINAPI MsiGetFileVersionW( const WCHAR *path, WCHAR *verbuf, DWORD *verlen,
     if ((verbuf && !verlen) || (langbuf && !langlen))
         return ERROR_INVALID_PARAMETER;
 
+#ifdef __REACTOS__
+    if (path && GetFileAttributesW( path ) == INVALID_FILE_ATTRIBUTES)
+        return ERROR_FILE_NOT_FOUND;
+
+#endif
     ret = get_file_version( path, verbuf, verlen, langbuf, langlen );
     if (ret == ERROR_RESOURCE_DATA_NOT_FOUND && verlen)
     {
