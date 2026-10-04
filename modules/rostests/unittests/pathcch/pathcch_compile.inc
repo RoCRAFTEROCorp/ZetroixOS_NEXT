@@ -31,6 +31,8 @@ void test_C_PathCch(void)
 #endif
     PCWSTR pcsz;
     PWSTR pszPathOut;
+    PWSTR pszEnd;
+    size_t cchRemaining;
     WCHAR szPathOut[MAX_PATH];
 
     pszPathOut = NULL;
@@ -121,7 +123,7 @@ void test_C_PathCch(void)
 
     hr = StringCchCopyW(szPathOut, _countof(szPathOut), szExtraPath1);
     ok_hr(hr, S_OK);
-    hr = PathCchRemoveBackslashEx(szPathOut, _countof(szPathOut), NULL, NULL);
+    hr = PathCchRemoveBackslashEx(szPathOut, _countof(szPathOut), &pszEnd, &cchRemaining);
     ok_hr(hr, S_OK);
     ok_wstr(szPathOut, szExtraPath0);
 
