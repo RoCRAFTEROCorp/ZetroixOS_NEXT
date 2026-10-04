@@ -565,7 +565,12 @@ MiRelocateImageControlArea(
     if (!Information->ImageDynamicallyRelocated)
         return STATUS_SUCCESS;
     if (!Control->Image64)
+    {
         Highest = min(Highest, (Information->ImageCharacteristics & IMAGE_FILE_LARGE_ADDRESS_AWARE) ? MAXULONG : MAXLONG);
+        Lowest = ((Highest + 1) / 2) & ~(ULONG64)(MI_ALLOCATION_GRANULARITY - 1);
+        if (Control->ImageSize >= Highest - Lowest - MI_ALLOCATION_GRANULARITY)
+            Lowest = 0;
+    }
     else if (Highest >= MI_IMAGE64_RELOCATION_WINDOW + MI_IMAGE64_RELOCATION_TOP_ALIGN &&
              Control->ImageSize < MI_IMAGE64_RELOCATION_WINDOW - MI_ALLOCATION_GRANULARITY)
     {
