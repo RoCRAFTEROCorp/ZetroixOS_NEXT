@@ -403,6 +403,13 @@ NtfsFsdWrite(_In_ PDEVICE_OBJECT VolumeDeviceObject,
     }
 
     NtfsAcquireMetadata(VolCB);
+    if (PagingIo && FileCB->StreamCB && FileCB->StreamCB->Deleted)
+    {
+        NtfsReleaseMetadata(VolCB);
+        Status = STATUS_SUCCESS;
+        Irp->IoStatus.Information = Length;
+        goto Complete;
+    }
     /*
      * A paging write hands us the section's own pages. Passing them straight
      * through means the storage stack probes and locks pages that Mm has

@@ -1047,6 +1047,27 @@ NtfsIsFileRecordOpen(_In_ PVolumeContextBlock VolCB,
 }
 
 static
+VOID
+NtfsMarkFileRecordStreamsDeleted(_In_ PVolumeContextBlock VolCB,
+                                 _In_ ULONGLONG RecordNumber)
+{
+    PLIST_ENTRY Entry;
+
+    ExAcquireFastMutex(&VolCB->StreamListMutex);
+    for (Entry = VolCB->StreamList.Flink; Entry != &VolCB->StreamList; Entry = Entry->Flink)
+    {
+        PStreamContextBlock StreamCB = CONTAINING_RECORD(Entry, StreamContextBlock, ListEntry);
+
+        if ((StreamCB->FileReference & 0x0000FFFFFFFFFFFFULL) == RecordNumber)
+        {
+            StreamCB->Deleted = TRUE;
+            StreamCB->SizePending = FALSE;
+        }
+    }
+    ExReleaseFastMutex(&VolCB->StreamListMutex);
+}
+
+static
 NTSTATUS
 NtfsCheckNamespaceAccess(
     _In_ PVolumeContextBlock VolCB,
@@ -1137,6 +1158,7 @@ NtfsSetLinkInformation(_In_ PVolumeContextBlock VolCB,
     BOOLEAN RootParent;
     BOOLEAN ReplaceIfExists;
     BOOLEAN ExistingIsDirectory;
+    BOOLEAN RecordDeleted = FALSE;
 
     if (BufferLength < FIELD_OFFSET(FILE_LINK_INFORMATION, FileName) || LinkInfo->FileNameLength == 0 ||
         (LinkInfo->FileNameLength & (sizeof(WCHAR) - 1)) != 0 ||
@@ -1258,8 +1280,11 @@ NtfsSetLinkInformation(_In_ PVolumeContextBlock VolCB,
             return STATUS_ACCESS_DENIED;
         }
 
-        Status = NtfsMasterFileTableDeleteFile(Mft, NewName.Buffer, NewName.Length / sizeof(WCHAR), FALSE);
-        NtfsEvictCachedRecord(VolCB, NewName.Buffer, (USHORT)(NewName.Length / sizeof(WCHAR)), NT_SUCCESS(Status));
+        Status = NtfsMasterFileTableDeleteFileEx(Mft, NewName.Buffer, NewName.Length / sizeof(WCHAR), FALSE,
+                                                NULL, TRUE, &RecordDeleted);
+        if (RecordDeleted)
+            NtfsMarkFileRecordStreamsDeleted(VolCB, ExistingRecordNumber);
+        NtfsEvictCachedRecord(VolCB, NewName.Buffer, (USHORT)(NewName.Length / sizeof(WCHAR)), RecordDeleted);
         InterlockedIncrement(&VolCB->DirGeneration);
         if (!NT_SUCCESS(Status))
         {
@@ -1558,6 +1583,7 @@ NtfsSetRenameInformation(_In_ PVolumeContextBlock VolCB,
     BOOLEAN RootParent;
     BOOLEAN ReplaceIfExists;
     BOOLEAN ExistingIsDirectory;
+    BOOLEAN RecordDeleted = FALSE;
     BOOLEAN IsDirectory;
     BOOLEAN SameParent = FALSE;
     ULONG NameFilter;
@@ -1723,8 +1749,11 @@ NtfsSetRenameInformation(_In_ PVolumeContextBlock VolCB,
         }
         else
         {
-            Status = NtfsMasterFileTableDeleteFile(NtfsVolumeGetMft(VolCB->DiskVolume), NewName.Buffer, NewName.Length / sizeof(WCHAR), FALSE);
-            NtfsEvictCachedRecord(VolCB, NewName.Buffer, (USHORT)(NewName.Length / sizeof(WCHAR)), NT_SUCCESS(Status));
+            Status = NtfsMasterFileTableDeleteFileEx(NtfsVolumeGetMft(VolCB->DiskVolume), NewName.Buffer,
+                                                    NewName.Length / sizeof(WCHAR), FALSE, NULL, TRUE, &RecordDeleted);
+            if (RecordDeleted)
+                NtfsMarkFileRecordStreamsDeleted(VolCB, ExistingRecordNumber);
+            NtfsEvictCachedRecord(VolCB, NewName.Buffer, (USHORT)(NewName.Length / sizeof(WCHAR)), RecordDeleted);
             InterlockedIncrement(&VolCB->DirGeneration);
             if (!NT_SUCCESS(Status))
             {
