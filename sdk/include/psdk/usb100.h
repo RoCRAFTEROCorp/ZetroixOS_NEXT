@@ -103,6 +103,7 @@ extern "C" {
 
 #define USB_FEATURE_ENDPOINT_STALL        0x0000
 #define USB_FEATURE_REMOTE_WAKEUP         0x0001
+#define USB_FEATURE_TEST_MODE             0x02
 #define USB_FEATURE_FUNCTION_SUSPEND      0x00
 #define USB_FEATURE_U1_ENABLE             0x30
 #define USB_FEATURE_U2_ENABLE             0x31

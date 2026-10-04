@@ -53,5 +53,8 @@ target_compile_definitions(ucmtcpcicx PRIVATE static_assert=_Static_assert)
 add_wdfcx_library(ucmucsicx ucmucsicx.c)
 target_include_directories(ucmucsicx PRIVATE ${REACTOS_SOURCE_DIR}/sdk/include/ddk/UcmUcsi/1.0)
 target_compile_definitions(ucmucsicx PRIVATE static_assert=_Static_assert)
+add_wdfcx_library(ufx01000 ufx01000.c)
+target_include_directories(ufx01000 PRIVATE ${REACTOS_SOURCE_DIR}/sdk/include/ddk/ufx/1.1)
+target_link_libraries(ufx01000 aux_klib)
 
 add_registry_inf(wdfcx_reg.inf)
