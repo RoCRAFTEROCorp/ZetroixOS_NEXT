@@ -337,7 +337,7 @@ Bus_StartFdo (
         if (NT_SUCCESS(status))
         {
             FdoData->PciInterfaceEnabled = TRUE;
-            DPRINT1("ACPI: Registered PCI interface: %wZ\n", &FdoData->PciInterfaceName);
+            DPRINT("ACPI: Registered PCI interface: %wZ\n", &FdoData->PciInterfaceName);
         }
         else
             DPRINT1("ACPI: Failed to enable PCI interface (0x%08lx)\n", status);
@@ -358,7 +358,7 @@ Bus_StartFdo (
         if (NT_SUCCESS(status))
         {
             FdoData->SystemInterfaceEnabled = TRUE;
-            DPRINT1("ACPI: Registered system interface: %wZ\n", &FdoData->SystemInterfaceName);
+            DPRINT("ACPI: Registered system interface: %wZ\n", &FdoData->SystemInterfaceName);
         }
         else
             DPRINT1("ACPI: Failed to enable system interface (0x%08lx)\n", status);
@@ -383,7 +383,7 @@ Bus_StartFdo (
     //
     AcpiGbl_EnableInterpreterSlack = TRUE;
 
-    DPRINT1("Bus_StartFdo: Calling AcpiInitializeSubsystem\n");
+    DPRINT("Bus_StartFdo: Calling AcpiInitializeSubsystem\n");
     //
     // Initialize ACPICA robustly (let it allocate as needed).
     //
@@ -402,7 +402,7 @@ Bus_StartFdo (
         return STATUS_UNSUCCESSFUL;
     }
 
-    DPRINT1("Bus_StartFdo: Calling AcpiLoadTables\n");
+    DPRINT("Bus_StartFdo: Calling AcpiLoadTables\n");
     AcpiStatus = AcpiLoadTables();
     if (ACPI_FAILURE(AcpiStatus))
     {
@@ -418,7 +418,7 @@ Bus_StartFdo (
         // Non-fatal for bring-up; continue.
     }
 
-    DPRINT1("Bus_StartFdo: Calling acpi_init\n");
+    DPRINT("Bus_StartFdo: Calling acpi_init\n");
 
     AcpiStatus = acpi_init();
     if (!ACPI_SUCCESS(AcpiStatus))
@@ -428,9 +428,9 @@ Bus_StartFdo (
         return STATUS_UNSUCCESSFUL;
     }
 
-    DPRINT1("Bus_StartFdo: Calling ACPIEnumerateDevices\n");
+    DPRINT("Bus_StartFdo: Calling ACPIEnumerateDevices\n");
     status = ACPIEnumerateDevices(FdoData);
-    DPRINT1("Bus_StartFdo: ACPIEnumerateDevices done (Status 0x%x)\n", status);
+    DPRINT("Bus_StartFdo: ACPIEnumerateDevices done (Status 0x%x)\n", status);
     return status;
 }
 

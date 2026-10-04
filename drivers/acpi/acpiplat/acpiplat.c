@@ -70,7 +70,7 @@ AcpiPlatReportDevice(
         return;
     Status = IoGetDeviceProperty(PhysicalDeviceObject, DevicePropertyHardwareID, Length, HardwareIds, &Length);
     if (NT_SUCCESS(Status))
-        DPRINT1("ACPIPLAT: firmware-owned platform device %ls is active\n", HardwareIds);
+        DPRINT("ACPIPLAT: firmware-owned platform device %ls is active\n", HardwareIds);
     ExFreePoolWithTag(HardwareIds, ACPIPLAT_TAG);
 }
 

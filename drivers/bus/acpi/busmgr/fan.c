@@ -76,7 +76,7 @@ acpi_fan_has_advanced_control(
             all = FALSE;
     }
 
-    DPRINT1("ACPI: Fan [%s] control methods: _FIF=%u _FPS=%u _FSL=%u _FST=%u -> %s\n",
+    DPRINT("ACPI: Fan [%s] control methods: _FIF=%u _FPS=%u _FSL=%u _FST=%u -> %s\n",
             bid, present[0], present[1], present[2], present[3],
             all ? "fine-grain" : "D-state only");
     return all;
@@ -342,7 +342,7 @@ acpi_fan_apply_level_locked(
     }
 
     context->AppliedLevel = level;
-    DPRINT1("ACPI: Fan [%s] set to D%u for thermal level %ld\n",
+    DPRINT("ACPI: Fan [%s] set to D%u for thermal level %ld\n",
             acpi_device_bid(device),
             level == ACPI_FAN_LEVEL_OFF ? ACPI_STATE_D3 : ACPI_STATE_D0,
             level);
@@ -536,7 +536,7 @@ acpi_fan_add(
     acpi_fan_contexts[acpi_fan_context_count++] = context;
     device->driver_data = context;
     ExReleaseFastMutex(&acpi_fan_list_lock);
-    DPRINT1("ACPI: Fan [%s] registered; retaining firmware state until thermal policy requests a level\n", acpi_device_bid(device));
+    DPRINT("ACPI: Fan [%s] registered; retaining firmware state until thermal policy requests a level\n", acpi_device_bid(device));
     return_VALUE(0);
 }
 

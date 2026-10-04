@@ -154,7 +154,7 @@ acpi_thermal_set_active_cooling_policy(
                 acpi_device_bid(zone->Device), AcpiFormatException(status));
         return;
     }
-    DPRINT1("ACPI: Thermal [%s] selected active cooling policy\n", acpi_device_bid(zone->Device));
+    DPRINT("ACPI: Thermal [%s] selected active cooling policy\n", acpi_device_bid(zone->Device));
 }
 
 static VOID
@@ -174,7 +174,7 @@ acpi_thermal_refresh_trips(
     for (i = 0; i < ACPI_THERMAL_ACTIVE_LEVELS; i++)
         acpi_thermal_query_trip(zone, active_methods[i], &zone->Active[i]);
 
-    DPRINT1("ACPI: Thermal [%s] trips CRT=%s%ld.%luC HOT=%s%ld.%luC PSV=%s%ld.%luC\n",
+    DPRINT("ACPI: Thermal [%s] trips CRT=%s%ld.%luC HOT=%s%ld.%luC PSV=%s%ld.%luC\n",
             acpi_device_bid(zone->Device),
             zone->Critical.Valid ? "" : "?", acpi_thermal_celsius_tenths(zone->Critical.Temperature) / 10, acpi_thermal_fraction(acpi_thermal_celsius_tenths(zone->Critical.Temperature)),
             zone->Hot.Valid ? "" : "?", acpi_thermal_celsius_tenths(zone->Hot.Temperature) / 10, acpi_thermal_fraction(acpi_thermal_celsius_tenths(zone->Hot.Temperature)),

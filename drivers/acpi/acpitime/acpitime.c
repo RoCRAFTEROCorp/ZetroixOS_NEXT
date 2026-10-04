@@ -557,7 +557,7 @@ AcpiTimeRefresh(
         }
         ZwClose(KeyHandle);
     }
-    DPRINT1("ACPITIME: caps=0x%03lx time=%s AC(status=0x%lx value=%lu policy=%lu) DC(status=0x%lx value=%lu policy=%lu)\n",
+    DPRINT("ACPITIME: caps=0x%03lx time=%s AC(status=0x%lx value=%lu policy=%lu) DC(status=0x%lx value=%lu policy=%lu)\n",
             DeviceExtension->Capabilities, TimeValid ? "valid" : "unavailable",
             WakeStatus[0], TimerValue[0], TimerPolicy[0], WakeStatus[1], TimerValue[1], TimerPolicy[1]);
     return TRUE;

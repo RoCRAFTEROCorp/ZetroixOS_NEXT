@@ -180,7 +180,7 @@ FdoEnumerateDevices(
                 }
             }
 
-            DPRINT1("PCI: Found Bus %1lu  Device %2lu  Func %1lu  VenID 0x%04hx  DevID 0x%04hx\n",
+            DPRINT("PCI: Found Bus %1lu  Device %2lu  Func %1lu  VenID 0x%04hx  DevID 0x%04hx\n",
                    Bus,
                    DeviceNumber,
                    FunctionNumber,
@@ -274,7 +274,7 @@ FdoQueryBusRelations(
 
     UNREFERENCED_PARAMETER(IrpSp);
 
-    DPRINT1("PCI: FdoQueryBusRelations called\n");
+    DPRINT("PCI: FdoQueryBusRelations called\n");
 
     ErrorStatus = STATUS_INSUFFICIENT_RESOURCES;
 
@@ -289,7 +289,7 @@ FdoQueryBusRelations(
     FdoEnumerateDevices(DeviceObject);
 
     DeviceExtension = (PFDO_DEVICE_EXTENSION)DeviceObject->DeviceExtension;
-    DPRINT1("PCI: FdoQueryBusRelations enumerated %lu devices\n",
+    DPRINT("PCI: FdoQueryBusRelations enumerated %lu devices\n",
             DeviceExtension->DeviceListCount);
 
     if (Irp->IoStatus.Information)
@@ -367,7 +367,7 @@ FdoQueryBusRelations(
                 break;
             }
 
-            DPRINT1("PCI: Created PDO for DeviceID: %S\n",
+            DPRINT("PCI: Created PDO for DeviceID: %S\n",
                    PdoDeviceExtension->DeviceID.Buffer);
 
             /* Add Instance ID string */
@@ -474,7 +474,7 @@ FdoStartDevice(
 
     DeviceExtension = (PFDO_DEVICE_EXTENSION)DeviceObject->DeviceExtension;
 
-    DPRINT1("PCI: FdoStartDevice called\n");
+    DPRINT("PCI: FdoStartDevice called\n");
 
     AllocatedResources = IoGetCurrentIrpStackLocation(Irp)->Parameters.StartDevice.AllocatedResources;
     if (!AllocatedResources)
@@ -549,7 +549,7 @@ FdoStartDevice(
                     Window->End = Window->Start + Length - 1;
                     Window->Prefetchable = FALSE;
                     DeviceExtension->IoWindowCount++;
-                    DPRINT1("PCI: Bus %lu I/O aperture [0x%I64x-0x%I64x]\n",
+                    DPRINT("PCI: Bus %lu I/O aperture [0x%I64x-0x%I64x]\n",
                             DeviceExtension->BusNumber,
                             Window->Start,
                             Window->End);
@@ -571,7 +571,7 @@ FdoStartDevice(
                     Window->End = Window->Start + Length - 1;
                     Window->Prefetchable = !!(ResourceDescriptor->Flags & CM_RESOURCE_MEMORY_PREFETCHABLE);
                     DeviceExtension->MemoryWindowCount++;
-                    DPRINT1("PCI: Bus %lu memory aperture [0x%I64x-0x%I64x] prefetch=%u\n",
+                    DPRINT("PCI: Bus %lu memory aperture [0x%I64x-0x%I64x] prefetch=%u\n",
                             DeviceExtension->BusNumber,
                             Window->Start,
                             Window->End,

@@ -2239,7 +2239,7 @@ PciPdoRoutedInterruptLine(
         {
             if (Depth != 0)
             {
-                DPRINT1("PCI PDO: _PRT routes %02x:%02x.%u INT%c# through %02x:%02x.%u INT%c# to GSI %lu (line was %u)\n",
+                DPRINT("PCI PDO: _PRT routes %02x:%02x.%u INT%c# through %02x:%02x.%u INT%c# to GSI %lu (line was %u)\n",
                         (UCHAR)DeviceExtension->PciDevice->BusNumber,
                         DeviceExtension->PciDevice->SlotNumber.u.bits.DeviceNumber,
                         DeviceExtension->PciDevice->SlotNumber.u.bits.FunctionNumber,
@@ -2253,7 +2253,7 @@ PciPdoRoutedInterruptLine(
             }
             else if ((UCHAR)Gsi != InterruptLine)
             {
-                DPRINT1("PCI PDO: _PRT routes %02x:%02x.%u INT%c# to GSI %lu (line was %u)\n",
+                DPRINT("PCI PDO: _PRT routes %02x:%02x.%u INT%c# to GSI %lu (line was %u)\n",
                         (UCHAR)DeviceExtension->PciDevice->BusNumber,
                         DeviceExtension->PciDevice->SlotNumber.u.bits.DeviceNumber,
                         DeviceExtension->PciDevice->SlotNumber.u.bits.FunctionNumber,
@@ -4022,7 +4022,7 @@ PciPdoProgramType0Bars(
         if (NextBar == CurrentBar + 2)
             PciConfig->u.type0.BaseAddresses[CurrentBar + 1] = ReadHigh;
 
-        DPRINT1("PCI PDO: assigned BAR%u=0x%I64x len=0x%I64x for %02x:%02x.%u\n",
+        DPRINT("PCI PDO: assigned BAR%u=0x%I64x len=0x%I64x for %02x:%02x.%u\n",
                 CurrentBar,
                 AssignedBase,
                 Length,
@@ -4310,7 +4310,7 @@ PdoStartDevice(
         MsixMessageCount = target;
     }
 
-    DPRINT1("PCI PDO: MSI/X state UsingMsix=%d MsixMessageCount=%lu MsixMessages=%p UsingMsi=%d\n",
+    DPRINT("PCI PDO: MSI/X state UsingMsix=%d MsixMessageCount=%lu MsixMessages=%p UsingMsi=%d\n",
             UsingMsix, MsixMessageCount, MsixMessages, UsingMsi);
 
     if (UsingMsix && MsixMessageCount > 0 && MsixMessages)

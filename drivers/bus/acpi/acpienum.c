@@ -15,7 +15,7 @@
 #include <debug.h>
 
 #define ACPI_PCIROOT_TRACE(...) \
-    DPRINT1("ACPI-PCIROOT: " __VA_ARGS__)
+    DPRINT("ACPI-PCIROOT: " __VA_ARGS__)
 
 #define HAS_CHILDREN(d)		((d)->children.next != &((d)->children))
 #define HAS_SIBLINGS(d)		(((d)->parent) && ((d)->node.next != &(d)->parent->children))
@@ -602,7 +602,7 @@ ACPIEnumerateDevices(PFDO_DEVICE_DATA DeviceExtension)
         }
     }
     if (ProcessorUids.Valid)
-        DPRINT1("ACPI: processor MADT filter exposed %lu processor device(s), skipped %lu inactive firmware slot(s)\n", ProcessorCount, SkippedProcessorCount);
+        DPRINT("ACPI: processor MADT filter exposed %lu processor device(s), skipped %lu inactive firmware slot(s)\n", ProcessorCount, SkippedProcessorCount);
     DPRINT("acpi device count: %d\n", Count);
     return STATUS_SUCCESS;
 }

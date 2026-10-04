@@ -5,6 +5,7 @@
  */
 
 #include <precomp.h>
+#define NDEBUG
 #include <debug.h>
 
 #ifdef CONFIG_ACPI_PCI
@@ -316,7 +317,7 @@ AcpiPciRootEvaluateOsc(
     RootInfo->Osc.ControlGranted = 0;
     RootInfo->Osc.Failed = TRUE;
 
-    DPRINT1("ACPI: _OSC calling with Support=0x%lx Control=0x%lx\n",
+    DPRINT("ACPI: _OSC calling with Support=0x%lx Control=0x%lx\n",
             SupportValue, ControlValue);
 
     Status = AcpiEvaluateObject(Handle, "_OSC", &ArgumentList, &ReturnBuffer);
@@ -418,7 +419,7 @@ AcpiPciRootEvaluateOsc(
     }
     else
     {
-        DPRINT1("ACPI: _OSC success - granted control 0x%lx (status 0x%lx)\n",
+        DPRINT("ACPI: _OSC success - granted control 0x%lx (status 0x%lx)\n",
                 RootInfo->Osc.ControlGranted,
                 StatusFlags);
     }
@@ -826,7 +827,7 @@ AcpiPciRootEnumerateCallback(
                                        RootInfo.BusStart,
                                        RootInfo.BusEnd))
         {
-            DPRINT1("ACPI: PCI root HID=%s UID=%s already processed (Seg %lu Bus %lu-%lu), skipping duplicate handle %p\n",
+            DPRINT("ACPI: PCI root HID=%s UID=%s already processed (Seg %lu Bus %lu-%lu), skipping duplicate handle %p\n",
                     (Info->Valid & ACPI_VALID_HID) ? Info->HardwareId.String : "<none>",
                     (Info->Valid & ACPI_VALID_UID) ? Info->UniqueId.String : "<none>",
                     RootInfo.Segment,
@@ -839,7 +840,7 @@ AcpiPciRootEnumerateCallback(
 
         AcpiPciRootEvaluateOsc(Handle, &RootInfo);
 
-        DPRINT1("ACPI: PCI Root %lu: HID=%s UID=%s SEG=%lu BUS=%lu\n",
+        DPRINT("ACPI: PCI Root %lu: HID=%s UID=%s SEG=%lu BUS=%lu\n",
                 Context ? (Context->RootCount + 1) : 0,
                 (Info->Valid & ACPI_VALID_HID) ? Info->HardwareId.String : "<none>",
                 (Info->Valid & ACPI_VALID_UID) ? Info->UniqueId.String : "<none>",
@@ -848,31 +849,31 @@ AcpiPciRootEnumerateCallback(
 
         if (RootInfo.BusRangePresent)
         {
-            DPRINT1("    Bus range  : [%lu - %lu]\n",
+            DPRINT("    Bus range  : [%lu - %lu]\n",
                     RootInfo.BusStart,
                     RootInfo.BusEnd);
         }
 
         if (RootInfo.IoWindow.Present)
         {
-            DPRINT1("    IO window   : [%I64x - %I64x]\n",
+            DPRINT("    IO window   : [%I64x - %I64x]\n",
                     RootInfo.IoWindow.Base,
                     RootInfo.IoWindow.Limit);
             if (RootInfo.IoWindow.HasTranslation)
             {
-                DPRINT1("      translation: +%I64x (type %u)\n",
+                DPRINT("      translation: +%I64x (type %u)\n",
                         RootInfo.IoWindow.Translation,
                         RootInfo.IoWindow.TranslationType);
             }
         }
         if (RootInfo.MemoryWindow.Present)
         {
-            DPRINT1("    Memory window: [%I64x - %I64x]\n",
+            DPRINT("    Memory window: [%I64x - %I64x]\n",
                     RootInfo.MemoryWindow.Base,
                     RootInfo.MemoryWindow.Limit);
             if (RootInfo.MemoryWindow.HasTranslation)
             {
-                DPRINT1("      translation: +%I64x\n",
+                DPRINT("      translation: +%I64x\n",
                         RootInfo.MemoryWindow.Translation);
             }
         }
@@ -890,7 +891,7 @@ AcpiPciRootEnumerateCallback(
 
         if (RootInfo.Osc.Evaluated)
         {
-            DPRINT1("    _OSC status 0x%lx request 0x%lx grant 0x%lx%s\n",
+            DPRINT("    _OSC status 0x%lx request 0x%lx grant 0x%lx%s\n",
                     RootInfo.Osc.StatusFlags,
                     RootInfo.Osc.ControlRequest,
                     RootInfo.Osc.ControlGranted,
@@ -975,7 +976,7 @@ acpi_pci_root_init(VOID)
 
     AcpiPciRootInitContext(&Context);
     AcpiPciRootEnsureTrackingInitialized();
-    DPRINT1("ACPI: Enumerating PCI root bridges (ACPI 1.0/2.0+/PCIe)\n");
+    DPRINT("ACPI: Enumerating PCI root bridges (ACPI 1.0/2.0+/PCIe)\n");
 
     AcpiPciRootEnumerateByHid("PNP0A03", &Context);
     AcpiPciRootEnumerateByHid("PNP0A08", &Context);

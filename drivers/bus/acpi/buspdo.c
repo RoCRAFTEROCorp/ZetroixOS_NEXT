@@ -300,7 +300,7 @@ BuspEnsurePciRootBusNumber(
     AcpiStatus = acpi_evaluate_integer(DeviceData->AcpiHandle, "_BBN", NULL, &BusNumber);
     if (ACPI_SUCCESS(AcpiStatus))
     {
-        DPRINT1("ACPI: Using _BBN for PCI root %S bus=%I64u\n",
+        DPRINT("ACPI: Using _BBN for PCI root %S bus=%I64u\n",
                 DeviceData->HardwareIDs ? DeviceData->HardwareIDs : L"<unknown>",
                 BusNumber);
     }
@@ -339,7 +339,7 @@ BuspEnsurePciRootBusNumber(
     DeviceData->CachedBusNumber = (ULONG)BusNumber;
     DeviceData->HasCachedBusNumber = TRUE;
 
-    DPRINT1("ACPI: Cached PCI root %S bus number %lu\n",
+    DPRINT("ACPI: Cached PCI root %S bus number %lu\n",
             DeviceData->HardwareIDs ? DeviceData->HardwareIDs : L"<unknown>",
             DeviceData->CachedBusNumber);
 

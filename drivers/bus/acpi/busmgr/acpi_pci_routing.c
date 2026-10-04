@@ -6,6 +6,7 @@
 
 #include <precomp.h>
 #include <ntddk.h>
+#define NDEBUG
 #include <debug.h>
 
 #define ACPI_PRT_POOL_TAG 'TRPA'
@@ -426,7 +427,7 @@ acpi_pci_link_init(VOID)
     (void)AcpiGetDevices("PNP0A08", AcpiEnumRootBridgeCallback, NULL, NULL);
 
     HalpRegisterPciRouteQuery(HalPciRouteProvider);
-    DPRINT1("ACPI: PCI routing provider registered (%lu entries available)\n",
+    DPRINT("ACPI: PCI routing provider registered (%lu entries available)\n",
             PrtCacheCount);
 
     return 0;

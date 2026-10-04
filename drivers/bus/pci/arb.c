@@ -666,7 +666,7 @@ PciCreateFdoArbiters(
     PPCI_ARBITER BusArbiter = NULL;
     NTSTATUS Status;
 
-    DPRINT1("PCI: Creating arbiters for bus %lu\n", FdoExtension->BusNumber);
+    DPRINT("PCI: Creating arbiters for bus %lu\n", FdoExtension->BusNumber);
 
     /* Allocate I/O port arbiter */
     IoArbiter = ExAllocatePoolWithTag(NonPagedPool, sizeof(PCI_ARBITER), TAG_PCI_ARB);
@@ -709,7 +709,7 @@ PciCreateFdoArbiters(
     InsertTailList(&FdoExtension->ArbiterListHead, &MemArbiter->ListEntry);
     InsertTailList(&FdoExtension->ArbiterListHead, &BusArbiter->ListEntry);
 
-    DPRINT1("PCI: Created 3 arbiters for bus %lu\n", FdoExtension->BusNumber);
+    DPRINT("PCI: Created 3 arbiters for bus %lu\n", FdoExtension->BusNumber);
     return STATUS_SUCCESS;
 
 Cleanup:

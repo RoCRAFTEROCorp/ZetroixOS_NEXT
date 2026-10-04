@@ -305,7 +305,7 @@ acpi_bus_set_power (
 	//}
 
 	if ((state == device->power.state) && !device->flags.force_power_state) {
-		DPRINT1("Device is already at D%d\n", state);
+		DPRINT("Device is already at D%d\n", state);
 		goto end;
 	}
 	if (!device->power.states[state].flags.valid) {
@@ -1729,7 +1729,7 @@ acpi_bus_init (void)
 		} else if (ACPI_FAILURE(status)) {
 			DPRINT1("ACPI: _PIC(1) evaluation failed (0x%X)\n", status);
 		} else {
-			DPRINT1("ACPI: _PIC(1) OK - firmware switched to APIC routing\n");
+			DPRINT("ACPI: _PIC(1) OK - firmware switched to APIC routing\n");
 		}
 		/* Reset status so a non-fatal _PIC failure does not stop init. */
 		status = AE_OK;
