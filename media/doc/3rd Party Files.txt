@@ -91,6 +91,26 @@ Used Version: 20221020
 License: GPL-2.0 (https://spdx.org/licenses/GPL-2.0.html)
 URL: https://acpica.org/
 
+Title: Imagination PowerVR Rogue firmware
+Path: drivers/directx/powervr/fw
+Used Version: rogue_36.29.52.182_v1.fw (linux-firmware 8a58f81)
+License: Imagination Technologies binary redistribution license (drivers/directx/powervr/fw/LICENSE.powervr)
+URL: https://gitlab.freedesktop.org/imagination/linux-firmware
+
+Title: Linux PowerVR DRM driver (drm/imagination)
+Path: drivers/directx/powervr/upstream
+Used Version: Linux mainline 6addb4f38
+License: GPL-2.0-only OR MIT (https://spdx.org/licenses/MIT.html)
+URL: https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git
+Modifications: none; built over the LiberNT Linux compatibility layer (sdk/lib/drivers/linux-compat)
+
+Title: Linux DRM GPU VA manager, execution context, sync objects and GPU scheduler
+Path: sdk/lib/drivers/drm
+Used Version: Linux mainline 6addb4f38
+License: MIT (https://spdx.org/licenses/MIT.html), drm_gpuvm/drm_exec: GPL-2.0-only OR MIT
+URL: https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git
+Modifications: imported drm_gpuvm.c, drm_exec.c, drm_syncobj.c, scheduler/*, the matching include/drm headers and include/uapi/drm/{drm,drm_mode,pvr_drm}.h; spsc_queue.h pointer casts use intptr_t; drm_core.c, drm_gem.c and drm_compat.h are LiberNT code
+
 Title: VirtIO Windows guest driver library
 Path: sdk/lib/drivers/virtio
 Used Version: git commit 4c4d181
