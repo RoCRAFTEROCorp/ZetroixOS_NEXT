@@ -298,9 +298,6 @@ RtlWow64GetThreadSelectorEntry(HANDLE handle,
     if (selector == 0x03)
         goto done;
 
-    if (selector & 0x04)
-        return NtQueryInformationThread(handle, ThreadDescriptorTableEntry, info, size, NULL);
-
     code_selector = context.SegCs;
     data_selector = context.SegSs;
     teb_selector = context.SegFs;
