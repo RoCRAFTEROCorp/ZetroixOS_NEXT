@@ -706,7 +706,6 @@ MmCreateTeb(
         Teb->ClientId = *ClientId;
         Teb->RealClientId = *ClientId;
         Teb->ProcessEnvironmentBlock = Process->Peb;
-        Teb->CurrentLocale = PsDefaultThreadLocaleId;
 
         if (InitialTeb->PreviousStackBase == NULL && InitialTeb->PreviousStackLimit == NULL)
         {
@@ -746,7 +745,6 @@ MmCreateTeb(
             Teb32->ClientId.UniqueThread = HandleToUlong(ClientId->UniqueThread);
             Teb32->RealClientId = Teb32->ClientId;
             Teb32->ProcessEnvironmentBlock = PtrToUlong(Process->WoW64Process->Peb);
-            Teb32->CurrentLocale = PsDefaultThreadLocaleId;
             Teb32->StaticUnicodeString.MaximumLength = sizeof(Teb32->StaticUnicodeBuffer);
             Teb32->StaticUnicodeString.Buffer = PtrToUlong(Teb32->StaticUnicodeBuffer);
             Teb32->GdiBatchCount = PtrToUlong(Teb);
