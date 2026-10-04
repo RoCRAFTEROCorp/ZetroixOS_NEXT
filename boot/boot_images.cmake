@@ -1,6 +1,7 @@
 
 # Include ARM64 hardware boot media configuration.
 include(${CMAKE_SOURCE_DIR}/media/boot/arm64_boot_media.cmake)
+include(${CMAKE_SOURCE_DIR}/media/boot/riscv64_boot_media.cmake)
 
 option(LATTEPANDAMU_SUPPORT "Enable the LattePanda Mu board profile" OFF)
 if(LATTEPANDAMU_SUPPORT AND NOT ARCH STREQUAL "amd64")
@@ -105,6 +106,15 @@ if(ARCH STREQUAL "i386" AND NOT (SARCH STREQUAL "pc98" OR SARCH STREQUAL "xbox")
         set(FREELDR_${_media}_INI "${CMAKE_CURRENT_BINARY_DIR}/bootdata/${_media}_i386.ini")
         file(CONFIGURE OUTPUT "${FREELDR_${_media}_INI}" CONTENT "${_contents}" @ONLY)
     endforeach()
+endif()
+
+if(SPACEMIT_K1_SUPPORT)
+    set(_source "${FREELDR_PREINSTALL_INI}")
+    set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${_source}")
+    file(READ "${_source}" _contents)
+    string(REPLACE "SystemPath=partition(2)\\" "SystemPath=partition(4)\\" _contents "${_contents}")
+    set(FREELDR_PREINSTALL_INI "${CMAKE_CURRENT_BINARY_DIR}/bootdata/preinstall_spacemit_k1.ini")
+    file(CONFIGURE OUTPUT "${FREELDR_PREINSTALL_INI}" CONTENT "${_contents}" @ONLY)
 endif()
 
 # EFI platform ID - Used for naming the EFI boot image on supported platforms.
@@ -552,14 +562,19 @@ file(APPEND ${CMAKE_CURRENT_BINARY_DIR}/preinstall.cmake.lst
 # Keep a small FAT volume for BIOS/UEFI boot files and use NTFS for ReactOS.
 # Both partitions start on 1-MB boundaries.
 set(_preinstall_boot_partition_size_mb 64)
+set(_preinstall_boot_partition_start_mb 1)
+if(SPACEMIT_K1_SUPPORT)
+    set(_preinstall_boot_partition_start_mb ${SPACEMIT_K1_BOOT_PARTITION_START_MB})
+endif()
+math(EXPR _preinstall_boot_partition_start "${_preinstall_boot_partition_start_mb} * 2048")
 math(EXPR _preinstall_boot_partition_sectors "${_preinstall_boot_partition_size_mb} * 2048")
-math(EXPR _preinstall_system_partition_start "(1 + ${_preinstall_boot_partition_size_mb}) * 2048")
+math(EXPR _preinstall_system_partition_start "(${_preinstall_boot_partition_start_mb} + ${_preinstall_boot_partition_size_mb}) * 2048")
 # Keep the boot-tested 4-KB NTFS allocation unit instead of the formatter's
 # automatic 1-KB choice for a volume of this size.
 set(_preinstall_ntfs_sectors_per_cluster 8)
-math(EXPR _preinstall_system_partition_size_mb "${PREINSTALL_IMAGE_SIZE_MB} - 1 - ${_preinstall_boot_partition_size_mb}")
+math(EXPR _preinstall_system_partition_size_mb "${PREINSTALL_IMAGE_SIZE_MB} - ${_preinstall_boot_partition_start_mb} - ${_preinstall_boot_partition_size_mb}")
 if(_preinstall_system_partition_size_mb LESS 1)
-    message(FATAL_ERROR "PREINSTALL_IMAGE_SIZE_MB must leave room for the 1-MB alignment gap, the ${_preinstall_boot_partition_size_mb}-MB boot partition, and the NTFS system partition")
+    message(FATAL_ERROR "PREINSTALL_IMAGE_SIZE_MB must leave room for the ${_preinstall_boot_partition_start_mb}-MB area before the boot partition, the ${_preinstall_boot_partition_size_mb}-MB boot partition, and the NTFS system partition")
 endif()
 math(EXPR _preinstall_system_partition_sectors "${_preinstall_system_partition_size_mb} * 2048")
 
@@ -569,7 +584,12 @@ set(_preinstall_boot_partition_options)
 set(_preinstall_boot_partition_fs fat)
 set(_preinstall_boot_partition_files
     -add ${FREELDR_PREINSTALL_INI} freeldr.ini)
-file(GLOB _preinstall_rpi_firmware ${REACTOS_SOURCE_DIR}/media/boot/rpi/*)
+set(_preinstall_rpi_firmware)
+set(_preinstall_rpi_overlays)
+if(NOT SPACEMIT_K1_SUPPORT)
+    file(GLOB _preinstall_rpi_firmware ${REACTOS_SOURCE_DIR}/media/boot/rpi/*)
+    file(GLOB _preinstall_rpi_overlays ${REACTOS_SOURCE_DIR}/media/boot/rpi/overlays/*)
+endif()
 foreach(_rpi_firmware_file ${_preinstall_rpi_firmware})
     if(NOT IS_DIRECTORY ${_rpi_firmware_file})
         get_filename_component(_rpi_firmware_name ${_rpi_firmware_file} NAME)
@@ -578,7 +598,6 @@ foreach(_rpi_firmware_file ${_preinstall_rpi_firmware})
     endif()
 endforeach()
 # config.txt dtoverlay= lines resolve against overlays/ on the boot volume.
-file(GLOB _preinstall_rpi_overlays ${REACTOS_SOURCE_DIR}/media/boot/rpi/overlays/*)
 if(_preinstall_rpi_overlays)
     list(APPEND _preinstall_boot_partition_files -mkdir overlays)
     foreach(_rpi_overlay_file ${_preinstall_rpi_overlays})
@@ -593,6 +612,36 @@ set(_preinstall_partition_deps native-fatten native-ntfsimg
     ${_preinstall_overlay_deps} ${ARM64_BOOT_FILE_DEPS})
 set(_reactosimg_mbr_args)
 set(_reactosimg_deps native-mkdiskimg)
+set(_reactosimg_leading_args)
+set(_reactosimg_boot_partition_args)
+set(_reactosimg_system_partition_args)
+if(SPACEMIT_K1_SUPPORT)
+    list(APPEND _reactosimg_mbr_args -gpt -mbr ${SPACEMIT_K1_BOOTINFO})
+    list(APPEND _reactosimg_leading_args
+        -data ${SPACEMIT_K1_OPENSBI}
+        -start ${SPACEMIT_K1_OPENSBI_START}
+        -type da
+        -size ${SPACEMIT_K1_OPENSBI_SECTORS}
+        -name opensbi
+        -data ${SPACEMIT_K1_UBOOT}
+        -start ${SPACEMIT_K1_UBOOT_START}
+        -type da
+        -size ${SPACEMIT_K1_UBOOT_SECTORS}
+        -name uboot
+        -raw ${SPACEMIT_K1_FSBL}
+        -at ${SPACEMIT_K1_FSBL_SECTOR}
+        -raw ${SPACEMIT_K1_FSBL}
+        -at ${SPACEMIT_K1_FSBL_BACKUP_SECTOR})
+    set(_preinstall_boot_partition_fs fat32)
+    list(APPEND _reactosimg_boot_partition_args -name bootfs)
+    list(APPEND _reactosimg_system_partition_args -name ReactOS)
+    list(APPEND _preinstall_boot_partition_files
+        -add ${SPACEMIT_K1_UBOOT_ENV} env_k1-x.txt)
+    list(APPEND _preinstall_partition_deps
+        ${SPACEMIT_K1_UBOOT_ENV})
+    list(APPEND _reactosimg_deps
+        ${SPACEMIT_K1_BOOTINFO} ${SPACEMIT_K1_FSBL} ${SPACEMIT_K1_OPENSBI} ${SPACEMIT_K1_UBOOT})
+endif()
 if(FREELDR_HAS_BIOS_BOOT)
     set(_dosmbr_file ${CMAKE_CURRENT_BINARY_DIR}/freeldr/bootsect/dosmbr.bin)
     set(_fat32_file ${CMAKE_CURRENT_BINARY_DIR}/freeldr/bootsect/fat32.bin)
@@ -662,12 +711,15 @@ add_custom_target(reactosimg
     COMMAND native-mkdiskimg
         -o ${_preinstall_image_file}
         ${_reactosimg_mbr_args}
+        ${_reactosimg_leading_args}
         -partition ${_preinstall_boot_partition_file}
-        -start 2048
+        -start ${_preinstall_boot_partition_start}
         -type ${_preinstall_boot_partition_type}
+        ${_reactosimg_boot_partition_args}
         -partition ${_preinstall_system_partition_file}
         -start ${_preinstall_system_partition_start}
         -type 07
+        ${_reactosimg_system_partition_args}
     DEPENDS ${_reactosimg_deps}
     VERBATIM)
 add_dependencies(reactosimg preinstall_partition)
@@ -677,12 +729,15 @@ add_custom_target(reactosvhd
     COMMAND native-mkdiskimg
         -o ${_preinstall_vhd_file}
         ${_reactosimg_mbr_args}
+        ${_reactosimg_leading_args}
         -partition ${_preinstall_boot_partition_file}
-        -start 2048
+        -start ${_preinstall_boot_partition_start}
         -type ${_preinstall_boot_partition_type}
+        ${_reactosimg_boot_partition_args}
         -partition ${_preinstall_system_partition_file}
         -start ${_preinstall_system_partition_start}
         -type 07
+        ${_reactosimg_system_partition_args}
         -vhd
     DEPENDS ${_reactosimg_deps}
     VERBATIM)
