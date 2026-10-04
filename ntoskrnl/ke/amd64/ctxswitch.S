@@ -91,6 +91,8 @@ PUBLIC KiThreadStartup
     mov rax, APC_LEVEL
     mov cr8, rax
 
+    sti
+
     /* We have the KSTART_FRAME on the stack, P1Home and P2Home are preloaded
      * with the parameters for the system routine. The address of the system
      * routine is stored in P4Home. */

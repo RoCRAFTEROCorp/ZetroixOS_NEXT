@@ -170,7 +170,6 @@ KiDispatchExceptionToUser(
         // FIXME: handle stack overflow
 
         /* Nothing we can do here */
-        _disable();
         return FALSE;
     }
     _SEH2_END;
@@ -192,8 +191,6 @@ KiDispatchExceptionToUser(
 
     /* Set RIP to the User-mode Dispatcher */
     TrapFrame->Rip = (ULONG64)KeUserExceptionDispatcher;
-
-    _disable();
 
     /* Exit to usermode */
     return TRUE;
@@ -263,8 +260,6 @@ KiPrepareUserDebugData(void)
     {
     }
     _SEH2_END;
-
-    _disable();
 }
 
 VOID

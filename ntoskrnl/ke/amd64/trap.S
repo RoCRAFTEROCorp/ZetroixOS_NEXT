@@ -189,9 +189,13 @@ FUNC KiDivideErrorFault
     /* Push pseudo error code */
     EnterTrap TF_SAVE_ALL
 
+    test dword ptr [rbp + KTRAP_FRAME_EFlags], EFLAGS_IF_MASK
+    jz KiDivideErrorDispatch
+
     /* Enable interrupts */
     sti
 
+KiDivideErrorDispatch:
     /* Dispatch the exception */
     DispatchException STATUS_INTEGER_DIVIDE_BY_ZERO, 0, 0, 0, 0
 
@@ -279,9 +283,13 @@ FUNC KiOverflowTrap
     /* Push pseudo error code */
     EnterTrap TF_SAVE_ALL
 
+    test dword ptr [rbp + KTRAP_FRAME_EFlags], EFLAGS_IF_MASK
+    jz KiOverflowDispatch
+
     /* Enable interrupts */
     sti
 
+KiOverflowDispatch:
     /* Dispatch the exception */
     DispatchException STATUS_INTEGER_OVERFLOW, 3, 0, 0, 0
 
@@ -319,9 +327,13 @@ FUNC KiInvalidOpcodeFault
     /* Push pseudo error code */
     EnterTrap TF_SAVE_ALL
 
+    test dword ptr [rbp + KTRAP_FRAME_EFlags], EFLAGS_IF_MASK
+    jz KiInvalidOpcodeDispatch
+
     /* Enable interrupts */
     sti
 
+KiInvalidOpcodeDispatch:
     /* Check if the frame was from kernelmode */
     test word ptr [rbp + KTRAP_FRAME_SegCs], 3
     jz KiInvalidOpcodeKernel
@@ -352,6 +364,11 @@ FUNC KiNpxNotAvailableFault
     test eax, eax
     jz KiNpxNotAvailableFaultExit
 
+    test dword ptr [rbp + KTRAP_FRAME_EFlags], EFLAGS_IF_MASK
+    jz KiNpxNotAvailableDispatch
+    sti
+
+KiNpxNotAvailableDispatch:
     /* Dispatch the exception */
     DispatchException eax, 3, 0, 0, 0
 
@@ -446,6 +463,11 @@ FUNC KiGeneralProtectionFault
     /* We have an error code */
     EnterTrap (TF_HAS_ERROR_CODE OR TF_SAVE_ALL)
 
+    test dword ptr [rbp + KTRAP_FRAME_EFlags], EFLAGS_IF_MASK
+    jz KiGpfHandler
+    sti
+
+KiGpfHandler:
     /* Call the C handler */
     mov rcx, rbp
     call KiGeneralProtectionFaultHandler
@@ -702,6 +724,11 @@ FUNC KiXmmException
     test eax, eax
     jge KiXmmExit
 
+    test dword ptr [rbp + KTRAP_FRAME_EFlags], EFLAGS_IF_MASK
+    jz KiXmmDispatch
+    sti
+
+KiXmmDispatch:
     /* Dispatch the exception */
     DispatchException eax, 2, 0, [rbp+KTRAP_FRAME_MxCsr], 0
 
@@ -722,6 +749,12 @@ FUNC KiRaiseAssertion
 
     /* Decrement RIP to point to the INT2C instruction (2 bytes, not 1 like INT3) */
     sub qword ptr [rbp + KTRAP_FRAME_Rip], 2
+
+    test byte ptr [rbp + KTRAP_FRAME_SegCs], 1
+    jz KiRaiseAssertionDispatch
+    sti
+
+KiRaiseAssertionDispatch:
 
     /* Dispatch the exception */
     DispatchException STATUS_ASSERTION_FAILURE, 0, 0, 0, 0
@@ -753,6 +786,11 @@ FUNC KiDebugServiceTrap
     mov [rbp + KTRAP_FRAME_R9], rax
 
 KiDebugServiceDispatch:
+    test byte ptr [rbp + KTRAP_FRAME_SegCs], 1
+    jz KiDebugServiceKMode
+    sti
+
+KiDebugServiceKMode:
     /* Dispatch the exception (Params = service, buffer, legth) */
     DispatchException STATUS_BREAKPOINT, 3, [rbp+KTRAP_FRAME_Rax], [rbp+KTRAP_FRAME_Rcx], [rbp+KTRAP_FRAME_Rdx]
 
