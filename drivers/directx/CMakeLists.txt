@@ -21,3 +21,8 @@ if(REACTOS_USE_WDDM AND
    (ARCH STREQUAL "arm64") AND RPI5_SUPPORT)
     add_subdirectory(rpi5vc4)  # Raspberry Pi 5 (BCM2712 HVS) WDDM2 display-only miniport
 endif()
+if(REACTOS_USE_WDDM AND
+   (REACTOS_WDDM_TARGET_LEVEL GREATER_EQUAL 2000) AND
+   (ARCH STREQUAL "riscv64") AND SPACEMIT_K1_SUPPORT)
+    add_subdirectory(k1xdpu)
+endif()
