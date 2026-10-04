@@ -1001,8 +1001,16 @@ static DWORD parse_buffer( struct inf_file *file, const WCHAR *buffer, const WCH
                                     file->nb_fields * sizeof(file->fields[0]) );
         file->alloc_fields = file->nb_fields;
     }
+#ifdef __REACTOS__
+    {
+        WCHAR *strings = HeapReAlloc( GetProcessHeap(), HEAP_REALLOC_IN_PLACE_ONLY, file->strings,
+                                      (file->string_pos - file->strings) * sizeof(WCHAR) );
+        if (strings) file->strings = strings;
+    }
+#else
     file->strings = HeapReAlloc( GetProcessHeap(), HEAP_REALLOC_IN_PLACE_ONLY, file->strings,
                                  (file->string_pos - file->strings) * sizeof(WCHAR) );
+#endif
 
     if (parser.error)
     {
