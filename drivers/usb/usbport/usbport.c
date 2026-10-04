@@ -217,16 +217,26 @@ USBPORT_SetupTransferBounceBuffer(IN PDEVICE_OBJECT FdoDevice,
         FdoExtension->MiniPortInterface &&
         FdoExtension->MiniPortInterface->Packet.MiniPortVersion == USB_MINIPORT_VERSION_XHCI)
     {
-        return STATUS_SUCCESS;
+        if (!Transfer->Endpoint ||
+            Transfer->Endpoint->EndpointProperties.TransferType != USBPORT_TRANSFER_TYPE_CONTROL ||
+            Transfer->Direction != USBPORT_DMA_DIRECTION_FROM_DEVICE ||
+            !FdoExtension->DmaAdapter ||
+            FdoExtension->DmaAdapter->DmaOperations->GetDmaAlignment(FdoExtension->DmaAdapter) <= 1)
+        {
+            return STATUS_SUCCESS;
+        }
+        NeedsBounce = TRUE;
     }
-
-    NeedsBounce = USBPORT_MdlNeedsBounce(OriginalMdl, TransferLength);
-    if (!NeedsBounce)
+    else
     {
-        NeedsBounce = USBPORT_UhciNeedsPacketAlignedBounce(FdoExtension,
-                                                           Transfer,
-                                                           OriginalMdl,
-                                                           TransferLength);
+        NeedsBounce = USBPORT_MdlNeedsBounce(OriginalMdl, TransferLength);
+        if (!NeedsBounce)
+        {
+            NeedsBounce = USBPORT_UhciNeedsPacketAlignedBounce(FdoExtension,
+                                                               Transfer,
+                                                               OriginalMdl,
+                                                               TransferLength);
+        }
     }
 
     if (!NeedsBounce)
