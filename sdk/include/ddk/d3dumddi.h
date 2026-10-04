@@ -2246,6 +2246,21 @@ typedef struct _D3DDDICB_RECLAIMALLOCATIONS2
                                                                            //      references any of the resources or allocations in the provided arrays
 } D3DDDICB_RECLAIMALLOCATIONS2;
 
+typedef struct _D3D12DDICB_OFFERALLOCATIONS
+{
+    _In_ UINT                                       NumAllocations;
+    _In_reads_(NumAllocations) CONST D3DKMT_HANDLE* HandleList;
+    _In_ D3DDDI_OFFER_PRIORITY                      Priority;
+} D3D12DDICB_OFFERALLOCATIONS;
+
+typedef struct _D3D12DDICB_RECLAIMALLOCATIONS2
+{
+    _In_ UINT                                       NumAllocations;
+    _In_reads_(NumAllocations) CONST D3DKMT_HANDLE* HandleList;
+    _Out_writes_all_opt_(NumAllocations) BOOL*      pDiscarded;
+    _Out_ UINT64                                    PagingFenceValue;
+} D3D12DDICB_RECLAIMALLOCATIONS2;
+
 typedef struct _D3DDDICB_CREATESYNCHRONIZATIONOBJECT2
 {
     D3DDDI_SYNCHRONIZATIONOBJECTINFO2       Info;           // in/out:  Attributes of the synchronization object to create.
@@ -2584,6 +2599,93 @@ typedef struct _D3DDDICB_SUBMITSIGNALSYNCOBJECTSTOHWQUEUE
     _Field_size_           (ObjectCount)
     const UINT64*           FenceValueArray;        // in: monitored fence values to signal.
 } D3DDDICB_SUBMITSIGNALSYNCOBJECTSTOHWQUEUE;
+
+#if (D3D_UMD_INTERFACE_VERSION >= D3D_UMD_INTERFACE_VERSION_WDDM2_4_2)
+typedef struct _D3DDDICB_SUBMITPRESENTBLTTOHWQUEUE
+{
+    D3DKMT_HANDLE               hSrcAllocation;
+    D3DKMT_HANDLE               hDstAllocation;
+    HANDLE                      hHwQueue;
+    UINT64                      HwQueueProgressFenceId;
+    UINT                        PrivateDriverDataSize;
+    _Field_size_bytes_(PrivateDriverDataSize)
+    PVOID                       pPrivateDriverData;
+} D3DDDICB_SUBMITPRESENTBLTTOHWQUEUE;
+#endif // D3D_UMD_INTERFACE_VERSION
+
+#if (D3D_UMD_INTERFACE_VERSION >= D3D_UMD_INTERFACE_VERSION_WDDM2_5_2)
+typedef struct _D3DDDICB_SUBMITPRESENTTOHWQUEUE
+{
+    _Field_size_(BroadcastHwQueueCount)
+    D3DKMT_HANDLE*              BroadcastSrcAllocations;
+    _Field_size_opt_(BroadcastHwQueueCount)
+    D3DKMT_HANDLE*              BroadcastDstAllocations;
+    HANDLE*                     hHwQueues;
+    UINT                        BroadcastHwQueueCount;
+    UINT                        PrivateDriverDataSize;
+    _Field_size_bytes_(PrivateDriverDataSize)
+    PVOID                       pPrivateDriverData;
+#if (D3D_UMD_INTERFACE_VERSION >= D3D_UMD_INTERFACE_VERSION_WDDM2_6_2)
+    BOOLEAN                     bOptimizeForComposition;
+#endif // D3D_UMD_INTERFACE_VERSION
+#if (D3D_UMD_INTERFACE_VERSION >= D3D_UMD_INTERFACE_VERSION_WDDM2_6_3)
+    BOOL                        SyncIntervalOverrideValid;
+    D3DDDI_FLIPINTERVAL_TYPE    SyncIntervalOverride;
+#endif // D3D_UMD_INTERFACE_VERSION
+} D3DDDICB_SUBMITPRESENTTOHWQUEUE;
+#endif // D3D_UMD_INTERFACE_VERSION
+
+#if (D3D_UMD_INTERFACE_VERSION >= D3D_UMD_INTERFACE_VERSION_WDDM2_6_4)
+typedef struct _D3DDDI_BATCHEDMARKERDATA
+{
+    HANDLE      hRTCommandListHandle;
+    UINT        FirstAPISequenceNumberHigh;
+    UINT        CompletedAPISequenceNumberLowSize;
+    CONST UINT* pCompletedAPISequenceNumberLow;
+} D3DDDI_BATCHEDMARKERDATA;
+
+typedef struct _D3DDDICB_SUBMITHISTORYSEQUENCE
+{
+    HANDLE                                  hHwQueue;
+    UINT64                                  HwQueueProgressFenceId;
+    UINT                                    NumHistoryBuffers;
+    _Field_size_(NumHistoryBuffers)
+    const VOID**                            HistoryBufferAddresses;
+    _Field_size_(NumHistoryBuffers)
+    const UINT*                             HistoryBufferSizes;
+    UINT                                    PrecisionBits;
+    D3DDDI_MARKERLOGTYPE                    MarkerLogType;
+    UINT                                    RenderCBSequence;
+    union
+    {
+        struct
+        {
+            UINT                            FirstAPISequenceNumberHigh;
+            UINT                            CompletedAPISequenceNumberLow0Size;
+            UINT                            CompletedAPISequenceNumberLow1Size;
+            UINT                            BegunAPISequenceNumberLow0Size;
+            UINT                            BegunAPISequenceNumberLow1Size;
+        };
+        UINT                                BatchedMarkerDataCount;
+    };
+    union
+    {
+        struct
+        {
+            CONST UINT*                     pCompletedAPISequenceNumberLow0;
+            CONST UINT*                     pCompletedAPISequenceNumberLow1;
+            CONST UINT*                     pBegunAPISequenceNumberLow0;
+            CONST UINT*                     pBegunAPISequenceNumberLow1;
+        };
+        CONST D3DDDI_BATCHEDMARKERDATA*     pBatchedMarkerData;
+    };
+#if (D3D_UMD_INTERFACE_VERSION >= D3D_UMD_INTERFACE_VERSION_WDDM2_7_2)
+    UINT                                    TimestampArrayStride;
+    D3DKMT_HANDLE                           HistorySequenceCompletionSyncObject;
+    UINT64                                  HistorySequenceCompletionFenceValue;
+#endif // D3D_UMD_INTERFACE_VERSION
+} D3DDDICB_SUBMITHISTORYSEQUENCE;
+#endif // D3D_UMD_INTERFACE_VERSION
 #endif
 
 typedef struct _D3DDDIARG_PRESENT
@@ -3387,6 +3489,15 @@ typedef HRESULT (APIENTRY *PFND3DDDI_SUBMITCOMMANDCB)(_In_ HANDLE hDevice, _In_ 
 #if (D3D_UMD_INTERFACE_VERSION >= D3D_UMD_INTERFACE_VERSION_WDDM2_2_1)
 typedef HRESULT (APIENTRY *PFND3DDDI_SUBMITCOMMANDTOHWQUEUECB)(_In_ HANDLE hDevice, _In_ CONST D3DDDICB_SUBMITCOMMANDTOHWQUEUE*);
 typedef HRESULT (APIENTRY *PFND3DDDI_SUBMITSIGNALSYNCOBJECTSTOHWQUEUECB)(_In_ HANDLE hDevice, _In_ CONST D3DDDICB_SUBMITSIGNALSYNCOBJECTSTOHWQUEUE*);
+#if (D3D_UMD_INTERFACE_VERSION >= D3D_UMD_INTERFACE_VERSION_WDDM2_4_2)
+typedef HRESULT (APIENTRY *PFND3DDDI_SUBMITPRESENTBLTTOHWQUEUECB)(_In_ HANDLE hDevice, _Inout_ D3DDDICB_SUBMITPRESENTBLTTOHWQUEUE*);
+#endif // D3D_UMD_INTERFACE_VERSION
+#if (D3D_UMD_INTERFACE_VERSION >= D3D_UMD_INTERFACE_VERSION_WDDM2_5_2)
+typedef HRESULT (APIENTRY *PFND3DDDI_SUBMITPRESENTTOHWQUEUECB)(_In_ HANDLE hDevice, _Inout_ D3DDDICB_SUBMITPRESENTTOHWQUEUE*);
+#endif // D3D_UMD_INTERFACE_VERSION
+#if (D3D_UMD_INTERFACE_VERSION >= D3D_UMD_INTERFACE_VERSION_WDDM2_6_4)
+typedef HRESULT (APIENTRY *PFND3DDDI_SUBMITHISTORYSEQUENCECB)(_In_ HANDLE hDevice, _In_ CONST D3DDDICB_SUBMITHISTORYSEQUENCE*);
+#endif // D3D_UMD_INTERFACE_VERSION
 typedef HRESULT (APIENTRY *PFND3DDDI_SUBMITWAITFORSYNCOBJECTSTOHWQUEUECB)(_In_ HANDLE hDevice, _In_ CONST D3DDDICB_SUBMITWAITFORSYNCOBJECTSTOHWQUEUE*);
 #endif
 #if (D3D_UMD_INTERFACE_VERSION >= D3D_UMD_INTERFACE_VERSION_WDDM2_1_2)
@@ -3669,6 +3780,15 @@ typedef struct _D3DDDI_DEVICECALLBACKS
     PFND3DDDI_SUBMITCOMMANDTOHWQUEUECB                  pfnSubmitCommandToHwQueueCb;
     PFND3DDDI_SUBMITWAITFORSYNCOBJECTSTOHWQUEUECB       pfnSubmitWaitForSyncObjectsToHwQueueCb;
     PFND3DDDI_SUBMITSIGNALSYNCOBJECTSTOHWQUEUECB        pfnSubmitSignalSyncObjectsToHwQueueCb;
+#endif // D3D_UMD_INTERFACE_VERSION
+#if (D3D_UMD_INTERFACE_VERSION >= D3D_UMD_INTERFACE_VERSION_WDDM2_4_2)
+    PFND3DDDI_SUBMITPRESENTBLTTOHWQUEUECB               pfnSubmitPresentBltToHwQueueCb;
+#endif // D3D_UMD_INTERFACE_VERSION
+#if (D3D_UMD_INTERFACE_VERSION >= D3D_UMD_INTERFACE_VERSION_WDDM2_5_2)
+    PFND3DDDI_SUBMITPRESENTTOHWQUEUECB                  pfnSubmitPresentToHwQueueCb;
+#endif // D3D_UMD_INTERFACE_VERSION
+#if (D3D_UMD_INTERFACE_VERSION >= D3D_UMD_INTERFACE_VERSION_WDDM2_6_4)
+    PFND3DDDI_SUBMITHISTORYSEQUENCECB                   pfnSubmitHistorySequenceCb;
 #endif // D3D_UMD_INTERFACE_VERSION
 } D3DDDI_DEVICECALLBACKS;
 
