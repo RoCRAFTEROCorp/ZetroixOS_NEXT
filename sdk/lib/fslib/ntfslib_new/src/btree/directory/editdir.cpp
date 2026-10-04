@@ -1130,6 +1130,44 @@ Directory::PushDownRoot(
                         0,
                         RecordSize,
                         RecordSize);
+            if (Status == STATUS_BUFFER_TOO_SMALL)
+            {
+                PFileRecord AllocationOwner = DirectoryFile;
+                BOOLEAN ListCreated;
+
+                Status =
+                    DirectoryFile->
+                        EnsureAttributeListForMappingGrowth(
+                            TypeIndexAllocation,
+                            const_cast<PWSTR>(
+                                NtfsI30Name),
+                            &NewAttribute,
+                            &AllocationOwner,
+                            &ListCreated);
+                if (NT_SUCCESS(Status) && ListCreated)
+                {
+                    Status =
+                        AllocationOwner->
+                            PromoteResidentData(
+                                NewAttribute,
+                                Image,
+                                RecordSize,
+                                0,
+                                RecordSize,
+                                RecordSize);
+                    if (NT_SUCCESS(Status) &&
+                        AllocationOwner != DirectoryFile)
+                    {
+                        Status = DiskVolume->MFT->
+                            WriteFileRecordToMFT(
+                                AllocationOwner);
+                    }
+                }
+                else if (NT_SUCCESS(Status))
+                {
+                    Status = STATUS_BUFFER_TOO_SMALL;
+                }
+            }
         }
         if (NT_SUCCESS(Status) &&
             RootOwner != DirectoryFile)
