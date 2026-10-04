@@ -94,6 +94,7 @@ jobs:
         [ -n "${{matrix.profile}}" ] && FLAGS="$FLAGS -DROSCONFIG_PROFILE=${{matrix.profile}}"
         ./configure.sh $FLAGS -a ${{matrix.arch}} \
           -DREACTOS_TARGET_NT=${{matrix.ntver}} \
+          -DDIAGDATA_CHANNEL= \
           -DENABLE_CCACHE=1
         ENV_NAME=$([ "${{matrix.compiler}}" = "clang" ] && echo Clang || echo GCC)
         CFG_LOWER=$(echo "${{matrix.config}}" | tr '[:upper:]' '[:lower:]')
