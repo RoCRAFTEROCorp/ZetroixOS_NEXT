@@ -94,7 +94,7 @@ NtfsForwardVolumeIo(
 
         ExAcquireFastMutex(&VolCB->VolumeStateMutex);
         if (VolCB->Dismounted)
-            Status = STATUS_VOLUME_DISMOUNTED;
+            Status = FileCB->DismountedVolume ? STATUS_SUCCESS : STATUS_VOLUME_DISMOUNTED;
         else if (VolCB->Dismounting)
             Status = STATUS_DEVICE_BUSY;
         else if (VolCB->VolumeLockOwner != FileObject)

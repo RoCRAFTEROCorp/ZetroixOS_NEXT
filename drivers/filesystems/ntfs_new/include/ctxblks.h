@@ -287,6 +287,7 @@ typedef struct _FCB
     BOOLEAN IsVolumeOpen;
     BOOLEAN CleanupComplete;
     BOOLEAN ManageVolumeAccess;
+    BOOLEAN DismountedVolume;
     ULONG CreateOptions;
     ACCESS_MASK DesiredAccess;
     ULONG AutomaticTimestampMask;

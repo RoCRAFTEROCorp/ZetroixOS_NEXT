@@ -1358,6 +1358,7 @@ NtfsDismountVolume(
     if (NT_SUCCESS(Status))
     {
         VolCB->Dismounted = TRUE;
+        FileCB->DismountedVolume = TRUE;
         IoAcquireVpbSpinLock(&OldIrql);
         VolumeDeviceObject->Vpb->Flags &= ~VPB_MOUNTED;
         VolumeDeviceObject->Vpb->Flags |=
