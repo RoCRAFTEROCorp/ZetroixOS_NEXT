@@ -2144,12 +2144,33 @@ CmpReleaseTwoKcbLockByKey(IN ULONG ConvKey1,
     }
 }
 
+static
+VOID
+CmpSetShutdownTime(VOID)
+{
+    UNICODE_STRING KeyName = RTL_CONSTANT_STRING(L"\\Registry\\Machine\\SYSTEM\\CurrentControlSet\\Control\\Windows");
+    UNICODE_STRING ValueName = RTL_CONSTANT_STRING(L"ShutdownTime");
+    OBJECT_ATTRIBUTES ObjectAttributes;
+    LARGE_INTEGER SystemTime;
+    HANDLE KeyHandle;
+
+    InitializeObjectAttributes(&ObjectAttributes, &KeyName, OBJ_CASE_INSENSITIVE | OBJ_KERNEL_HANDLE, NULL, NULL);
+    if (!NT_SUCCESS(ZwOpenKey(&KeyHandle, KEY_SET_VALUE, &ObjectAttributes)))
+        return;
+
+    KeQuerySystemTime(&SystemTime);
+    ZwSetValueKey(KeyHandle, &ValueName, 0, REG_BINARY, &SystemTime, sizeof(SystemTime));
+    ZwClose(KeyHandle);
+}
+
 VOID
 NTAPI
 CmShutdownSystem(VOID)
 {
     PLIST_ENTRY ListEntry;
     PCMHIVE Hive;
+
+    CmpSetShutdownTime();
 
     /* Kill the workers */
     if (!CmFirstTime) CmpShutdownWorkers();
