@@ -987,7 +987,9 @@ IopFixupResourceListWithRequirements(IN PIO_RESOURCE_REQUIREMENTS_LIST Requireme
                 }
 
                 /* Check if it's missing and required */
-                if (!FoundResource && IoDesc->Option == 0)
+                if (!FoundResource && IoDesc->Option == 0 &&
+                    !(ii + 1 < ResList->Count &&
+                      (ResList->Descriptors[ii + 1].Option & IO_RESOURCE_ALTERNATIVE)))
                 {
                     /* Break out of this loop and try the next list */
                     DPRINT1("Unable to satisfy required resource in list %lu\n", i);
