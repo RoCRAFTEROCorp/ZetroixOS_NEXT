@@ -23,6 +23,9 @@ NtfsDiskPrepareMountKm(
 NTSTATUS
 NtfsDiskFlushKm(VOID);
 
+NTSTATUS
+NtfsDiskUnloadKm(VOID);
+
 /* Flush one mounted volume without submitting writes to previous devices. */
 NTSTATUS
 NtfsDiskFlushVolumeKm(_In_ PDEVICE_OBJECT DeviceObject);

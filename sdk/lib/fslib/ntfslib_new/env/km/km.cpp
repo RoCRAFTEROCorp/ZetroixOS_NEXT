@@ -106,6 +106,17 @@ static FAST_MUTEX NtfsCacheMutex;
 static KMUTEX NtfsCacheWritebackMutex;
 static volatile LONG NtfsCacheReady = 0;
 static volatile LONG NtfsCacheInitializing = 0;
+static KTIMER NtfsCacheLazyTimer;
+static KDPC NtfsCacheLazyDpc;
+static WORK_QUEUE_ITEM NtfsCacheLazyItem;
+static KEVENT NtfsCacheLazyIdle;
+static volatile LONG NtfsCacheLazyArmed = 0;
+static volatile LONG NtfsCacheLazyStopped = 0;
+
+#define NTFS_CACHE_LAZY_DIVISOR 8
+
+static KDEFERRED_ROUTINE NtfsCacheLazyDpcRoutine;
+static WORKER_THREAD_ROUTINE NtfsCacheLazyWorker;
 
 #define NTFS_CACHE_EMPTY ((ULONGLONG)~0ULL)
 
@@ -175,6 +186,10 @@ NtfsCacheInitialize(VOID)
         KeInitializeMutex(&NtfsCacheWritebackMutex, 0);
         RtlZeroMemory(NtfsCacheSlots, sizeof(NtfsCacheSlots));
         NtfsCacheDiscardAll();
+        KeInitializeTimer(&NtfsCacheLazyTimer);
+        KeInitializeDpc(&NtfsCacheLazyDpc, NtfsCacheLazyDpcRoutine, NULL);
+        ExInitializeWorkItem(&NtfsCacheLazyItem, NtfsCacheLazyWorker, NULL);
+        KeInitializeEvent(&NtfsCacheLazyIdle, NotificationEvent, TRUE);
         InterlockedExchange(&NtfsCacheReady, TRUE);
     }
     else
@@ -395,6 +410,55 @@ NtfsCacheFlushAll(_In_opt_ PDEVICE_OBJECT OnlyOwner)
             ObDereferenceObject(Owner);
     }
     return Status;
+}
+
+static
+VOID
+NtfsCacheScheduleLazyWrite(VOID)
+{
+    LARGE_INTEGER DueTime;
+
+    if (NtfsCacheLazyStopped || InterlockedCompareExchange(&NtfsCacheLazyArmed, 1, 0) != 0)
+        return;
+
+    DueTime.QuadPart = -10 * 1000 * 1000;
+    KeSetTimer(&NtfsCacheLazyTimer, DueTime, &NtfsCacheLazyDpc);
+}
+
+static
+VOID
+NTAPI
+NtfsCacheLazyDpcRoutine(_In_ PKDPC Dpc,
+                        _In_opt_ PVOID DeferredContext,
+                        _In_opt_ PVOID SystemArgument1,
+                        _In_opt_ PVOID SystemArgument2)
+{
+    UNREFERENCED_PARAMETER(Dpc);
+    UNREFERENCED_PARAMETER(DeferredContext);
+    UNREFERENCED_PARAMETER(SystemArgument1);
+    UNREFERENCED_PARAMETER(SystemArgument2);
+
+    KeClearEvent(&NtfsCacheLazyIdle);
+    ExQueueWorkItem(&NtfsCacheLazyItem, DelayedWorkQueue);
+}
+
+static
+VOID
+NTAPI
+NtfsCacheLazyWorker(_In_opt_ PVOID Parameter)
+{
+    ULONG Budget = NtfsCacheDirtyCount / NTFS_CACHE_LAZY_DIVISOR;
+
+    UNREFERENCED_PARAMETER(Parameter);
+
+    if (Budget < NTFS_CACHE_DIRTY_SLICE)
+        Budget = NTFS_CACHE_DIRTY_SLICE;
+    NtfsCacheFlushSome(Budget);
+
+    InterlockedExchange(&NtfsCacheLazyArmed, 0);
+    if (NtfsCacheDirtyCount != 0)
+        NtfsCacheScheduleLazyWrite();
+    KeSetEvent(&NtfsCacheLazyIdle, IO_NO_INCREMENT, FALSE);
 }
 
 /* Commits anything held for [Offset, Offset + Length) so the caller may read
@@ -997,6 +1061,7 @@ NtfsWriteVolumeContext(_In_opt_ void* Context,
             {
                 if (NtfsCacheDirtyCount > NTFS_CACHE_DIRTY_LIMIT)
                     NtfsCacheFlushSome(NTFS_CACHE_DIRTY_SLICE);
+                NtfsCacheScheduleLazyWrite();
                 return STATUS_SUCCESS;
             }
         }
@@ -1108,6 +1173,20 @@ extern "C"
 NTSTATUS
 NtfsDiskFlushKm(VOID)
 {
+    return NtfsCacheFlushAll(NULL);
+}
+
+extern "C"
+NTSTATUS
+NtfsDiskUnloadKm(VOID)
+{
+    if (!NtfsCacheReady)
+        return STATUS_SUCCESS;
+
+    InterlockedExchange(&NtfsCacheLazyStopped, 1);
+    KeCancelTimer(&NtfsCacheLazyTimer);
+    KeFlushQueuedDpcs();
+    KeWaitForSingleObject(&NtfsCacheLazyIdle, Executive, KernelMode, FALSE, NULL);
     return NtfsCacheFlushAll(NULL);
 }
 
