@@ -11,6 +11,8 @@
 #include "precomp.h"
 
 #include <rpc.h>
+#include <winsvc.h>
+#include <strsafe.h>
 
 #define NDEBUG
 #include <debug.h>
@@ -33,11 +35,211 @@ typedef struct _COMPONENT_INFO
 
 static
 BOOL
+SetServiceString(
+    _In_ HKEY hKey,
+    _In_ PCWSTR ValueName,
+    _In_ DWORD Type,
+    _In_ PCWSTR Data,
+    _In_ DWORD cbData)
+{
+    LONG rc = RegSetValueExW(hKey, ValueName, 0, Type, (const BYTE*)Data, cbData);
+    SetLastError(rc);
+    return (rc == ERROR_SUCCESS);
+}
+
+static
+BOOL
+InstallOfflineService(
+    _In_ HINF hInf,
+    _In_ PCWSTR ServiceName,
+    _In_ PCWSTR ServiceSection)
+{
+    WCHAR WindowsDirectory[MAX_PATH];
+    WCHAR Binary[MAX_PATH];
+    WCHAR Buffer[MAX_PATH];
+    WCHAR Services[MAX_PATH], Groups[MAX_PATH];
+    INFCONTEXT Context;
+    INT ServiceType, StartType, ErrorControl;
+    DWORD cchDirectory, cchServices = 0, cchGroups = 0, cchField, i, FieldCount;
+    HKEY hServiceKey;
+    LONG rc;
+    BOOL ret = FALSE;
+
+    if (!SetupFindFirstLineW(hInf, ServiceSection, L"ServiceType", &Context) ||
+        !SetupGetIntField(&Context, 1, &ServiceType) ||
+        !SetupFindFirstLineW(hInf, ServiceSection, L"StartType", &Context) ||
+        !SetupGetIntField(&Context, 1, &StartType) ||
+        !SetupFindFirstLineW(hInf, ServiceSection, L"ErrorControl", &Context) ||
+        !SetupGetIntField(&Context, 1, &ErrorControl) ||
+        !SetupGetLineTextW(NULL, hInf, ServiceSection, L"ServiceBinary", Binary, ARRAYSIZE(Binary), NULL))
+    {
+        return FALSE;
+    }
+
+    cchDirectory = GetWindowsDirectoryW(WindowsDirectory, ARRAYSIZE(WindowsDirectory));
+    if (cchDirectory != 0 && cchDirectory < ARRAYSIZE(WindowsDirectory) &&
+        wcslen(Binary) > cchDirectory && Binary[cchDirectory] == L'\\' &&
+        _wcsnicmp(Binary, WindowsDirectory, cchDirectory) == 0)
+    {
+        StringCchPrintfW(Buffer, ARRAYSIZE(Buffer), L"%s%s",
+                         (ServiceType & SERVICE_WIN32) ? L"%SystemRoot%" : L"\\SystemRoot",
+                         &Binary[cchDirectory]);
+        StringCchCopyW(Binary, ARRAYSIZE(Binary), Buffer);
+    }
+
+    StringCchPrintfW(Buffer, ARRAYSIZE(Buffer), L"SYSTEM\\CurrentControlSet\\Services\\%s", ServiceName);
+    rc = RegCreateKeyExW(HKEY_LOCAL_MACHINE,
+                         Buffer,
+                         0,
+                         NULL,
+                         REG_OPTION_NON_VOLATILE,
+                         KEY_ALL_ACCESS,
+                         NULL,
+                         &hServiceKey,
+                         NULL);
+    if (rc != ERROR_SUCCESS)
+    {
+        SetLastError(rc);
+        return FALSE;
+    }
+
+    if (RegSetValueExW(hServiceKey, L"Type", 0, REG_DWORD, (const BYTE*)&ServiceType, sizeof(DWORD)) != ERROR_SUCCESS ||
+        RegSetValueExW(hServiceKey, L"Start", 0, REG_DWORD, (const BYTE*)&StartType, sizeof(DWORD)) != ERROR_SUCCESS ||
+        RegSetValueExW(hServiceKey, L"ErrorControl", 0, REG_DWORD, (const BYTE*)&ErrorControl, sizeof(DWORD)) != ERROR_SUCCESS ||
+        !SetServiceString(hServiceKey, L"ImagePath", REG_EXPAND_SZ, Binary, (DWORD)((wcslen(Binary) + 1) * sizeof(WCHAR))))
+    {
+        goto done;
+    }
+
+    if (!SetupGetLineTextW(NULL, hInf, ServiceSection, L"DisplayName", Buffer, ARRAYSIZE(Buffer), NULL))
+        StringCchCopyW(Buffer, ARRAYSIZE(Buffer), ServiceName);
+    if (!SetServiceString(hServiceKey, L"DisplayName", REG_SZ, Buffer, (DWORD)((wcslen(Buffer) + 1) * sizeof(WCHAR))))
+        goto done;
+
+    if (SetupGetLineTextW(NULL, hInf, ServiceSection, L"Description", Buffer, ARRAYSIZE(Buffer), NULL) &&
+        !SetServiceString(hServiceKey, L"Description", REG_SZ, Buffer, (DWORD)((wcslen(Buffer) + 1) * sizeof(WCHAR))))
+    {
+        goto done;
+    }
+
+    if (SetupGetLineTextW(NULL, hInf, ServiceSection, L"LoadOrderGroup", Buffer, ARRAYSIZE(Buffer), NULL) &&
+        *Buffer &&
+        !SetServiceString(hServiceKey, L"Group", REG_SZ, Buffer, (DWORD)((wcslen(Buffer) + 1) * sizeof(WCHAR))))
+    {
+        goto done;
+    }
+
+    if (SetupGetLineTextW(NULL, hInf, ServiceSection, L"StartName", Buffer, ARRAYSIZE(Buffer), NULL) && *Buffer)
+    {
+        if (!SetServiceString(hServiceKey, L"ObjectName", REG_SZ, Buffer, (DWORD)((wcslen(Buffer) + 1) * sizeof(WCHAR))))
+            goto done;
+    }
+    else if (ServiceType & SERVICE_WIN32)
+    {
+        if (!SetServiceString(hServiceKey, L"ObjectName", REG_SZ, L"LocalSystem", sizeof(L"LocalSystem")))
+            goto done;
+    }
+
+    if (SetupFindFirstLineW(hInf, ServiceSection, L"Dependencies", &Context))
+    {
+        FieldCount = SetupGetFieldCount(&Context);
+        for (i = 1; i <= FieldCount; i++)
+        {
+            if (!SetupGetStringFieldW(&Context, i, Buffer, ARRAYSIZE(Buffer), NULL) || !*Buffer)
+                continue;
+
+            if (Buffer[0] == SC_GROUP_IDENTIFIERW)
+            {
+                cchField = (DWORD)wcslen(&Buffer[1]) + 1;
+                if (cchGroups + cchField + 1 > ARRAYSIZE(Groups))
+                    continue;
+                CopyMemory(&Groups[cchGroups], &Buffer[1], cchField * sizeof(WCHAR));
+                cchGroups += cchField;
+            }
+            else
+            {
+                cchField = (DWORD)wcslen(Buffer) + 1;
+                if (cchServices + cchField + 1 > ARRAYSIZE(Services))
+                    continue;
+                CopyMemory(&Services[cchServices], Buffer, cchField * sizeof(WCHAR));
+                cchServices += cchField;
+            }
+        }
+
+        if (cchServices)
+        {
+            Services[cchServices++] = UNICODE_NULL;
+            if (!SetServiceString(hServiceKey, L"DependOnService", REG_MULTI_SZ, Services, cchServices * sizeof(WCHAR)))
+                goto done;
+        }
+        if (cchGroups)
+        {
+            Groups[cchGroups++] = UNICODE_NULL;
+            if (!SetServiceString(hServiceKey, L"DependOnGroup", REG_MULTI_SZ, Groups, cchGroups * sizeof(WCHAR)))
+                goto done;
+        }
+    }
+
+    ret = SetupInstallFromInfSectionW(NULL,
+                                      hInf,
+                                      ServiceSection,
+                                      SPINST_REGISTRY,
+                                      hServiceKey,
+                                      NULL,
+                                      0,
+                                      NULL,
+                                      NULL,
+                                      NULL,
+                                      NULL);
+
+done:
+    RegCloseKey(hServiceKey);
+    return ret;
+}
+
+static
+BOOL
+InstallOfflineServices(
+    _In_ HINF hInf,
+    _In_ PCWSTR Section)
+{
+    WCHAR ServiceName[MAX_PATH];
+    WCHAR ServiceSection[MAX_PATH];
+    INFCONTEXT Context;
+    BOOL ret;
+
+    if (!SetupFindFirstLineW(hInf, Section, NULL, &Context))
+    {
+        SetLastError(ERROR_SECTION_NOT_FOUND);
+        return FALSE;
+    }
+
+    for (ret = SetupFindFirstLineW(hInf, Section, L"AddService", &Context);
+         ret;
+         ret = SetupFindNextMatchLineW(&Context, L"AddService", &Context))
+    {
+        if (!SetupGetStringFieldW(&Context, 1, ServiceName, ARRAYSIZE(ServiceName), NULL) ||
+            !*ServiceName ||
+            !SetupGetStringFieldW(&Context, 3, ServiceSection, ARRAYSIZE(ServiceSection), NULL))
+        {
+            continue;
+        }
+
+        if (!InstallOfflineService(hInf, ServiceName, ServiceSection))
+            return FALSE;
+    }
+
+    return TRUE;
+}
+
+static
+BOOL
 InstallInfSections(
     _In_ HWND hWnd,
     _In_ HKEY hKey,
     _In_ LPCWSTR InfFile,
-    _In_ LPCWSTR InfSection)
+    _In_ LPCWSTR InfSection,
+    _In_ BOOL bOffline)
 {
     WCHAR Buffer[MAX_PATH];
     HINF hInf = INVALID_HANDLE_VALUE;
@@ -89,7 +291,10 @@ InstallInfSections(
     wcscpy(Buffer, InfSection);
     wcscat(Buffer, L".Services");
 
-    ret = SetupInstallServicesFromInfSectionW(hInf, Buffer, 0);
+    if (bOffline)
+        ret = InstallOfflineServices(hInf, Buffer);
+    else
+        ret = SetupInstallServicesFromInfSectionW(hInf, Buffer, 0);
     if (ret == FALSE)
     {
         DPRINT1("SetupInstallServicesFromInfSectionW(%S) failed (Error %lx)\n", Buffer, GetLastError());
@@ -465,7 +670,8 @@ ScanForInfFile(
 
 BOOL
 InstallNetworkComponent(
-    _In_ PWSTR pszComponentId)
+    _In_ PWSTR pszComponentId,
+    _In_ BOOL bOffline)
 {
     COMPONENT_INFO ComponentInfo;
     HKEY hInstanceKey = NULL;
@@ -495,7 +701,8 @@ InstallNetworkComponent(
     if (!InstallInfSections(NULL,
                             hInstanceKey,
                             ComponentInfo.pszInfPath,
-                            ComponentInfo.pszInfSection))
+                            ComponentInfo.pszInfSection,
+                            bOffline))
     {
         DPRINT1("InstallInfSections() failed (Error %lx)\n", GetLastError());
         goto done;

@@ -170,11 +170,6 @@ NTAPI
 CheckUnattendedSetup(
     IN OUT PUSETUP_DATA pSetupData);
 
-VOID
-NTAPI
-InstallSetupInfFile(
-    IN OUT PUSETUP_DATA pSetupData);
-
 NTSTATUS
 GetSourcePaths(
     _Out_ PUNICODE_STRING SourcePath,
@@ -258,6 +253,15 @@ UpdateRegistry(
     /**/IN PCWSTR SelectedLanguageId,    /* HACK HACK! */
     IN PREGISTRY_STATUS_ROUTINE StatusRoutine OPTIONAL,
     IN PFONTSUBSTSETTINGS SubstSettings OPTIONAL);
+
+NTSTATUS
+NTAPI
+MountTargetRegistry(
+    _In_ PUSETUP_DATA pSetupData);
+
+VOID
+NTAPI
+UnmountTargetRegistry(VOID);
 
 #ifdef __cplusplus
 }

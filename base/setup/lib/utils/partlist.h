@@ -383,6 +383,13 @@ DeletePartition(
     _In_ PPARTENTRY PartEntry,
     _Out_opt_ PPARTENTRY* FreeRegion);
 
+BOOLEAN
+NTAPI
+EraseDisk(
+    _In_ PPARTLIST List,
+    _In_ PDISKENTRY DiskEntry,
+    _Out_opt_ PPARTENTRY* FreeRegion);
+
 PPARTENTRY
 FindSupportedSystemPartition(
     IN PPARTLIST List,

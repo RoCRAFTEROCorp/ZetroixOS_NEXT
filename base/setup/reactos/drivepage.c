@@ -876,13 +876,56 @@ FindDefaultInstallRegion(
 }
 
 static
+BOOL
+IsEraseDiskMode(
+    _In_ HWND hwndDlg)
+{
+    return (IsDlgButtonChecked(hwndDlg, IDC_ERASEDISK) == BST_CHECKED);
+}
+
+static
+HTLITEM
+GetDiskItem(
+    _In_ HWND hTreeList,
+    _In_opt_ HTLITEM hItem)
+{
+    HTLITEM hParentItem;
+
+    if (!hItem)
+        return NULL;
+
+    while ((hParentItem = TreeList_GetParent(hTreeList, hItem)) != NULL)
+        hItem = hParentItem;
+
+    return hItem;
+}
+
+static
 VOID
 UpdateWizardButtons(
     _In_ HWND hwndDlg,
-    _In_ HWND hTreeList)
+    _In_ HWND hTreeList,
+    _In_opt_ HTLITEM hItem)
 {
-    PPARTITEM PartItem = GetSelectedPartition(hTreeList, NULL);
-    PPARTENTRY PartEntry = PartItem ? PartItem->PartEntry : NULL;
+    PPARTITEM PartItem;
+    PPARTENTRY PartEntry;
+
+    if (IsEraseDiskMode(hwndDlg))
+    {
+        if (GetDiskItem(hTreeList, hItem) &&
+            IsDlgButtonChecked(hwndDlg, IDC_ERASECONFIRM) == BST_CHECKED)
+        {
+            PropSheet_SetWizButtons(GetParent(hwndDlg), PSWIZB_BACK | PSWIZB_NEXT);
+        }
+        else
+        {
+            PropSheet_SetWizButtons(GetParent(hwndDlg), PSWIZB_BACK);
+        }
+        return;
+    }
+
+    PartItem = hItem ? GetItemPartition(hTreeList, hItem) : NULL;
+    PartEntry = PartItem ? PartItem->PartEntry : NULL;
 
     if (PartEntry &&
         ((PartEntry->IsPartitioned && PartEntry->Volume) ||
@@ -1705,6 +1748,126 @@ DoDeletePartition(
 }
 
 
+static
+VOID
+UpdatePartitionButtons(
+    _In_ HWND hwndDlg,
+    _In_ HWND hTreeList,
+    _In_opt_ HTLITEM hItem)
+{
+    BOOL EraseDisk = IsEraseDiskMode(hwndDlg);
+    PPARTITEM PartItem;
+    PPARTENTRY PartEntry;
+
+    ShowDlgItem(hwndDlg, IDC_ERASECONFIRM, EraseDisk ? SW_SHOW : SW_HIDE);
+    EnableDlgItem(hwndDlg, IDC_ERASECONFIRM, EraseDisk);
+
+    ShowDlgItem(hwndDlg, IDC_INITDISK, SW_HIDE);
+    EnableDlgItem(hwndDlg, IDC_INITDISK, FALSE);
+    ShowDlgItem(hwndDlg, IDC_PARTCREATE, SW_HIDE);
+    EnableDlgItem(hwndDlg, IDC_PARTCREATE, FALSE);
+    ShowDlgItem(hwndDlg, IDC_PARTFORMAT, SW_HIDE);
+    EnableDlgItem(hwndDlg, IDC_PARTFORMAT, FALSE);
+    ShowDlgItem(hwndDlg, IDC_PARTDELETE, SW_HIDE);
+    EnableDlgItem(hwndDlg, IDC_PARTDELETE, FALSE);
+
+    if (!EraseDisk && hItem)
+    {
+        if (!TreeList_GetParent(hTreeList, hItem))
+        {
+            ShowDlgItem(hwndDlg, IDC_INITDISK, SW_SHOW);
+        }
+        else
+        {
+            PartItem = (PPARTITEM)TreeListGetItemData(hTreeList, hItem);
+            ASSERT(PartItem);
+            PartEntry = PartItem->PartEntry;
+            ASSERT(PartEntry);
+
+            if (!PartEntry->IsPartitioned)
+            {
+                ShowDlgItem(hwndDlg, IDC_PARTCREATE, SW_SHOW);
+                EnableDlgItem(hwndDlg, IDC_PARTCREATE, TRUE);
+            }
+            else
+            {
+                ShowDlgItem(hwndDlg, IDC_PARTFORMAT, SW_SHOW);
+                EnableDlgItem(hwndDlg, IDC_PARTFORMAT, !!PartEntry->Volume);
+            }
+
+            ShowDlgItem(hwndDlg, IDC_PARTDELETE, SW_SHOW);
+            EnableDlgItem(hwndDlg, IDC_PARTDELETE, PartEntry->IsPartitioned);
+        }
+    }
+
+    UpdateWizardButtons(hwndDlg, hTreeList, hItem);
+}
+
+static BOOLEAN
+DoEraseDisk(
+    _In_ HWND hList,
+    _In_ PPARTLIST List,
+    _In_ HTLITEM hDiskItem,
+    _Out_ PPARTITEM* pPartItem)
+{
+    PDISKENTRY DiskEntry = (PDISKENTRY)TreeListGetItemData(hList, hDiskItem);
+    PPARTENTRY FreeRegion = NULL;
+    PPARTITEM PartItem;
+    PVOL_CREATE_INFO VolCreate;
+    PLIST_ENTRY Entry;
+    PPARTENTRY PartEntry;
+    HTLITEM hChild, hItem = NULL, hRegion;
+    BOOLEAN Success;
+
+    *pPartItem = NULL;
+
+    while ((hChild = TreeList_GetChild(hList, hDiskItem)) != NULL)
+        TreeList_DeleteItem(hList, hChild);
+
+    Success = EraseDisk(List, DiskEntry, &FreeRegion);
+
+    for (Entry = DiskEntry->PrimaryPartListHead.Flink;
+         Entry != &DiskEntry->PrimaryPartListHead;
+         Entry = Entry->Flink)
+    {
+        PartEntry = CONTAINING_RECORD(Entry, PARTENTRY, ListEntry);
+        hRegion = PrintPartitionData(hList, hDiskItem, NULL, PartEntry);
+        if (PartEntry == FreeRegion)
+            hItem = hRegion;
+    }
+    TreeList_Expand(hList, hDiskItem, TVE_EXPAND);
+
+    if (!Success || !hItem)
+        return FALSE;
+
+    PartItem = GetItemPartition(hList, hItem);
+    if (!PartItem ||
+        !DoCreatePartition(hList, List, &hItem, &PartItem, 0ULL, 0))
+    {
+        return FALSE;
+    }
+
+    VolCreate = PartItem->VolCreate;
+    if (!VolCreate)
+        VolCreate = LocalAlloc(LPTR, sizeof(*VolCreate));
+    if (!VolCreate)
+        return FALSE;
+
+    StringCchCopyW(VolCreate->FileSystemName, _countof(VolCreate->FileSystemName), L"NTFS");
+    VolCreate->MediaFlag = FMIFS_HARDDISK;
+    VolCreate->Label = NULL;
+    VolCreate->QuickFormat = TRUE;
+    VolCreate->ClusterSize = 0;
+    VolCreate->Volume = PartItem->Volume;
+    PartItem->VolCreate = VolCreate;
+
+    TreeList_SelectItem(hList, hItem);
+
+    *pPartItem = PartItem;
+    return TRUE;
+}
+
+
 INT_PTR
 CALLBACK
 DriveDlgProc(
@@ -1726,6 +1889,11 @@ DriveDlgProc(
             /* Save pointer to the global setup data */
             pSetupData = (PSETUPDATA)((LPPROPSHEETPAGE)lParam)->lParam;
             SetWindowLongPtrW(hwndDlg, GWLP_USERDATA, (LONG_PTR)pSetupData);
+
+            SetDlgItemFont(hwndDlg, IDC_ERASEDISK, pSetupData->hBoldFont, TRUE);
+            SetDlgItemFont(hwndDlg, IDC_CUSTOMPART, pSetupData->hBoldFont, TRUE);
+            CheckRadioButton(hwndDlg, IDC_ERASEDISK, IDC_CUSTOMPART, IDC_ERASEDISK);
+            CheckDlgButton(hwndDlg, IDC_ERASECONFIRM, BST_UNCHECKED);
 
             /* Initially hide and disable all partitioning buttons */
             ShowDlgItem(hwndDlg, IDC_INITDISK, SW_HIDE);
@@ -1765,6 +1933,27 @@ DriveDlgProc(
         {
             switch (LOWORD(wParam))
             {
+                case IDC_ERASEDISK:
+                case IDC_CUSTOMPART:
+                {
+                    if (HIWORD(wParam) == BN_CLICKED)
+                    {
+                        hList = GetDlgItem(hwndDlg, IDC_PARTITION);
+                        UpdatePartitionButtons(hwndDlg, hList, TreeList_GetSelection(hList));
+                    }
+                    break;
+                }
+
+                case IDC_ERASECONFIRM:
+                {
+                    if (HIWORD(wParam) == BN_CLICKED)
+                    {
+                        hList = GetDlgItem(hwndDlg, IDC_PARTITION);
+                        UpdateWizardButtons(hwndDlg, hList, TreeList_GetSelection(hList));
+                    }
+                    break;
+                }
+
                 case IDC_PARTMOREOPTS:
                 {
                     DialogBoxParamW(pSetupData->hInstance,
@@ -1961,115 +2150,9 @@ DriveDlgProc(
                 /* The item has been (de)selected */
                 // if (pnmv->uNewState & TVIS_SELECTED)
                 if (pnmv->itemNew.state & TVIS_SELECTED)
-                {
-                    HTLITEM hParentItem = TreeList_GetParent(lpnm->hwndFrom, pnmv->itemNew.hItem);
-                    /* May or may not be a PPARTENTRY: this is a PPARTENTRY only when hParentItem != NULL */
-
-                    if (!hParentItem)
-                    {
-                        /* Hard disk */
-                        PDISKENTRY DiskEntry = (PDISKENTRY)pnmv->itemNew.lParam;
-                        ASSERT(DiskEntry);
-
-                        /* Show the "Initialize" disk button and hide and disable the others */
-                        ShowDlgItem(hwndDlg, IDC_INITDISK, SW_SHOW);
-
-#if 0 // FIXME: Init disk not implemented yet!
-                        EnableDlgItem(hwndDlg, IDC_INITDISK,
-                                      DiskEntry->DiskStyle == PARTITION_STYLE_RAW);
-#else
-                        EnableDlgItem(hwndDlg, IDC_INITDISK, FALSE);
-#endif
-
-                        ShowDlgItem(hwndDlg, IDC_PARTCREATE, SW_HIDE);
-                        EnableDlgItem(hwndDlg, IDC_PARTCREATE, FALSE);
-
-                        ShowDlgItem(hwndDlg, IDC_PARTFORMAT, SW_HIDE);
-                        EnableDlgItem(hwndDlg, IDC_PARTFORMAT, FALSE);
-
-                        ShowDlgItem(hwndDlg, IDC_PARTDELETE, SW_HIDE);
-                        EnableDlgItem(hwndDlg, IDC_PARTDELETE, FALSE);
-
-                        /* Disable the "Next" button */
-                        goto DisableWizNext;
-                    }
-                    else
-                    {
-                        /* Partition or unpartitioned space */
-                        PPARTITEM PartItem = (PPARTITEM)pnmv->itemNew.lParam;
-                        PPARTENTRY PartEntry;
-                        ASSERT(PartItem);
-                        PartEntry = PartItem->PartEntry;
-                        ASSERT(PartEntry);
-
-                        /* Hide and disable the "Initialize" disk button */
-                        ShowDlgItem(hwndDlg, IDC_INITDISK, SW_HIDE);
-                        EnableDlgItem(hwndDlg, IDC_INITDISK, FALSE);
-
-                        if (!PartEntry->IsPartitioned)
-                        {
-                            /* Show and enable the "Create" partition button */
-                            ShowDlgItem(hwndDlg, IDC_PARTCREATE, SW_SHOW);
-                            EnableDlgItem(hwndDlg, IDC_PARTCREATE, TRUE);
-
-                            /* Hide and disable the "Format" button */
-                            ShowDlgItem(hwndDlg, IDC_PARTFORMAT, SW_HIDE);
-                            EnableDlgItem(hwndDlg, IDC_PARTFORMAT, FALSE);
-                        }
-                        else
-                        {
-                            /* Hide and disable the "Create" partition button */
-                            ShowDlgItem(hwndDlg, IDC_PARTCREATE, SW_HIDE);
-                            EnableDlgItem(hwndDlg, IDC_PARTCREATE, FALSE);
-
-                            /* Show the "Format" button, but enable or disable it if a formattable volume is present */
-                            ShowDlgItem(hwndDlg, IDC_PARTFORMAT, SW_SHOW);
-                            EnableDlgItem(hwndDlg, IDC_PARTFORMAT, !!PartEntry->Volume);
-                        }
-
-                        /* Show the "Delete" partition button, but enable or disable it if the disk region is partitioned */
-                        ShowDlgItem(hwndDlg, IDC_PARTDELETE, SW_SHOW);
-                        EnableDlgItem(hwndDlg, IDC_PARTDELETE, PartEntry->IsPartitioned);
-
-                        /*
-                         * Enable the "Next" button if:
-                         *
-                         * 1. the selected disk region is partitioned:
-                         *    it can either have a volume attached (and be either
-                         *    formatted or ready to be formatted),
-                         *    or it's not yet formatted (the installer will prompt
-                         *    for formatting parameters).
-                         *
-                         * 2. Or, the selected disk region is not partitioned but
-                         *    can be partitioned according to the disk's partitioning
-                         *    scheme (the installer will auto-partition the region
-                         *    and prompt for formatting parameters).
-                         *
-                         * In all other cases, the "Next" button is disabled.
-                         */
-
-                        // TODO: In the future: first test needs to be augmented with:
-                        // (... && PartEntry->Volume->IsSimpleVolume)
-                        if ((PartEntry->IsPartitioned && PartEntry->Volume) ||
-                            (!PartEntry->IsPartitioned && (PartitionCreateChecks(PartEntry, 0ULL, 0) == NOT_AN_ERROR)))
-                        {
-                            // ASSERT(PartEntry != PartEntry->DiskEntry->ExtendedPartition);
-                            ASSERT(!IsContainerPartition(PartEntry->PartitionType));
-                            PropSheet_SetWizButtons(GetParent(hwndDlg), PSWIZB_BACK | PSWIZB_NEXT);
-                        }
-                        else
-                        {
-                            goto DisableWizNext;
-                        }
-                    }
-                }
+                    UpdatePartitionButtons(hwndDlg, lpnm->hwndFrom, pnmv->itemNew.hItem);
                 else
-                {
-DisableWizNext:
-                    /* Keep the "Next" button disabled. It will be enabled
-                     * only when the user selects a valid partition. */
                     PropSheet_SetWizButtons(GetParent(hwndDlg), PSWIZB_BACK);
-                }
 
                 break;
             }
@@ -2088,7 +2171,8 @@ DisableWizNext:
                 {
                     /* Keep the "Next" button disabled. It will be enabled
                      * only when the user selects a valid partition. */
-                    UpdateWizardButtons(hwndDlg, GetDlgItem(hwndDlg, IDC_PARTITION));
+                    hList = GetDlgItem(hwndDlg, IDC_PARTITION);
+                    UpdatePartitionButtons(hwndDlg, hList, TreeList_GetSelection(hList));
                     break;
                 }
 
@@ -2104,7 +2188,7 @@ DisableWizNext:
                         TreeList_SelectItem(hList, hDefault);
                     else
                         TreeList_SelectItem(hList, 1);
-                    UpdateWizardButtons(hwndDlg, hList);
+                    UpdatePartitionButtons(hwndDlg, hList, TreeList_GetSelection(hList));
                     SetWindowLongPtr(hwndDlg, DWLP_MSGRESULT, (LONG_PTR)hList);
                     return TRUE;
                 }
@@ -2138,6 +2222,31 @@ DisableWizNext:
                     PPARTENTRY PartEntry;
 
                     hList = GetDlgItem(hwndDlg, IDC_PARTITION);
+
+                    pSetupData->bEraseDisk = IsEraseDiskMode(hwndDlg);
+                    if (pSetupData->bEraseDisk)
+                    {
+                        hItem = GetDiskItem(hList, TreeList_GetSelection(hList));
+                        if (!hItem ||
+                            IsDlgButtonChecked(hwndDlg, IDC_ERASECONFIRM) != BST_CHECKED)
+                        {
+                            SetWindowLongPtrW(hwndDlg, DWLP_MSGRESULT, -1);
+                            return TRUE;
+                        }
+
+                        if (!DoEraseDisk(hList, pSetupData->PartitionList, hItem, &PartItem))
+                        {
+                            DisplayError(GetParent(hwndDlg),
+                                         IDS_ERROR_CREATE_PARTITION_TITLE,
+                                         IDS_ERROR_CREATE_PARTITION);
+                            SetWindowLongPtrW(hwndDlg, DWLP_MSGRESULT, -1);
+                            return TRUE;
+                        }
+
+                        InstallPartition = PartItem->PartEntry;
+                        break;
+                    }
+
                     PartItem = GetSelectedPartition(hList, &hItem);
                     if (!PartItem)
                     {

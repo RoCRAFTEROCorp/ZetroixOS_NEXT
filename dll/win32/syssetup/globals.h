@@ -18,13 +18,6 @@
 
 #pragma once
 
-typedef struct _ADMIN_INFO
-{
-    LPWSTR Name;
-    LPWSTR Domain;
-    LPWSTR Password;
-} ADMIN_INFO, *PADMIN_INFO;
-
 
 typedef struct _ITEMSDATA
 {
@@ -66,7 +59,6 @@ typedef struct _REGISTRATIONNOTIFY
 
 extern HINSTANCE hDllInstance;
 extern HINF hSysSetupInf;
-extern ADMIN_INFO AdminInfo;
 
 /* addons.c */
 HRESULT
@@ -78,6 +70,25 @@ RunCommandAndWait(
     _In_ PWCHAR Command);
 
 /* install */
+
+VOID
+CreateTempDir(
+    IN LPCWSTR VarName);
+
+BOOL
+InstallSysSetupInfDevices(VOID);
+
+BOOL
+InstallSysSetupInfComponents(VOID);
+
+BOOL
+InitializeProgramFilesDir(VOID);
+
+VOID
+InitializeDefaultUserLocale(VOID);
+
+DWORD
+SaveDefaultUserHive(VOID);
 
 BOOL
 RegisterTypeLibraries(
@@ -94,7 +105,8 @@ InstallStartMenuItems(
 
 BOOL
 InstallNetworkComponent(
-    _In_ PWSTR pszComponentId);
+    _In_ PWSTR pszComponentId,
+    _In_ BOOL bOffline);
 
 /* security.c */
 
@@ -109,17 +121,21 @@ InstallSecurity(
 VOID
 InstallLiveCDPrivileges(VOID);
 
-NTSTATUS
-SetAdministratorPassword(LPCWSTR Password);
-
-VOID
-SetAutoAdminLogon(VOID);
+DWORD
+InstallTargetSystem(VOID);
 
 /* wizard.c */
-VOID
-InstallWizard(VOID);
+
+BOOL
+DoWriteInstallationType(INSTALLATION_TYPE nOption);
+
+BOOL
+WriteOwnerSettings(PCWSTR OwnerName,
+                   PCWSTR OwnerOrganization);
 
 VOID
-GetSetupInfPath(PWSTR szPath, UINT cchMax);
+EnableVisualTheme(
+    _In_opt_ HWND hwndParent,
+    _In_opt_ PCWSTR ThemeFile);
 
 /* EOF */

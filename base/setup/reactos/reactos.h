@@ -28,6 +28,7 @@
 #include <commctrl.h>
 #include <windowsx.h>
 #include <dwmapi.h>
+#include <lmcons.h>
 
 #define EnableDlgItem(hDlg, nID, bEnable)   \
     EnableWindow(GetDlgItem((hDlg), (nID)), (bEnable))
@@ -150,6 +151,13 @@ typedef struct _SETUPDATA
     PCWSTR SelectedLanguageId;
     WCHAR DefaultLanguage[20];   // Copy of string inside LanguageList
     WCHAR DefaultKBLayout[20];   // Copy of string inside KeyboardList
+
+    BOOL bEraseDisk;
+    WCHAR ComputerName[MAX_COMPUTERNAME_LENGTH + 1];
+    WCHAR UserName[UNLEN + 1];
+    WCHAR Password[PWLEN + 1];
+    DWORD TimeZoneIndex;
+    BOOL AutoDaylight;
 
 } SETUPDATA, *PSETUPDATA;
 

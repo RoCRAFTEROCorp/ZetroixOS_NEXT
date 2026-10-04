@@ -3400,6 +3400,139 @@ CreateGptSystemPartitions(
 static NTSTATUS
 DismountPartition(
     _In_ PPARTLIST List,
+    _In_ PPARTENTRY PartEntry);
+
+BOOLEAN
+NTAPI
+EraseDisk(
+    _In_ PPARTLIST List,
+    _In_ PDISKENTRY DiskEntry,
+    _Out_opt_ PPARTENTRY* FreeRegion)
+{
+    PLIST_ENTRY Entry;
+    PPARTENTRY PartEntry;
+    NTSTATUS Status;
+    OBJECT_ATTRIBUTES ObjectAttributes;
+    UNICODE_STRING Name;
+    IO_STATUS_BLOCK Iosb;
+    HANDLE FileHandle;
+    ULONG LayoutBufferSize;
+    ULONG i;
+    WCHAR DiskPath[MAX_PATH];
+
+    if (FreeRegion)
+        *FreeRegion = NULL;
+
+    if (!List || !DiskEntry || DiskEntry->PartList != List)
+        return FALSE;
+
+    if (List->SystemPartition && List->SystemPartition->DiskEntry == DiskEntry)
+        List->SystemPartition = NULL;
+
+    if (DiskEntry->ExtendedPartition)
+        DeletePartition(List, DiskEntry->ExtendedPartition, NULL);
+
+    for (Entry = DiskEntry->PrimaryPartListHead.Flink;
+         Entry != &DiskEntry->PrimaryPartListHead;
+         Entry = Entry->Flink)
+    {
+        PartEntry = CONTAINING_RECORD(Entry, PARTENTRY, ListEntry);
+        if (PartEntry->IsPartitioned)
+            DismountPartition(List, PartEntry);
+    }
+
+    while (!IsListEmpty(&DiskEntry->PrimaryPartListHead))
+    {
+        Entry = RemoveHeadList(&DiskEntry->PrimaryPartListHead);
+        DestroyRegion(CONTAINING_RECORD(Entry, PARTENTRY, ListEntry));
+    }
+    while (!IsListEmpty(&DiskEntry->LogicalPartListHead))
+    {
+        Entry = RemoveHeadList(&DiskEntry->LogicalPartListHead);
+        DestroyRegion(CONTAINING_RECORD(Entry, PARTENTRY, ListEntry));
+    }
+    DiskEntry->ExtendedPartition = NULL;
+
+    if (IsUefiFirmware())
+    {
+        RtlStringCchPrintfW(DiskPath, ARRAYSIZE(DiskPath),
+                            L"\\Device\\Harddisk%lu\\Partition0",
+                            DiskEntry->DiskNumber);
+        RtlInitUnicodeString(&Name, DiskPath);
+        InitializeObjectAttributes(&ObjectAttributes,
+                                   &Name,
+                                   OBJ_CASE_INSENSITIVE,
+                                   NULL,
+                                   NULL);
+        Status = NtOpenFile(&FileHandle,
+                            FILE_READ_DATA | FILE_READ_ATTRIBUTES | SYNCHRONIZE,
+                            &ObjectAttributes,
+                            &Iosb,
+                            FILE_SHARE_READ | FILE_SHARE_WRITE,
+                            FILE_SYNCHRONOUS_IO_NONALERT);
+        if (!NT_SUCCESS(Status))
+        {
+            DPRINT1("NtOpenFile(%wZ) failed (Status 0x%08lx)\n", &Name, Status);
+            return FALSE;
+        }
+
+        if (DiskEntry->LayoutBufferEx)
+        {
+            RtlFreeHeap(ProcessHeap, 0, DiskEntry->LayoutBufferEx);
+            DiskEntry->LayoutBufferEx = NULL;
+        }
+
+        if (!InitializeNewGptDisk(FileHandle, DiskEntry))
+        {
+            NtClose(FileHandle);
+            return FALSE;
+        }
+        NtClose(FileHandle);
+    }
+    else
+    {
+        if (DiskEntry->LayoutBufferEx)
+        {
+            RtlFreeHeap(ProcessHeap, 0, DiskEntry->LayoutBufferEx);
+            DiskEntry->LayoutBufferEx = NULL;
+        }
+
+        LayoutBufferSize = sizeof(DRIVE_LAYOUT_INFORMATION) +
+                           ((4 - ANYSIZE_ARRAY) * sizeof(PARTITION_INFORMATION));
+        if (DiskEntry->LayoutBuffer)
+            RtlFreeHeap(ProcessHeap, 0, DiskEntry->LayoutBuffer);
+        DiskEntry->LayoutBuffer = RtlAllocateHeap(ProcessHeap,
+                                                  HEAP_ZERO_MEMORY,
+                                                  LayoutBufferSize);
+        if (!DiskEntry->LayoutBuffer)
+            return FALSE;
+
+        DiskEntry->LayoutBuffer->PartitionCount = 4;
+        for (i = 0; i < 4; i++)
+            DiskEntry->LayoutBuffer->PartitionEntry[i].RewritePartition = TRUE;
+
+        DiskEntry->DiskStyle = PARTITION_STYLE_MBR;
+        DiskEntry->NewDisk = TRUE;
+        DiskEntry->SectorAlignment = (1024 * 1024) / DiskEntry->BytesPerSector;
+        SetDiskSignature(List, DiskEntry);
+        ScanForUnpartitionedDiskSpace(DiskEntry);
+    }
+
+    DiskEntry->Dirty = TRUE;
+    AssignDriveLetters(List);
+
+    if (FreeRegion && !IsListEmpty(&DiskEntry->PrimaryPartListHead))
+    {
+        *FreeRegion = CONTAINING_RECORD(DiskEntry->PrimaryPartListHead.Flink,
+                                        PARTENTRY, ListEntry);
+    }
+
+    return (FreeRegion == NULL) || (*FreeRegion != NULL);
+}
+
+static NTSTATUS
+DismountPartition(
+    _In_ PPARTLIST List,
     _In_ PPARTENTRY PartEntry)
 {
     PVOLENTRY Volume = PartEntry->Volume;
@@ -4225,6 +4358,27 @@ WritePartitions(
     // the disk in MBR or GPT format in case the disk was not initialized!!
     // For this we must ask the user which format to use.
     //
+
+    if (DiskEntry->NewDisk)
+    {
+        Status = NtDeviceIoControlFile(FileHandle,
+                                       NULL,
+                                       NULL,
+                                       NULL,
+                                       &Iosb,
+                                       IOCTL_DISK_DELETE_DRIVE_LAYOUT,
+                                       NULL,
+                                       0,
+                                       NULL,
+                                       0);
+        if (!NT_SUCCESS(Status))
+        {
+            DPRINT1("IOCTL_DISK_DELETE_DRIVE_LAYOUT failed (Status 0x%08lx)\n", Status);
+            NtClose(FileHandle);
+            return Status;
+        }
+        DiskEntry->NewDisk = FALSE;
+    }
 
     /* Save the original partition count to be restored later (see comment below) */
     PartitionCount = DiskEntry->LayoutBuffer->PartitionCount;

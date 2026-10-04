@@ -31,6 +31,7 @@
 @ stdcall CreateGptSystemPartitions(ptr ptr ptr ptr)
 @ stdcall GptDiskNeedsSystemPartitions(ptr)
 @ stdcall DeletePartition(ptr ptr ptr)
+@ stdcall EraseDisk(ptr ptr ptr)
 @ stdcall DestroyPartitionList(ptr)
 @ stdcall GetNextPartition(ptr ptr)
 @ stdcall GetPrevPartition(ptr ptr)
@@ -67,8 +68,9 @@
 @ stdcall InitDestinationPaths(ptr wstr ptr)
 @ stdcall InitializeSetup(ptr ptr ptr ptr)
 @ stdcall InitSystemPartition(ptr ptr ptr ptr ptr)
-@ stdcall InstallSetupInfFile(ptr)
 @ stdcall UpdateRegistry(ptr long ptr long wstr ptr ptr)
+@ stdcall MountTargetRegistry(ptr)
+@ stdcall UnmountTargetRegistry()
 
 ;; fsutil
 @ stdcall FsVolCommitOpsQueue(ptr ptr ptr ptr ptr)

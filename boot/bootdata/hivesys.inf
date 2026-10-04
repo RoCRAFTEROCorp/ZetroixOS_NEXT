@@ -2310,6 +2310,16 @@ HKLM,"SYSTEM\CurrentControlSet\Services\Seclogon","ImagePath",0x00020000,"%Syste
 HKLM,"SYSTEM\CurrentControlSet\Services\Seclogon","ObjectName",0x00000000,"LocalSystem"
 HKLM,"SYSTEM\CurrentControlSet\Services\Seclogon","Start",0x00010001,0x00000002
 HKLM,"SYSTEM\CurrentControlSet\Services\Seclogon","Type",0x00010001,0x00000020
+
+; Windows Time service
+HKLM,"SYSTEM\CurrentControlSet\Services\W32Time","Description",0x00000000,%W32TIME_SERVICE_DESCRIPTION%
+HKLM,"SYSTEM\CurrentControlSet\Services\W32Time","DisplayName",0x00000000,%W32TIME_SERVICE%
+HKLM,"SYSTEM\CurrentControlSet\Services\W32Time","ErrorControl",0x00010001,0x00000001
+HKLM,"SYSTEM\CurrentControlSet\Services\W32Time","Group",0x00000000,"Time"
+HKLM,"SYSTEM\CurrentControlSet\Services\W32Time","ImagePath",0x00020000,"%SystemRoot%\system32\svchost.exe -k LocalService"
+HKLM,"SYSTEM\CurrentControlSet\Services\W32Time","ObjectName",0x00000000,"NT AUTHORITY\LocalService"
+HKLM,"SYSTEM\CurrentControlSet\Services\W32Time","Start",0x00010001,0x00000002
+HKLM,"SYSTEM\CurrentControlSet\Services\W32Time","Type",0x00010001,0x00000020
 HKLM,"SYSTEM\CurrentControlSet\Services\Seclogon\Parameters","ServiceDll",0x00020000,"%SystemRoot%\system32\seclogon.dll"
 HKLM,"SYSTEM\CurrentControlSet\Services\Seclogon\Parameters","ServiceMain",0x00000000,"SvcEntry_Seclogon"
 
@@ -2451,10 +2461,10 @@ HKLM,"SYSTEM\Select","Failed",0x00010003,0x00000000
 HKLM,"SYSTEM\Select","LastKnownGood",0x00010003,0x00000001
 
 ; System setup settings
-HKLM,"SYSTEM\Setup","CmdLine",0x00000000,"setup -newsetup"
-HKLM,"SYSTEM\Setup","SetupType",0x00010001,0x00000001
+HKLM,"SYSTEM\Setup","CmdLine",0x00000000,""
+HKLM,"SYSTEM\Setup","SetupType",0x00010001,0x00000000
 HKLM,"SYSTEM\Setup","SystemPrefix",0x00000001
-HKLM,"SYSTEM\Setup","SystemSetupInProgress",0x00010001,0x00000001
+HKLM,"SYSTEM\Setup","SystemSetupInProgress",0x00010001,0x00000000
 
 ; Debug channels
 ;HKLM,"SYSTEM\CurrentControlSet\Control\Session Manager\Environment","DEBUGCHANNEL",0x00020000,"+ole,+rpc"
@@ -2513,6 +2523,8 @@ SAMSS_SERVICE_DESCRIPTION="The startup of this service signals other services th
 
 SCHEDULE_SERVICE="Scheduler service"
 SCHEDULE_SERVICE_DESCRIPTION="Allows starting of programs at specific times."
+W32TIME_SERVICE="Time Service"
+W32TIME_SERVICE_DESCRIPTION="Maintains date and time synchronization on all clients and servers on the network."
 
 SECLOGON_SERVICE="Secondary Logon"
 SECLOGON_SERVICE_DESCRIPTION="Allows to start processes under alternative credentials."

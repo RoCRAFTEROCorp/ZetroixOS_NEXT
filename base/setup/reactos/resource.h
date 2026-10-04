@@ -92,6 +92,20 @@
 
 #define IDD_FORMAT 2100
 
+#define IDD_ACCOUNTPAGE      2110
+#define IDC_COMPUTERNAME     2111
+#define IDC_USERNAME         2112
+#define IDC_PASSWORD1        2113
+#define IDC_PASSWORD2        2114
+
+#define IDD_TIMEZONEPAGE     2120
+#define IDC_TIMEZONELIST     2121
+#define IDC_AUTODAYLIGHT     2122
+
+#define IDC_ERASEDISK        2130
+#define IDC_CUSTOMPART       2131
+#define IDC_ERASECONFIRM     2132
+
 
 /* Strings */
 #define IDS_CAPTION          5000
@@ -107,6 +121,11 @@
 #define IDS_SUMMARYSUBTITLE  5010
 #define IDS_PROCESSTITLE     5011
 #define IDS_PROCESSSUBTITLE  5012
+#define IDS_ACCOUNTTITLE     5013
+#define IDS_ACCOUNTSUBTITLE  5014
+#define IDS_TIMEZONETITLE    5015
+#define IDS_TIMEZONESUBTITLE 5016
+#define IDS_ERASEDISK_TYPE   5017
 #define IDS_ABORTSETUP       5020
 #define IDS_ABORTSETUP2      5021
 #define IDS_NO_TXTSETUP_SIF  5022
@@ -151,6 +170,7 @@
 #define IDS_UPDATE_REGISTRY         5215
 // #define IDS_INSTALL_FINALIZE        5216
 #define IDS_INSTALL_BOOTLOADER      5217
+#define IDS_CONFIGURE_SYSTEM        5218
 
 #define IDS_REG_DONE                    5220
 #define IDS_REG_REGHIVEUPDATE           5221
@@ -161,6 +181,18 @@
 #define IDS_REG_KEYBOARDSETTINGSUPDATE  5226
 #define IDS_REG_CODEPAGEINFOUPDATE      5227
 #define IDS_REG_UNKNOWN                 5228
+
+#define IDS_CONFIG_PHASE_FIRST          5230
+#define IDS_CONFIG_FOLDERS              5230
+#define IDS_CONFIG_DEVICES              5231
+#define IDS_CONFIG_NETWORK              5232
+#define IDS_CONFIG_SETTINGS             5233
+#define IDS_CONFIG_COMPONENTS           5234
+#define IDS_CONFIG_SHORTCUTS            5235
+#define IDS_CONFIG_SECURITY             5236
+#define IDS_CONFIG_ACCOUNT              5237
+#define IDS_CONFIG_FINISH               5238
+#define IDS_CONFIG_PHASE_LAST           5238
 
 
 /* Error Strings */
@@ -210,3 +242,9 @@
 #define IDS_ERROR_BOOTLDR_ARCH_UNSUPPORTED      5319
 // ERROR_BOOTLDR_FAILED // TODO
 #define IDS_ERROR_BOOTLDR_FAILED    5320
+
+#define IDS_ERROR_COMPUTERNAME      5321
+#define IDS_ERROR_USERNAME          5322
+#define IDS_ERROR_USEREXISTS        5323
+#define IDS_ERROR_PASSWORDMATCH     5324
+#define IDS_ERROR_CONFIGURE         5325

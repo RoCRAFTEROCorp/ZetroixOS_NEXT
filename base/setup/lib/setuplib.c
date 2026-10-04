@@ -203,189 +203,6 @@ Quit:
     return IsUnattendedSetup;
 }
 
-VOID
-NTAPI
-InstallSetupInfFile(
-    IN OUT PUSETUP_DATA pSetupData)
-{
-    NTSTATUS Status;
-    PINICACHE IniCache;
-
-#if 0 // HACK FIXME!
-    PINICACHE UnattendCache;
-    PINICACHEITERATOR Iterator;
-#else
-    // WCHAR CrLf[] = {L'\r', L'\n'};
-    CHAR CrLf[] = {'\r', '\n'};
-    HANDLE FileHandle, UnattendFileHandle, SectionHandle;
-    FILE_STANDARD_INFORMATION FileInfo;
-    ULONG FileSize;
-    PVOID ViewBase;
-    UNICODE_STRING FileName;
-    OBJECT_ATTRIBUTES ObjectAttributes;
-    IO_STATUS_BLOCK IoStatusBlock;
-#endif
-
-    PINI_SECTION IniSection;
-    WCHAR PathBuffer[MAX_PATH];
-    WCHAR UnattendInfPath[MAX_PATH];
-
-    /* Create a $winnt$.inf file with default entries */
-    IniCache = IniCacheCreate();
-    if (!IniCache)
-        return;
-
-#if 0 /* If you need to put something in this section, do it after the merge with Unattend.inf */
-    IniSection = IniAddSection(IniCache, L"SetupParams");
-    if (IniSection)
-    {
-        /* Key "skipmissingfiles" */
-        // RtlStringCchPrintfW(PathBuffer, ARRAYSIZE(PathBuffer),
-                            // L"\"%s\"", L"WinNt5.2");
-        // IniAddKey(IniSection, L"Version", PathBuffer);
-    }
-#endif
-
-    IniSection = IniAddSection(IniCache, L"Data");
-    if (IniSection)
-    {
-        RtlStringCchPrintfW(PathBuffer, ARRAYSIZE(PathBuffer),
-                            L"\"%s\"", IsUnattendedSetup ? L"yes" : L"no");
-        IniAddKey(IniSection, L"UnattendedInstall", PathBuffer);
-
-        // "floppylessbootpath" (yes/no)
-
-        RtlStringCchPrintfW(PathBuffer, ARRAYSIZE(PathBuffer),
-                            L"\"%s\"", L"winnt");
-        IniAddKey(IniSection, L"ProductType", PathBuffer);
-
-        RtlStringCchPrintfW(PathBuffer, ARRAYSIZE(PathBuffer),
-                            L"\"%s\\\"", pSetupData->SourceRootPath.Buffer);
-        IniAddKey(IniSection, L"SourcePath", PathBuffer);
-
-        // "floppyless" ("0")
-    }
-
-#if 0
-
-    /* TODO: Append the standard unattend.inf file */
-    CombinePaths(UnattendInfPath, ARRAYSIZE(UnattendInfPath), 2,
-                 pSetupData->SourcePath.Buffer, L"unattend.inf");
-    if (DoesFileExist(NULL, UnattendInfPath) == FALSE)
-    {
-        DPRINT("Does not exist: %S\n", UnattendInfPath);
-        goto Quit;
-    }
-
-    Status = IniCacheLoad(&UnattendCache, UnattendInfPath, FALSE);
-    if (!NT_SUCCESS(Status))
-    {
-        DPRINT1("Cannot load %S as an INI file!\n", UnattendInfPath);
-        goto Quit;
-    }
-
-    IniCacheDestroy(UnattendCache);
-
-Quit:
-    CombinePaths(PathBuffer, ARRAYSIZE(PathBuffer), 2,
-                 pSetupData->DestinationPath.Buffer, L"System32\\$winnt$.inf");
-    IniCacheSave(IniCache, PathBuffer);
-    IniCacheDestroy(IniCache);
-
-#else
-
-    CombinePaths(PathBuffer, ARRAYSIZE(PathBuffer), 2,
-                 pSetupData->DestinationPath.Buffer, L"System32\\$winnt$.inf");
-    IniCacheSave(IniCache, PathBuffer);
-    IniCacheDestroy(IniCache);
-
-    /* TODO: Append the standard unattend.inf file */
-    CombinePaths(UnattendInfPath, ARRAYSIZE(UnattendInfPath), 2,
-                 pSetupData->SourcePath.Buffer, L"unattend.inf");
-    if (DoesFileExist(NULL, UnattendInfPath) == FALSE)
-    {
-        DPRINT("Does not exist: %S\n", UnattendInfPath);
-        return;
-    }
-
-    RtlInitUnicodeString(&FileName, PathBuffer);
-    InitializeObjectAttributes(&ObjectAttributes,
-                               &FileName,
-                               OBJ_CASE_INSENSITIVE | OBJ_OPENIF,
-                               NULL,
-                               NULL);
-    Status = NtOpenFile(&FileHandle,
-                        FILE_APPEND_DATA | SYNCHRONIZE,
-                        &ObjectAttributes,
-                        &IoStatusBlock,
-                        FILE_SHARE_READ,
-                        FILE_SYNCHRONOUS_IO_NONALERT | FILE_NON_DIRECTORY_FILE);
-    if (!NT_SUCCESS(Status))
-    {
-        DPRINT1("Cannot load %S as an INI file!\n", PathBuffer);
-        return;
-    }
-
-    /* Query the file size */
-    Status = NtQueryInformationFile(FileHandle,
-                                    &IoStatusBlock,
-                                    &FileInfo,
-                                    sizeof(FileInfo),
-                                    FileStandardInformation);
-    if (!NT_SUCCESS(Status))
-    {
-        DPRINT("NtQueryInformationFile() failed (Status %lx)\n", Status);
-        FileInfo.EndOfFile.QuadPart = 0ULL;
-    }
-
-    Status = OpenAndMapFile(NULL,
-                            UnattendInfPath,
-                            &UnattendFileHandle,
-                            &FileSize,
-                            &SectionHandle,
-                            &ViewBase,
-                            FALSE);
-    if (!NT_SUCCESS(Status))
-    {
-        DPRINT1("Cannot load %S !\n", UnattendInfPath);
-        NtClose(FileHandle);
-        return;
-    }
-
-    /* Write to the INI file */
-
-    /* "\r\n" */
-    Status = NtWriteFile(FileHandle,
-                         NULL,
-                         NULL,
-                         NULL,
-                         &IoStatusBlock,
-                         (PVOID)CrLf,
-                         sizeof(CrLf),
-                         &FileInfo.EndOfFile,
-                         NULL);
-
-    Status = NtWriteFile(FileHandle,
-                         NULL,
-                         NULL,
-                         NULL,
-                         &IoStatusBlock,
-                         ViewBase,
-                         FileSize,
-                         NULL,
-                         NULL);
-    if (!NT_SUCCESS(Status))
-    {
-        DPRINT("NtWriteFile() failed (Status %lx)\n", Status);
-    }
-
-    /* Finally, unmap and close the file */
-    UnMapAndCloseFile(UnattendFileHandle, SectionHandle, ViewBase);
-
-    NtClose(FileHandle);
-#endif
-}
-
 /**
  * @brief
  * Determine the installation source path and isolate its useful
@@ -1422,6 +1239,21 @@ Cleanup:
     }
 
     return ErrorNumber;
+}
+
+NTSTATUS
+NTAPI
+MountTargetRegistry(
+    _In_ PUSETUP_DATA pSetupData)
+{
+    return RegMountTargetHives(&pSetupData->DestinationPath);
+}
+
+VOID
+NTAPI
+UnmountTargetRegistry(VOID)
+{
+    RegUnmountTargetHives();
 }
 
 /* EOF */

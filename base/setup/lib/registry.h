@@ -27,6 +27,9 @@
 
 #pragma once
 
+#define REGISTRY_SETUP_MACHINE  L"\\Registry\\Machine\\SYSTEM\\USetup_Machine\\"
+#define REGISTRY_SETUP_USER     L"\\Registry\\Machine\\SYSTEM\\USetup_User\\"
+
 HANDLE
 GetRootKeyByPredefKey(
     IN HANDLE KeyHandle,
@@ -57,5 +60,12 @@ RegInitializeRegistry(
 VOID
 RegCleanupRegistry(
     IN PUNICODE_STRING NtSystemRoot);
+
+NTSTATUS
+RegMountTargetHives(
+    IN PUNICODE_STRING NtSystemRoot);
+
+VOID
+RegUnmountTargetHives(VOID);
 
 /* EOF */

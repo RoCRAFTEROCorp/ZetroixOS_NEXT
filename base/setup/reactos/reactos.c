@@ -9,6 +9,7 @@
 
 #include "reactos.h"
 #include <winnls.h> // For GetUserDefaultLCID()
+#include <tzlib.h>
 
 #define NTOS_MODE_USER
 #include <ndk/obfuncs.h>
@@ -1187,6 +1188,13 @@ SummaryDlgProc(
                                        L"New LiberNT installation");
                     }
                     SetDlgItemTextW(hwndDlg, IDC_INSTALLTYPE, CurrentItemText);
+                    if (!pSetupData->RepairUpdateFlag && pSetupData->bEraseDisk)
+                    {
+                        SetWindowResPrintfW(GetDlgItem(hwndDlg, IDC_INSTALLTYPE),
+                                            pSetupData->hInstance,
+                                            IDS_ERASEDISK_TYPE,
+                                            InstallPartition->DiskEntry->DiskNumber);
+                    }
 
                     Separator = NULL;
                     if (GetModuleFileNameW(NULL, CurrentItemText, ARRAYSIZE(CurrentItemText)) != 0)
@@ -1342,6 +1350,380 @@ SummaryDlgProc(
     return FALSE;
 }
 
+
+static VOID
+GenerateComputerName(
+    _Out_writes_(MAX_COMPUTERNAME_LENGTH + 1) PWSTR Buffer)
+{
+    static const WCHAR Chars[] = L"0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+    UINT i;
+
+    srand(GetTickCount());
+    StringCchCopyW(Buffer, MAX_COMPUTERNAME_LENGTH + 1, L"LIBERNT-");
+    for (i = (UINT)wcslen(Buffer); i < MAX_COMPUTERNAME_LENGTH; i++)
+        Buffer[i] = Chars[rand() % (ARRAYSIZE(Chars) - 1)];
+    Buffer[MAX_COMPUTERNAME_LENGTH] = UNICODE_NULL;
+}
+
+static BOOL
+IsValidSetupComputerName(
+    _In_ PCWSTR Name)
+{
+    SIZE_T Length = wcslen(Name);
+    BOOL OnlyDigits = TRUE;
+    PCWSTR p;
+
+    if (Length == 0 || Length > MAX_COMPUTERNAME_LENGTH)
+        return FALSE;
+
+    for (p = Name; *p; p++)
+    {
+        if (!((*p >= L'A' && *p <= L'Z') || (*p >= L'a' && *p <= L'z') ||
+              (*p >= L'0' && *p <= L'9') || *p == L'-'))
+        {
+            return FALSE;
+        }
+        if (*p < L'0' || *p > L'9')
+            OnlyDigits = FALSE;
+    }
+
+    return !OnlyDigits;
+}
+
+static BOOL
+IsValidSetupUserName(
+    _In_ PCWSTR Name)
+{
+    SIZE_T Length = wcslen(Name);
+    BOOL OnlyDotsAndSpaces = TRUE;
+    PCWSTR p;
+
+    if (Length == 0 || Length > 20)
+        return FALSE;
+
+    for (p = Name; *p; p++)
+    {
+        if (*p < L' ' || wcschr(L"\"/\\[]:;|=,+*?<>@", *p))
+            return FALSE;
+        if (*p != L'.' && *p != L' ')
+            OnlyDotsAndSpaces = FALSE;
+    }
+
+    return !OnlyDotsAndSpaces;
+}
+
+static BOOL
+IsExistingAccountName(
+    _In_ PCWSTR Name)
+{
+    BYTE Sid[SECURITY_MAX_SID_SIZE];
+    DWORD cbSid = sizeof(Sid);
+    WCHAR Domain[MAX_PATH];
+    DWORD cchDomain = ARRAYSIZE(Domain);
+    SID_NAME_USE Use;
+
+    return LookupAccountNameW(NULL, Name, Sid, &cbSid, Domain, &cchDomain, &Use);
+}
+
+static BOOL
+QueryCancelSetup(
+    _In_ HWND hwndDlg)
+{
+    if (DisplayMessage(GetParent(hwndDlg),
+                       MB_YESNO | MB_ICONQUESTION,
+                       MAKEINTRESOURCEW(IDS_ABORTSETUP2),
+                       MAKEINTRESOURCEW(IDS_ABORTSETUP)) == IDYES)
+    {
+        PropSheet_SetCurSelByID(GetParent(hwndDlg), IDD_ABORTPAGE);
+    }
+
+    SetWindowLongPtrW(hwndDlg, DWLP_MSGRESULT, TRUE);
+    return TRUE;
+}
+
+static INT_PTR CALLBACK
+AccountDlgProc(
+    IN HWND hwndDlg,
+    IN UINT uMsg,
+    IN WPARAM wParam,
+    IN LPARAM lParam)
+{
+    PSETUPDATA pSetupData;
+    WCHAR ComputerName[MAX_COMPUTERNAME_LENGTH + 2];
+    WCHAR UserName[UNLEN + 1];
+    WCHAR Password1[128];
+    WCHAR Password2[128];
+    UINT ErrorId, FocusId;
+
+    pSetupData = (PSETUPDATA)GetWindowLongPtrW(hwndDlg, GWLP_USERDATA);
+
+    switch (uMsg)
+    {
+        case WM_INITDIALOG:
+        {
+            pSetupData = (PSETUPDATA)((LPPROPSHEETPAGE)lParam)->lParam;
+            SetWindowLongPtrW(hwndDlg, GWLP_USERDATA, (DWORD_PTR)pSetupData);
+
+            SendDlgItemMessageW(hwndDlg, IDC_COMPUTERNAME, EM_LIMITTEXT, MAX_COMPUTERNAME_LENGTH, 0);
+            SendDlgItemMessageW(hwndDlg, IDC_USERNAME, EM_LIMITTEXT, 20, 0);
+            SendDlgItemMessageW(hwndDlg, IDC_PASSWORD1, EM_LIMITTEXT, ARRAYSIZE(Password1) - 1, 0);
+            SendDlgItemMessageW(hwndDlg, IDC_PASSWORD2, EM_LIMITTEXT, ARRAYSIZE(Password2) - 1, 0);
+
+            SetDlgItemTextW(hwndDlg, IDC_COMPUTERNAME, pSetupData->ComputerName);
+            SetDlgItemTextW(hwndDlg, IDC_USERNAME, pSetupData->UserName);
+            break;
+        }
+
+        case WM_NOTIFY:
+        {
+            LPNMHDR lpnm = (LPNMHDR)lParam;
+
+            switch (lpnm->code)
+            {
+                case PSN_SETACTIVE:
+                    PropSheet_SetWizButtons(GetParent(hwndDlg), PSWIZB_BACK | PSWIZB_NEXT);
+                    break;
+
+                case PSN_QUERYINITIALFOCUS:
+                    SetWindowLongPtrW(hwndDlg, DWLP_MSGRESULT, (LONG_PTR)GetDlgItem(hwndDlg, IDC_USERNAME));
+                    return TRUE;
+
+                case PSN_QUERYCANCEL:
+                    return QueryCancelSetup(hwndDlg);
+
+                case PSN_WIZNEXT:
+                {
+                    GetDlgItemTextW(hwndDlg, IDC_COMPUTERNAME, ComputerName, ARRAYSIZE(ComputerName));
+                    GetDlgItemTextW(hwndDlg, IDC_USERNAME, UserName, ARRAYSIZE(UserName));
+                    GetDlgItemTextW(hwndDlg, IDC_PASSWORD1, Password1, ARRAYSIZE(Password1));
+                    GetDlgItemTextW(hwndDlg, IDC_PASSWORD2, Password2, ARRAYSIZE(Password2));
+
+                    ErrorId = 0;
+                    FocusId = 0;
+                    if (!IsValidSetupComputerName(ComputerName))
+                    {
+                        ErrorId = IDS_ERROR_COMPUTERNAME;
+                        FocusId = IDC_COMPUTERNAME;
+                    }
+                    else if (!IsValidSetupUserName(UserName))
+                    {
+                        ErrorId = IDS_ERROR_USERNAME;
+                        FocusId = IDC_USERNAME;
+                    }
+                    else if (_wcsicmp(UserName, ComputerName) == 0 ||
+                             IsExistingAccountName(UserName))
+                    {
+                        ErrorId = IDS_ERROR_USEREXISTS;
+                        FocusId = IDC_USERNAME;
+                    }
+                    else if (wcscmp(Password1, Password2) != 0)
+                    {
+                        ErrorId = IDS_ERROR_PASSWORDMATCH;
+                        FocusId = IDC_PASSWORD1;
+                    }
+
+                    if (ErrorId == 0)
+                    {
+                        CharUpperW(ComputerName);
+                        StringCchCopyW(pSetupData->ComputerName, ARRAYSIZE(pSetupData->ComputerName), ComputerName);
+                        StringCchCopyW(pSetupData->UserName, ARRAYSIZE(pSetupData->UserName), UserName);
+                        StringCchCopyW(pSetupData->Password, ARRAYSIZE(pSetupData->Password), Password1);
+                    }
+
+                    SecureZeroMemory(Password1, sizeof(Password1));
+                    SecureZeroMemory(Password2, sizeof(Password2));
+
+                    if (ErrorId != 0)
+                    {
+                        DisplayError(GetParent(hwndDlg), 0, ErrorId);
+                        SetFocus(GetDlgItem(hwndDlg, FocusId));
+                        SetWindowLongPtrW(hwndDlg, DWLP_MSGRESULT, -1);
+                        return TRUE;
+                    }
+                    break;
+                }
+
+                default:
+                    break;
+            }
+            break;
+        }
+
+        default:
+            break;
+    }
+
+    return FALSE;
+}
+
+typedef struct _TIMEZONE_ITEM
+{
+    ULONG Index;
+    BOOL HasDaylight;
+    WCHAR Description[128];
+} TIMEZONE_ITEM, *PTIMEZONE_ITEM;
+
+typedef struct _TIMEZONE_LIST
+{
+    PTIMEZONE_ITEM Items;
+    ULONG Count;
+} TIMEZONE_LIST, *PTIMEZONE_LIST;
+
+static LONG
+AddTimeZoneItem(
+    IN HKEY hZoneKey,
+    IN PVOID Context)
+{
+    PTIMEZONE_LIST List = (PTIMEZONE_LIST)Context;
+    PTIMEZONE_ITEM Items;
+    TIMEZONE_ITEM Item;
+    REG_TZI_FORMAT TimeZoneInfo;
+    ULONG DescriptionSize = sizeof(Item.Description);
+    LONG Error;
+
+    ZeroMemory(&Item, sizeof(Item));
+    Error = QueryTimeZoneData(hZoneKey,
+                              &Item.Index,
+                              &TimeZoneInfo,
+                              Item.Description,
+                              &DescriptionSize,
+                              NULL,
+                              NULL,
+                              NULL,
+                              NULL);
+    if (Error != ERROR_SUCCESS)
+        return ERROR_SUCCESS;
+
+    Item.HasDaylight = (TimeZoneInfo.StandardDate.wMonth != 0 &&
+                        TimeZoneInfo.DaylightDate.wMonth != 0);
+
+    if (List->Items)
+        Items = HeapReAlloc(ProcessHeap, 0, List->Items, (List->Count + 1) * sizeof(Item));
+    else
+        Items = HeapAlloc(ProcessHeap, 0, sizeof(Item));
+    if (!Items)
+        return ERROR_NOT_ENOUGH_MEMORY;
+
+    Items[List->Count++] = Item;
+    List->Items = Items;
+    return ERROR_SUCCESS;
+}
+
+static int __cdecl
+CompareTimeZoneItems(
+    const void* Item1,
+    const void* Item2)
+{
+    ULONG Index1 = ((const TIMEZONE_ITEM*)Item1)->Index;
+    ULONG Index2 = ((const TIMEZONE_ITEM*)Item2)->Index;
+
+    return (Index1 < Index2) ? -1 : (Index1 > Index2);
+}
+
+static VOID
+UpdateAutoDaylight(
+    _In_ HWND hwndDlg,
+    _In_ PTIMEZONE_LIST List,
+    _In_ BOOL Check)
+{
+    INT iItem = (INT)SendDlgItemMessageW(hwndDlg, IDC_TIMEZONELIST, CB_GETCURSEL, 0, 0);
+    BOOL HasDaylight = (iItem >= 0 && (ULONG)iItem < List->Count && List->Items[iItem].HasDaylight);
+
+    EnableDlgItem(hwndDlg, IDC_AUTODAYLIGHT, HasDaylight);
+    CheckDlgButton(hwndDlg, IDC_AUTODAYLIGHT, (HasDaylight && Check) ? BST_CHECKED : BST_UNCHECKED);
+}
+
+static INT_PTR CALLBACK
+TimeZoneDlgProc(
+    IN HWND hwndDlg,
+    IN UINT uMsg,
+    IN WPARAM wParam,
+    IN LPARAM lParam)
+{
+    static TIMEZONE_LIST List = { NULL, 0 };
+    PSETUPDATA pSetupData;
+    ULONG i;
+    INT iItem;
+
+    pSetupData = (PSETUPDATA)GetWindowLongPtrW(hwndDlg, GWLP_USERDATA);
+
+    switch (uMsg)
+    {
+        case WM_INITDIALOG:
+        {
+            pSetupData = (PSETUPDATA)((LPPROPSHEETPAGE)lParam)->lParam;
+            SetWindowLongPtrW(hwndDlg, GWLP_USERDATA, (DWORD_PTR)pSetupData);
+
+            EnumerateTimeZoneList(AddTimeZoneItem, &List);
+            if (List.Count)
+                qsort(List.Items, List.Count, sizeof(*List.Items), CompareTimeZoneItems);
+
+            iItem = 0;
+            for (i = 0; i < List.Count; i++)
+            {
+                SendDlgItemMessageW(hwndDlg, IDC_TIMEZONELIST, CB_ADDSTRING, 0, (LPARAM)List.Items[i].Description);
+                if (List.Items[i].Index == pSetupData->TimeZoneIndex)
+                    iItem = (INT)i;
+            }
+            SendDlgItemMessageW(hwndDlg, IDC_TIMEZONELIST, CB_SETCURSEL, iItem, 0);
+            UpdateAutoDaylight(hwndDlg, &List, pSetupData->AutoDaylight);
+            break;
+        }
+
+        case WM_DESTROY:
+        {
+            if (List.Items)
+                HeapFree(ProcessHeap, 0, List.Items);
+            List.Items = NULL;
+            List.Count = 0;
+            break;
+        }
+
+        case WM_COMMAND:
+        {
+            if (HIWORD(wParam) == CBN_SELCHANGE && LOWORD(wParam) == IDC_TIMEZONELIST)
+                UpdateAutoDaylight(hwndDlg, &List, TRUE);
+            break;
+        }
+
+        case WM_NOTIFY:
+        {
+            LPNMHDR lpnm = (LPNMHDR)lParam;
+
+            switch (lpnm->code)
+            {
+                case PSN_SETACTIVE:
+                    PropSheet_SetWizButtons(GetParent(hwndDlg), PSWIZB_BACK | PSWIZB_NEXT);
+                    break;
+
+                case PSN_QUERYINITIALFOCUS:
+                    SetWindowLongPtrW(hwndDlg, DWLP_MSGRESULT, (LONG_PTR)GetDlgItem(hwndDlg, IDC_TIMEZONELIST));
+                    return TRUE;
+
+                case PSN_QUERYCANCEL:
+                    return QueryCancelSetup(hwndDlg);
+
+                case PSN_WIZNEXT:
+                {
+                    iItem = (INT)SendDlgItemMessageW(hwndDlg, IDC_TIMEZONELIST, CB_GETCURSEL, 0, 0);
+                    if (iItem >= 0 && (ULONG)iItem < List.Count)
+                        pSetupData->TimeZoneIndex = List.Items[iItem].Index;
+                    pSetupData->AutoDaylight = (IsDlgButtonChecked(hwndDlg, IDC_AUTODAYLIGHT) == BST_CHECKED);
+                    break;
+                }
+
+                default:
+                    break;
+            }
+            break;
+        }
+
+        default:
+            break;
+    }
+
+    return FALSE;
+}
 
 typedef struct _FSVOL_CONTEXT
 {
@@ -1932,6 +2314,196 @@ PropSheet_SetCloseCancel(
                    MF_BYCOMMAND | (Enable ? MF_ENABLED : MF_GRAYED));
 }
 
+static VOID
+ShowConfigureProgress(
+    _In_ PSETUPDATA pSetupData,
+    _In_ PCWSTR Line)
+{
+    ULONG Phase;
+
+    if (Line[0] == L'#')
+    {
+        Phase = wcstoul(&Line[1], NULL, 10);
+        if (Phase >= 1 && Phase <= IDS_CONFIG_PHASE_LAST - IDS_CONFIG_PHASE_FIRST + 1)
+        {
+            SetWindowResTextW(UiContext.hWndItem,
+                              pSetupData->hInstance,
+                              IDS_CONFIG_PHASE_FIRST + Phase - 1);
+            SendMessageW(UiContext.hWndProgress, PBM_SETPOS, Phase, 0);
+        }
+    }
+    else
+    {
+        SetWindowTextW(UiContext.hWndItem, Line);
+    }
+}
+
+static DWORD
+RunTargetConfiguration(
+    _In_ PSETUPDATA pSetupData,
+    _In_ PCWSTR Settings)
+{
+    SECURITY_ATTRIBUTES SecurityAttributes = { sizeof(SecurityAttributes), NULL, TRUE };
+    HANDLE hInputRead = NULL, hInputWrite = NULL;
+    HANDLE hOutputRead = NULL, hOutputWrite = NULL;
+    STARTUPINFOW StartupInfo;
+    PROCESS_INFORMATION ProcessInfo;
+    WCHAR ApplicationName[MAX_PATH];
+    WCHAR CommandLine[MAX_PATH + 16];
+    WCHAR Output[512];
+    DWORD cbOutput = 0, cbRead, Written, ExitCode = ERROR_GEN_FAILURE;
+    PWCHAR LineEnd;
+    BOOL Success;
+
+    if (!GetSystemDirectoryW(ApplicationName, ARRAYSIZE(ApplicationName)) ||
+        FAILED(StringCchCatW(ApplicationName, ARRAYSIZE(ApplicationName), L"\\setup.exe")) ||
+        FAILED(StringCchPrintfW(CommandLine, ARRAYSIZE(CommandLine), L"\"%s\" -target", ApplicationName)))
+    {
+        return ERROR_BUFFER_OVERFLOW;
+    }
+
+    if (!CreatePipe(&hInputRead, &hInputWrite, &SecurityAttributes, 0) ||
+        !SetHandleInformation(hInputWrite, HANDLE_FLAG_INHERIT, 0) ||
+        !CreatePipe(&hOutputRead, &hOutputWrite, &SecurityAttributes, 0) ||
+        !SetHandleInformation(hOutputRead, HANDLE_FLAG_INHERIT, 0))
+    {
+        ExitCode = GetLastError();
+        goto done;
+    }
+
+    ZeroMemory(&StartupInfo, sizeof(StartupInfo));
+    StartupInfo.cb = sizeof(StartupInfo);
+    StartupInfo.dwFlags = STARTF_USESTDHANDLES;
+    StartupInfo.hStdInput = hInputRead;
+    StartupInfo.hStdOutput = hOutputWrite;
+    StartupInfo.hStdError = hOutputWrite;
+
+    Success = CreateProcessW(ApplicationName,
+                             CommandLine,
+                             NULL,
+                             NULL,
+                             TRUE,
+                             CREATE_NO_WINDOW,
+                             NULL,
+                             NULL,
+                             &StartupInfo,
+                             &ProcessInfo);
+    CloseHandle(hInputRead);
+    hInputRead = NULL;
+    CloseHandle(hOutputWrite);
+    hOutputWrite = NULL;
+    if (!Success)
+    {
+        ExitCode = GetLastError();
+        goto done;
+    }
+
+    WriteFile(hInputWrite, Settings, (DWORD)(wcslen(Settings) * sizeof(WCHAR)), &Written, NULL);
+    CloseHandle(hInputWrite);
+    hInputWrite = NULL;
+
+    while (ReadFile(hOutputRead, (PBYTE)Output + cbOutput, sizeof(Output) - sizeof(WCHAR) - cbOutput, &cbRead, NULL) &&
+           cbRead != 0)
+    {
+        cbOutput += cbRead;
+        Output[cbOutput / sizeof(WCHAR)] = UNICODE_NULL;
+
+        while ((LineEnd = wcschr(Output, L'\n')) != NULL)
+        {
+            *LineEnd = UNICODE_NULL;
+            ShowConfigureProgress(pSetupData, Output);
+            cbOutput -= (DWORD)((LineEnd + 1 - Output) * sizeof(WCHAR));
+            MoveMemory(Output, LineEnd + 1, cbOutput + sizeof(WCHAR));
+        }
+
+        if (cbOutput >= sizeof(Output) - sizeof(WCHAR))
+            cbOutput = 0;
+    }
+
+    WaitForSingleObject(ProcessInfo.hProcess, INFINITE);
+    if (!GetExitCodeProcess(ProcessInfo.hProcess, &ExitCode))
+        ExitCode = GetLastError();
+    CloseHandle(ProcessInfo.hThread);
+    CloseHandle(ProcessInfo.hProcess);
+
+done:
+    if (hInputRead)
+        CloseHandle(hInputRead);
+    if (hInputWrite)
+        CloseHandle(hInputWrite);
+    if (hOutputRead)
+        CloseHandle(hOutputRead);
+    if (hOutputWrite)
+        CloseHandle(hOutputWrite);
+
+    return ExitCode;
+}
+
+static DWORD
+ConfigureInstalledSystem(
+    _In_ PSETUPDATA pSetupData)
+{
+    WCHAR SystemRoot[MAX_PATH];
+    PWSTR Settings;
+    SIZE_T cchSettings = 4096;
+    SIZE_T cchKey;
+    PCWSTR Directory = pSetupData->USetupData.InstallationDirectory;
+    NTSTATUS Status;
+    DWORD Error;
+
+    StringCchPrintfW(SystemRoot, ARRAYSIZE(SystemRoot), L"C:%s%s",
+                     (Directory[0] == L'\\') ? L"" : L"\\", Directory);
+    cchKey = wcslen(SystemRoot);
+    if (cchKey > 3 && SystemRoot[cchKey - 1] == L'\\')
+        SystemRoot[cchKey - 1] = UNICODE_NULL;
+
+    Settings = HeapAlloc(ProcessHeap, HEAP_ZERO_MEMORY, cchSettings * sizeof(WCHAR));
+    if (!Settings)
+        return ERROR_NOT_ENOUGH_MEMORY;
+
+    if (FAILED(StringCchPrintfW(Settings, cchSettings,
+                                L"MachineKey=%.*s\n"
+                                L"UserKey=%.*s\n"
+                                L"SystemVolume=%s\n"
+                                L"SystemDrive=C:\n"
+                                L"SystemRoot=%s\n"
+                                L"ComputerName=%s\n"
+                                L"UserName=%s\n"
+                                L"Password=%s\n"
+                                L"TimeZoneIndex=%lu\n"
+                                L"AutoDaylight=%u\n",
+                                (int)(wcslen(REGISTRY_SETUP_MACHINE) - 1), REGISTRY_SETUP_MACHINE,
+                                (int)(wcslen(REGISTRY_SETUP_USER) - 1), REGISTRY_SETUP_USER,
+                                InstallVolume->Info.DeviceName,
+                                SystemRoot,
+                                pSetupData->ComputerName,
+                                pSetupData->UserName,
+                                pSetupData->Password,
+                                pSetupData->TimeZoneIndex,
+                                pSetupData->AutoDaylight ? 1 : 0)))
+    {
+        HeapFree(ProcessHeap, 0, Settings);
+        return ERROR_BUFFER_OVERFLOW;
+    }
+
+    Status = MountTargetRegistry(&pSetupData->USetupData);
+    if (NT_SUCCESS(Status))
+    {
+        Error = RunTargetConfiguration(pSetupData, Settings);
+        UnmountTargetRegistry();
+    }
+    else
+    {
+        Error = RtlNtStatusToDosError(Status);
+    }
+
+    SecureZeroMemory(Settings, cchSettings * sizeof(WCHAR));
+    HeapFree(ProcessHeap, 0, Settings);
+    SecureZeroMemory(pSetupData->Password, sizeof(pSetupData->Password));
+
+    return Error;
+}
+
 static DWORD
 WINAPI
 PrepareAndDoCopyThread(
@@ -2139,9 +2711,6 @@ PrepareAndDoCopyThread(
     //                   IDS_INSTALL_FINALIZE);
     // SetDlgItemTextW(hwndDlg, IDC_ITEM, L"");
 
-    /* Create the $winnt$.inf file */
-    InstallSetupInfFile(&pSetupData->USetupData);
-
 
     /*
      * Create or update the registry hives
@@ -2178,6 +2747,27 @@ PrepareAndDoCopyThread(
         return 1;
     }
     SendMessageW(UiContext.hWndProgress, PBM_SETPOS, 100, 0);
+
+    if (!pSetupData->RepairUpdateFlag)
+    {
+        DWORD Error;
+
+        SetWindowResTextW(GetDlgItem(hwndDlg, IDC_ACTIVITY),
+                          pSetupData->hInstance,
+                          IDS_CONFIGURE_SYSTEM);
+        SetDlgItemTextW(hwndDlg, IDC_ITEM, L"");
+        SendMessageW(hWndProgress, PBM_SETRANGE, 0,
+                     MAKELPARAM(0, IDS_CONFIG_PHASE_LAST - IDS_CONFIG_PHASE_FIRST + 1));
+        SendMessageW(hWndProgress, PBM_SETPOS, 0, 0);
+
+        Error = ConfigureInstalledSystem(pSetupData);
+        if (Error != ERROR_SUCCESS)
+        {
+            DisplayError(GetParent(hwndDlg), 0, IDS_ERROR_CONFIGURE, Error);
+            PropSheet_SetWizButtons(GetParent(hwndDlg), PSWIZB_NEXT);
+            return 1;
+        }
+    }
 
     /*
      * And finally, install the bootloader
@@ -2719,6 +3309,40 @@ FinishDlgProc(
     return FALSE;
 }
 
+static VOID
+LoadUnattendedAccountSettings(
+    _Inout_ PSETUPDATA pSetupData)
+{
+    WCHAR NtPath[MAX_PATH];
+    WCHAR Path[MAX_PATH];
+    WCHAR Value[MAX_PATH];
+
+    if (!NT_SUCCESS(CombinePaths(NtPath, ARRAYSIZE(NtPath), 2,
+                                 pSetupData->USetupData.SourcePath.Buffer, L"unattend.inf")) ||
+        !ConvertNtPathToWin32Path(&pSetupData->MappingList, Path, ARRAYSIZE(Path), NtPath))
+    {
+        return;
+    }
+
+    if (GetPrivateProfileStringW(L"Unattend", L"ComputerName", L"", Value, ARRAYSIZE(Value), Path) &&
+        IsValidSetupComputerName(Value))
+    {
+        CharUpperW(Value);
+        StringCchCopyW(pSetupData->ComputerName, ARRAYSIZE(pSetupData->ComputerName), Value);
+    }
+
+    GetPrivateProfileStringW(L"Unattend", L"UserName", L"User", Value, ARRAYSIZE(Value), Path);
+    if (IsValidSetupUserName(Value))
+        StringCchCopyW(pSetupData->UserName, ARRAYSIZE(pSetupData->UserName), Value);
+
+    GetPrivateProfileStringW(L"Unattend", L"UserPassword", L"",
+                             pSetupData->Password, ARRAYSIZE(pSetupData->Password), Path);
+
+    pSetupData->TimeZoneIndex = GetPrivateProfileIntW(L"Unattend", L"TimeZoneIndex",
+                                                      pSetupData->TimeZoneIndex, Path);
+    pSetupData->AutoDaylight = !GetPrivateProfileIntW(L"Unattend", L"DisableAutoDaylightTimeSet", 0, Path);
+}
+
 BOOL LoadSetupData(
     IN OUT PSETUPDATA pSetupData)
 {
@@ -2773,6 +3397,13 @@ BOOL LoadSetupData(
         /* If the call fails, keep the default already stored in the buffer */
         GetKeyboardLayoutNameW(pSetupData->DefaultKBLayout);
     }
+
+    GenerateComputerName(pSetupData->ComputerName);
+    pSetupData->TimeZoneIndex = (ULONG)-1;
+    GetTimeZoneListIndex(&pSetupData->TimeZoneIndex);
+    pSetupData->AutoDaylight = TRUE;
+    if (IsUnattendedSetup)
+        LoadUnattendedAccountSettings(pSetupData);
 
     /* Change the default entries in the language and keyboard layout lists */
     {
@@ -3312,7 +3943,7 @@ _tWinMain(HINSTANCE hInst,
     HANDLE hHotkeyThread;
     INITCOMMONCONTROLSEX iccx;
     PROPSHEETHEADER psh;
-    HPROPSHEETPAGE ahpsp[9];
+    HPROPSHEETPAGE ahpsp[11];
     PROPSHEETPAGE psp = {0};
     UINT nPages = 0;
 
@@ -3421,6 +4052,26 @@ _tWinMain(HINSTANCE hInst,
         psp.lParam = (LPARAM)&SetupData;
         psp.pfnDlgProc = DriveDlgProc;
         psp.pszTemplate = MAKEINTRESOURCEW(IDD_DRIVEPAGE);
+        ahpsp[nPages++] = CreatePropertySheetPage(&psp);
+
+        psp.dwSize = sizeof(psp);
+        psp.dwFlags = PSP_DEFAULT | PSP_USEHEADERTITLE | PSP_USEHEADERSUBTITLE;
+        psp.pszHeaderTitle = MAKEINTRESOURCEW(IDS_ACCOUNTTITLE);
+        psp.pszHeaderSubTitle = MAKEINTRESOURCEW(IDS_ACCOUNTSUBTITLE);
+        psp.hInstance = hInst;
+        psp.lParam = (LPARAM)&SetupData;
+        psp.pfnDlgProc = AccountDlgProc;
+        psp.pszTemplate = MAKEINTRESOURCEW(IDD_ACCOUNTPAGE);
+        ahpsp[nPages++] = CreatePropertySheetPage(&psp);
+
+        psp.dwSize = sizeof(psp);
+        psp.dwFlags = PSP_DEFAULT | PSP_USEHEADERTITLE | PSP_USEHEADERSUBTITLE;
+        psp.pszHeaderTitle = MAKEINTRESOURCEW(IDS_TIMEZONETITLE);
+        psp.pszHeaderSubTitle = MAKEINTRESOURCEW(IDS_TIMEZONESUBTITLE);
+        psp.hInstance = hInst;
+        psp.lParam = (LPARAM)&SetupData;
+        psp.pfnDlgProc = TimeZoneDlgProc;
+        psp.pszTemplate = MAKEINTRESOURCEW(IDD_TIMEZONEPAGE);
         ahpsp[nPages++] = CreatePropertySheetPage(&psp);
 
         /* Create the Summary page */

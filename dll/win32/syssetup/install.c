@@ -34,13 +34,10 @@
 DWORD WINAPI
 SetupStartService(LPCWSTR lpServiceName, BOOL bWait);
 
-static BOOL
-InitializeProgramFilesDir(VOID);
 
 /* GLOBALS ******************************************************************/
 
 HINF hSysSetupInf = INVALID_HANDLE_VALUE;
-ADMIN_INFO AdminInfo;
 
 typedef struct _STATUS_MESSAGE_THREAD_DATA
 {
@@ -368,7 +365,7 @@ done:
     SendMessage(pItemsData->hwndDlg, PM_ITEM_END, 1, LastError);
 }
 
-static VOID
+VOID
 CreateTempDir(
     IN LPCWSTR VarName)
 {
@@ -421,7 +418,7 @@ cleanup:
     RegCloseKey(hKey);
 }
 
-static BOOL
+BOOL
 InstallSysSetupInfDevices(VOID)
 {
     INFCONTEXT InfContext;
@@ -457,7 +454,7 @@ InstallSysSetupInfDevices(VOID)
     return TRUE;
 }
 
-static BOOL
+BOOL
 InstallSysSetupInfComponents(VOID)
 {
     INFCONTEXT InfContext;
@@ -944,58 +941,15 @@ cleanup:
 }
 
 static VOID
-ProcessDetachedProgram(
-    _In_ PCWSTR pszInf)
-{
-    WCHAR szInfApp[MAX_PATH], szInfArg[MAX_PATH * 3];
-    WCHAR szCmd[_countof(szInfApp) + _countof(szInfArg)];
-    UINT cch;
-
-    if (!GetPrivateProfileStringW(L"GuiUnattended", L"DetachedProgram", L"", szInfApp, _countof(szInfApp), pszInf) || !*szInfApp)
-        return;
-    cch = ExpandEnvironmentStrings(szInfApp, szCmd, _countof(szCmd) - 1);
-    if (GetPrivateProfileStringW(L"GuiUnattended", L"Arguments", L"", szInfArg, _countof(szInfArg), pszInf) && cch)
-    {
-        szCmd[cch - 1] = L' ';
-        szCmd[cch] = UNICODE_NULL;
-        ExpandEnvironmentStrings(szInfArg, szCmd + cch, _countof(szCmd) - cch);
-    }
-    RunCommandAndWait(szCmd);
-}
-
-extern VOID
-EnableVisualTheme(
-    _In_opt_ HWND hwndParent,
-    _In_opt_ PCWSTR ThemeFile);
-
-/**
- * @brief
- * Pre-process unattended file to apply early settings.
- *
- * @param[in]   IsInstall
- * TRUE if this is ReactOS installation, invoked from InstallReactOS(),
- * FALSE if this is run as part of LiveCD, invoked form InstallLiveCD().
- **/
-static VOID
-PreprocessUnattend(
-    _In_ BOOL IsInstall)
+PreprocessUnattend(VOID)
 {
     WCHAR szPath[MAX_PATH];
     WCHAR szValue[MAX_PATH];
     BOOL bDefaultThemesOff;
 
-    if (IsInstall)
-    {
-        /* See also wizard.c!ProcessSetupInf()
-         * Retrieve the path of the setup INF */
-        GetSetupInfPath(szPath, _countof(szPath));
-    }
-    else
-    {
-        /* See also userinit/livecd.c!RunLiveCD() */
-        GetWindowsDirectoryW(szPath, _countof(szPath));
-        wcscat(szPath, L"\\unattend.inf");
-    }
+    /* See also userinit/livecd.c!RunLiveCD() */
+    GetWindowsDirectoryW(szPath, _countof(szPath));
+    wcscat(szPath, L"\\unattend.inf");
 
     /*
      * Apply initial default theming
@@ -1017,9 +971,6 @@ PreprocessUnattend(
 
     /* Enable the chosen theme, or use the classic theme */
     EnableVisualTheme(NULL, bDefaultThemesOff ? NULL : szValue);
-
-    if (IsInstall)
-        ProcessDetachedProgram(szPath);
 }
 
 static BOOL
@@ -1213,7 +1164,7 @@ InstallLiveCD(VOID)
     HANDLE hToken = NULL;
     BOOL bRes;
 
-    PreprocessUnattend(FALSE);
+    PreprocessUnattend();
     InitializeProgramFilesDir();
     if (!CommonInstall())
         goto error;
@@ -1221,7 +1172,7 @@ InstallLiveCD(VOID)
     InstallLiveCDPrivileges();
 
     /* Install the TCP/IP protocol driver */
-    bRes = InstallNetworkComponent(L"MS_TCPIP");
+    bRes = InstallNetworkComponent(L"MS_TCPIP", FALSE);
     if (!bRes && GetLastError() != ERROR_FILE_NOT_FOUND)
     {
         DPRINT("InstallNetworkComponent() failed with error 0x%lx\n", GetLastError());
@@ -1298,85 +1249,7 @@ error:
 }
 
 
-static BOOL
-SetSetupType(DWORD dwSetupType)
-{
-    DWORD dwError;
-    HKEY hKey;
 
-    dwError = RegOpenKeyExW(
-        HKEY_LOCAL_MACHINE,
-        L"SYSTEM\\Setup",
-        0,
-        KEY_SET_VALUE,
-        &hKey);
-    if (dwError != ERROR_SUCCESS)
-        return FALSE;
-
-    dwError = RegSetValueExW(
-        hKey,
-        L"SetupType",
-        0,
-        REG_DWORD,
-        (LPBYTE)&dwSetupType,
-        sizeof(DWORD));
-    RegCloseKey(hKey);
-    if (dwError != ERROR_SUCCESS)
-        return FALSE;
-
-    return TRUE;
-}
-
-static DWORD CALLBACK
-HotkeyThread(LPVOID Parameter)
-{
-    ATOM hotkey;
-    MSG msg;
-
-    DPRINT("HotkeyThread start\n");
-
-    hotkey = GlobalAddAtomW(L"Setup Shift+F10 Hotkey");
-    if (!RegisterHotKey(NULL, hotkey, MOD_SHIFT, VK_F10))
-        DPRINT1("RegisterHotKey failed with %lu\n", GetLastError());
-
-    while (GetMessageW(&msg, NULL, 0, 0))
-    {
-        if (msg.hwnd == NULL && msg.message == WM_HOTKEY && msg.wParam == hotkey)
-        {
-            WCHAR CmdLine[] = L"cmd.exe"; // CreateProcess can modify this buffer.
-            STARTUPINFOW si = { sizeof(si) };
-            PROCESS_INFORMATION pi;
-
-            if (CreateProcessW(NULL,
-                               CmdLine,
-                               NULL,
-                               NULL,
-                               FALSE,
-                               CREATE_NEW_CONSOLE,
-                               NULL,
-                               NULL,
-                               &si,
-                               &pi))
-            {
-                CloseHandle(pi.hProcess);
-                CloseHandle(pi.hThread);
-            }
-            else
-            {
-                DPRINT1("Failed to launch command prompt: %lu\n", GetLastError());
-            }
-        }
-    }
-
-    UnregisterHotKey(NULL, hotkey);
-    GlobalDeleteAtom(hotkey);
-
-    DPRINT("HotkeyThread terminate\n");
-    return 0;
-}
-
-
-static
 BOOL
 InitializeProgramFilesDir(VOID)
 {
@@ -1556,7 +1429,6 @@ InitializeProgramFilesDir(VOID)
 }
 
 
-static
 VOID
 InitializeDefaultUserLocale(VOID)
 {
@@ -1664,7 +1536,6 @@ done:
 }
 
 
-static
 DWORD
 SaveDefaultUserHive(VOID)
 {
@@ -1737,158 +1608,10 @@ SaveDefaultUserHive(VOID)
 }
 
 
-static
-DWORD
-InstallReactOS(VOID)
-{
-    WCHAR szBuffer[MAX_PATH];
-    HANDLE token;
-    TOKEN_PRIVILEGES privs;
-    HKEY hKey;
-    HANDLE hHotkeyThread;
-    BOOL ret;
-
-    InitializeSetupActionLog(FALSE);
-    LogItem(NULL, L"Installing LiberNT");
-
-    CreateTempDir(L"TEMP");
-    CreateTempDir(L"TMP");
-
-    if (!InitializeProgramFilesDir())
-    {
-        FatalError("InitializeProgramFilesDir() failed");
-        return 0;
-    }
-
-    if (!InitializeProfiles())
-    {
-        FatalError("InitializeProfiles() failed");
-        return 0;
-    }
-
-    InitializeDefaultUserLocale();
-
-    if (GetWindowsDirectoryW(szBuffer, ARRAYSIZE(szBuffer)))
-    {
-        if (RegOpenKeyExW(HKEY_LOCAL_MACHINE,
-                          L"SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion",
-                          0,
-                          KEY_WRITE,
-                          &hKey) == ERROR_SUCCESS)
-        {
-            RegSetValueExW(hKey,
-                           L"PathName",
-                           0,
-                           REG_SZ,
-                           (LPBYTE)szBuffer,
-                           (wcslen(szBuffer) + 1) * sizeof(WCHAR));
-
-            RegSetValueExW(hKey,
-                           L"SystemRoot",
-                           0,
-                           REG_SZ,
-                           (LPBYTE)szBuffer,
-                           (wcslen(szBuffer) + 1) * sizeof(WCHAR));
-
-            RegCloseKey(hKey);
-        }
-
-        PathAddBackslash(szBuffer);
-        wcscat(szBuffer, L"system");
-        CreateDirectory(szBuffer, NULL);
-    }
-
-    if (SaveDefaultUserHive() != ERROR_SUCCESS)
-    {
-        FatalError("SaveDefaultUserHive() failed");
-        return 0;
-    }
-
-    if (!CopySystemProfile(0))
-    {
-        FatalError("CopySystemProfile() failed");
-        return 0;
-    }
-
-    hHotkeyThread = CreateThread(NULL, 0, HotkeyThread, NULL, 0, NULL);
-
-    PreprocessUnattend(TRUE);
-    if (!CommonInstall())
-        return 0;
-
-    /* Install the TCP/IP protocol driver */
-    ret = InstallNetworkComponent(L"MS_TCPIP");
-    if (!ret && GetLastError() != ERROR_FILE_NOT_FOUND)
-    {
-        DPRINT("InstallNetworkComponent() failed with error 0x%lx\n", GetLastError());
-    }
-    else
-    {
-        /* Start the TCP/IP protocol driver */
-        SetupStartService(L"Tcpip", FALSE);
-        SetupStartService(L"Dhcp", FALSE);
-        SetupStartService(L"Dnscache", FALSE);
-    }
-
-    InstallWizard();
-
-    SetAutoAdminLogon();
-
-    SetupCloseInfFile(hSysSetupInf);
-    SetSetupType(0);
-
-    if (hHotkeyThread)
-    {
-        PostThreadMessage(GetThreadId(hHotkeyThread), WM_QUIT, 0, 0);
-        CloseHandle(hHotkeyThread);
-    }
-
-    LogItem(NULL, L"Installing LiberNT done");
-    TerminateSetupActionLog();
-
-    if (AdminInfo.Name != NULL)
-        RtlFreeHeap(RtlGetProcessHeap(), 0, AdminInfo.Name);
-
-    if (AdminInfo.Domain != NULL)
-        RtlFreeHeap(RtlGetProcessHeap(), 0, AdminInfo.Domain);
-
-    if (AdminInfo.Password != NULL)
-        RtlFreeHeap(RtlGetProcessHeap(), 0, AdminInfo.Password);
-
-    /* Get shutdown privilege */
-    if (!OpenProcessToken(GetCurrentProcess(), TOKEN_ADJUST_PRIVILEGES, &token))
-    {
-        FatalError("OpenProcessToken() failed!");
-        return 0;
-    }
-    if (!LookupPrivilegeValue(NULL,
-                              SE_SHUTDOWN_NAME,
-                              &privs.Privileges[0].Luid))
-    {
-        FatalError("LookupPrivilegeValue() failed!");
-        return 0;
-    }
-    privs.PrivilegeCount = 1;
-    privs.Privileges[0].Attributes = SE_PRIVILEGE_ENABLED;
-    if (AdjustTokenPrivileges(token,
-                              FALSE,
-                              &privs,
-                              0,
-                              (PTOKEN_PRIVILEGES)NULL,
-                              NULL) == 0)
-    {
-        FatalError("AdjustTokenPrivileges() failed!");
-        return 0;
-    }
-
-    ExitWindowsEx(EWX_REBOOT, 0);
-    return 0;
-}
-
 
 /*
  * Standard Windows-compatible export, which dispatches
- * to either 'InstallReactOS' or 'InstallLiveCD'.
+ * to either 'InstallTargetSystem' or 'InstallLiveCD'.
  */
 INT
 WINAPI
@@ -1906,8 +1629,8 @@ InstallWindowsNt(INT argc, WCHAR** argv)
 
             // NOTE: On Windows, "mini" means "minimal UI", and can be used
             // in addition to "newsetup"; these options are not exclusive.
-            if (_wcsicmp(p, L"newsetup") == 0)
-                return (INT)InstallReactOS();
+            if (_wcsicmp(p, L"target") == 0)
+                return (INT)InstallTargetSystem();
             else if (_wcsicmp(p, L"mini") == 0)
                 return (INT)InstallLiveCD();
 

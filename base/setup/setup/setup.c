@@ -63,11 +63,9 @@ INT wmain(INT argc, WCHAR* argv[])
         return ERROR_INVALID_PARAMETER;
     p++;
 
-    // NOTE: On Windows, "mini" means "minimal UI", and can be used
-    // in addition to "newsetup"; these options are not exclusive.
-    if (_wcsicmp(p, L"newsetup") == 0 || _wcsicmp(p, L"mini") == 0)
+    if (_wcsicmp(p, L"target") == 0 || _wcsicmp(p, L"mini") == 0)
     {
-        RunInstallReactOS(argc, argv);
+        return RunInstallReactOS(argc, argv);
     }
 
 #if 0

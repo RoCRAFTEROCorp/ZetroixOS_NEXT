@@ -21,7 +21,7 @@ LockoutBadCount = 0
 
 ; Account Options
 LSAAnonymousNameLookup = 0
-;EnableAdminAccount = 0
+EnableAdminAccount = 0
 EnableGuestAccount = 0
 ;NewAdministratorName =
 ;NewGuestName =

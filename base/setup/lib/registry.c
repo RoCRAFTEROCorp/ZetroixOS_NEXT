@@ -57,9 +57,6 @@
 
 /* GLOBALS ******************************************************************/
 
-#define REGISTRY_SETUP_MACHINE  L"\\Registry\\Machine\\SYSTEM\\USetup_Machine\\"
-#define REGISTRY_SETUP_USER     L"\\Registry\\Machine\\SYSTEM\\USetup_User\\"
-
 typedef struct _ROOT_KEY
 {
     PCWSTR Name;
@@ -1123,6 +1120,159 @@ RegCleanupRegistry(
     }
 
     /* Remove restore and backup privileges */
+    RtlAdjustPrivilege(SE_BACKUP_PRIVILEGE, PrivilegeSet[1], FALSE, &PrivilegeSet[1]);
+    RtlAdjustPrivilege(SE_RESTORE_PRIVILEGE, PrivilegeSet[0], FALSE, &PrivilegeSet[0]);
+}
+
+static
+HANDLE
+CreateTargetRootKey(
+    _In_ PCWSTR KeyPath)
+{
+    UNICODE_STRING KeyName;
+    OBJECT_ATTRIBUTES ObjectAttributes;
+    HANDLE KeyHandle = NULL;
+    NTSTATUS Status;
+
+    RtlInitUnicodeString(&KeyName, KeyPath);
+    InitializeObjectAttributes(&ObjectAttributes, &KeyName, OBJ_CASE_INSENSITIVE, NULL, NULL);
+    Status = NtCreateKey(&KeyHandle, KEY_ALL_ACCESS, &ObjectAttributes, 0, NULL, REG_OPTION_NON_VOLATILE, NULL);
+    if (!NT_SUCCESS(Status))
+    {
+        DPRINT1("NtCreateKey(%wZ) failed (Status 0x%08lx)\n", &KeyName, Status);
+        return NULL;
+    }
+    return KeyHandle;
+}
+
+static
+VOID
+CloseTargetRootKeys(VOID)
+{
+    UINT i;
+
+    for (i = 0; i < ARRAYSIZE(RootKeys); ++i)
+    {
+        if (RootKeys[i].Handle)
+        {
+            NtFlushKey(RootKeys[i].Handle);
+            NtDeleteKey(RootKeys[i].Handle);
+            NtClose(RootKeys[i].Handle);
+            RootKeys[i].Handle = NULL;
+        }
+    }
+}
+
+NTSTATUS
+RegMountTargetHives(
+    IN PUNICODE_STRING NtSystemRoot)
+{
+    NTSTATUS Status;
+    BOOLEAN PrivilegeSet[2] = {FALSE, FALSE};
+    HANDLE KeyHandle;
+    UINT i;
+
+    Status = RtlAdjustPrivilege(SE_RESTORE_PRIVILEGE, TRUE, FALSE, &PrivilegeSet[0]);
+    if (!NT_SUCCESS(Status))
+        return Status;
+
+    Status = RtlAdjustPrivilege(SE_BACKUP_PRIVILEGE, TRUE, FALSE, &PrivilegeSet[1]);
+    if (!NT_SUCCESS(Status))
+    {
+        RtlAdjustPrivilege(SE_RESTORE_PRIVILEGE, PrivilegeSet[0], FALSE, &PrivilegeSet[0]);
+        return Status;
+    }
+
+    RootKeys[GetPredefKeyIndex(HKEY_LOCAL_MACHINE)].Handle = CreateTargetRootKey(REGISTRY_SETUP_MACHINE);
+    RootKeys[GetPredefKeyIndex(HKEY_USERS)].Handle = CreateTargetRootKey(REGISTRY_SETUP_USER);
+
+    for (i = 0; i < ARRAYSIZE(RegistryHives); ++i)
+    {
+        Status = ConnectRegistry(NULL,
+                                 RegistryHives[i].HiveRegistryPath,
+                                 NtSystemRoot,
+                                 RegistryHives[i].HiveName);
+        if (!NT_SUCCESS(Status))
+        {
+            DPRINT1("ConnectRegistry(%S) failed, Status 0x%08lx\n", RegistryHives[i].HiveName, Status);
+            break;
+        }
+
+        Status = CreateSymLinkKey(RootKeys[GetPredefKeyIndex(RegistryHives[i].PredefKeyHandle)].Handle,
+                                  RegistryHives[i].RegSymLink,
+                                  RegistryHives[i].HiveRegistryPath);
+        if (!NT_SUCCESS(Status))
+        {
+            DPRINT1("CreateSymLinkKey(%S) failed, Status 0x%08lx\n", RegistryHives[i].RegSymLink, Status);
+            DisconnectRegistry(NULL, RegistryHives[i].HiveRegistryPath, 1);
+            break;
+        }
+    }
+
+    if (NT_SUCCESS(Status))
+    {
+        RootKeys[GetPredefKeyIndex(HKEY_CURRENT_USER)].Handle =
+            CreateTargetRootKey(RootKeys[GetPredefKeyIndex(HKEY_CURRENT_USER)].MountPoint);
+        RootKeys[GetPredefKeyIndex(HKEY_CLASSES_ROOT)].Handle =
+            CreateTargetRootKey(RootKeys[GetPredefKeyIndex(HKEY_CLASSES_ROOT)].MountPoint);
+
+        KeyHandle = CreateTargetRootKey(REGISTRY_SETUP_MACHINE L"SYSTEM\\ControlSet001");
+        if (KeyHandle)
+            NtClose(KeyHandle);
+
+        Status = CreateSymLinkKey(RootKeys[GetPredefKeyIndex(HKEY_LOCAL_MACHINE)].Handle,
+                                  L"SYSTEM\\CurrentControlSet",
+                                  REGISTRY_SETUP_MACHINE L"SYSTEM\\ControlSet001");
+        if (!NT_SUCCESS(Status))
+            DPRINT1("CreateSymLinkKey(CurrentControlSet) failed, Status 0x%08lx\n", Status);
+    }
+    else
+    {
+        while (i-- > 0)
+        {
+            DeleteSymLinkKey(RootKeys[GetPredefKeyIndex(RegistryHives[i].PredefKeyHandle)].Handle,
+                             RegistryHives[i].RegSymLink);
+            DisconnectRegistry(NULL, RegistryHives[i].HiveRegistryPath, 1);
+        }
+        CloseTargetRootKeys();
+    }
+
+    RtlAdjustPrivilege(SE_BACKUP_PRIVILEGE, PrivilegeSet[1], FALSE, &PrivilegeSet[1]);
+    RtlAdjustPrivilege(SE_RESTORE_PRIVILEGE, PrivilegeSet[0], FALSE, &PrivilegeSet[0]);
+
+    return Status;
+}
+
+VOID
+RegUnmountTargetHives(VOID)
+{
+    NTSTATUS Status;
+    BOOLEAN PrivilegeSet[2] = {FALSE, FALSE};
+    UINT i;
+
+    Status = RtlAdjustPrivilege(SE_RESTORE_PRIVILEGE, TRUE, FALSE, &PrivilegeSet[0]);
+    if (!NT_SUCCESS(Status))
+        return;
+
+    Status = RtlAdjustPrivilege(SE_BACKUP_PRIVILEGE, TRUE, FALSE, &PrivilegeSet[1]);
+    if (!NT_SUCCESS(Status))
+    {
+        RtlAdjustPrivilege(SE_RESTORE_PRIVILEGE, PrivilegeSet[0], FALSE, &PrivilegeSet[0]);
+        return;
+    }
+
+    for (i = 0; i < ARRAYSIZE(RegistryHives); ++i)
+    {
+        DeleteSymLinkKey(RootKeys[GetPredefKeyIndex(RegistryHives[i].PredefKeyHandle)].Handle,
+                         RegistryHives[i].RegSymLink);
+
+        Status = DisconnectRegistry(NULL, RegistryHives[i].HiveRegistryPath, 1);
+        if (!NT_SUCCESS(Status))
+            DPRINT1("Unmounting '%S' failed, Status 0x%08lx\n", RegistryHives[i].HiveRegistryPath, Status);
+    }
+
+    CloseTargetRootKeys();
+
     RtlAdjustPrivilege(SE_BACKUP_PRIVILEGE, PrivilegeSet[1], FALSE, &PrivilegeSet[1]);
     RtlAdjustPrivilege(SE_RESTORE_PRIVILEGE, PrivilegeSet[0], FALSE, &PrivilegeSet[0]);
 }
