@@ -2,11 +2,6 @@
 include_directories(BEFORE ${REACTOS_SOURCE_DIR}/sdk/include/wine)
 remove_definitions(-DWINVER=${REACTOS_TARGET_NT} -D_WIN32_WINNT=${REACTOS_TARGET_NT} -D_CRT_NON_CONFORMING_SWPRINTFS)
 
-# Comment this block out if you want to debug the heap issue with these tests on ROS x64. ROSTESTS-415
-if(ARCH STREQUAL "amd64")
-    add_definitions(-DSKIPBADHEAP_K32_WINETEST=1)
-endif()
-
 spec2def(dummy.dll dummy.spec)
 add_library(kernel32_winetest_dummy MODULE dummy.c ${CMAKE_CURRENT_BINARY_DIR}/dummy.def)
 set_target_properties(kernel32_winetest_dummy PROPERTIES OUTPUT_NAME "dummy")
