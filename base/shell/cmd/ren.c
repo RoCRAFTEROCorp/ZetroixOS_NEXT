@@ -175,6 +175,7 @@ INT cmd_rename (LPTSTR param)
             if (!_tcschr(srcFILE, _T('\\'))) break;
         }
         _tcsncpy(srcPath,srcPattern,_tcslen(srcPattern)-_tcslen(srcFILE));
+        srcPath[_tcslen(srcPattern)-_tcslen(srcFILE)] = _T('\0');
 
         if (_tcschr(dstPattern, _T('\\'))) //Checking if the Destiny (dstPattern)is also a Path.And splitting dstPattern in dstPath and srcPath.
         {
@@ -187,6 +188,7 @@ INT cmd_rename (LPTSTR param)
                 if (!_tcschr(dstFILE, _T('\\'))) break;
             }
             _tcsncpy(dstPath,dstPattern,_tcslen(dstPattern)-_tcslen(dstFILE));
+            dstPath[_tcslen(dstPattern)-_tcslen(dstFILE)] = _T('\0');
 
             if ((_tcslen(dstPath)!=_tcslen(srcPath))||(_tcsncmp(srcPath,dstPath,_tcslen(srcPath))!=0)) //If it has a Path,then MUST be equal than srcPath
             {
