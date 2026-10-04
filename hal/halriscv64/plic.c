@@ -23,6 +23,7 @@ typedef struct _RISCV_PLIC
 {
     ULONG64 PhysicalAddress;
     ULONG64 Size;
+    ULONG64 MappedSize;
     ULONG SourceCount;
     ULONG Phandle;
     ULONG SupervisorContext;
@@ -91,22 +92,19 @@ HalpRiscvInitializePlic(
     if (!RiscvFdtOpen(DeviceTree, DeviceTreeSize, &Fdt))
         return FALSE;
     Root = RiscvFdtRootNode(&Fdt);
-    Property = RiscvFdtGetProperty(&Fdt, Root, "compatible", &Length);
-    if (!RiscvFdtStringListContains(Property, Length, "riscv-virtio"))
+    if (!RiscvFdtFindNode(&Fdt, "/soc", &Soc, &Parent) || Parent != Root)
         return TRUE;
-
-    if (!HalpRiscvFindSupervisorCpuIntc(&Fdt, BootHartId, &CpuPhandle) ||
-        !RiscvFdtFindNode(&Fdt, "/soc", &Soc, &Parent) || Parent != Root)
-        return FALSE;
 
     for (Node = RiscvFdtFirstChild(&Fdt, Soc);
          Node != RISCV_FDT_NO_NODE;
          Node = RiscvFdtNextSibling(&Fdt, Node))
     {
         Property = RiscvFdtGetProperty(&Fdt, Node, "compatible", &Length);
-        if (!RiscvFdtStringListContains(Property, Length, "sifive,plic-1.0.0"))
+        if (!RiscvFdtStringListContains(Property, Length, "sifive,plic-1.0.0") &&
+            !RiscvFdtStringListContains(Property, Length, "riscv,plic0"))
             continue;
-        if (HalpRiscvPlic.Present)
+        if (HalpRiscvPlic.Present ||
+            !HalpRiscvFindSupervisorCpuIntc(&Fdt, BootHartId, &CpuPhandle))
             return FALSE;
 
         Property = RiscvFdtGetProperty(&Fdt, Node, "reg", &Length);
@@ -152,12 +150,14 @@ HalpRiscvInitializePlic(
 
         HalpRiscvPlic.PhysicalAddress = Address;
         HalpRiscvPlic.Size = Size;
+        HalpRiscvPlic.MappedSize = min(Size, RISCV_PLIC_CONTEXT_BASE +
+                                             ((ULONG64)SupervisorContext + 1) * RISCV_PLIC_CONTEXT_STRIDE);
         HalpRiscvPlic.SourceCount = Value;
         HalpRiscvPlic.Phandle = Phandle;
         HalpRiscvPlic.SupervisorContext = SupervisorContext;
         HalpRiscvPlic.Present = TRUE;
     }
-    return HalpRiscvPlic.Present;
+    return TRUE;
 }
 
 BOOLEAN
@@ -169,7 +169,7 @@ HalpRiscvMapPlic(VOID)
     if (!HalpRiscvPlic.Present)
         return TRUE;
     Address.QuadPart = HalpRiscvPlic.PhysicalAddress;
-    HalpRiscvPlic.Mapping = MmMapIoSpace(Address, HalpRiscvPlic.Size, MmNonCached);
+    HalpRiscvPlic.Mapping = MmMapIoSpace(Address, HalpRiscvPlic.MappedSize, MmNonCached);
     if (!HalpRiscvPlic.Mapping)
         return FALSE;
 
