@@ -237,6 +237,93 @@ BOOL WINAPI SetupQuerySpaceRequiredOnDriveA(HDSKSPC DiskSpace,
     return ret;
 }
 
+static DWORD get_disk_space_drives(const struct disk_space_list *list, WCHAR *drives)
+{
+    DWORD mask = 0, len = 0;
+    unsigned int i;
+
+    for (i = 0; i < list->count; i++)
+        mask |= 1u << (towlower(list->files[i].path[0]) - 'a');
+
+    for (i = 0; i < 26; i++)
+    {
+        if (!(mask & (1u << i)))
+            continue;
+        drives[len++] = 'a' + i;
+        drives[len++] = ':';
+        drives[len++] = 0;
+    }
+    drives[len++] = 0;
+    return len;
+}
+
+/***********************************************************************
+ *      SetupQueryDrivesInDiskSpaceListW (SETUPAPI.@)
+ */
+BOOL WINAPI SetupQueryDrivesInDiskSpaceListW(HDSKSPC handle, PWSTR buffer, DWORD size, PDWORD required_size)
+{
+    struct disk_space_list *list = handle;
+    WCHAR drives[26 * 3 + 1];
+    DWORD len, copied;
+
+    TRACE("%p, %p, %lu, %p\n", handle, buffer, size, required_size);
+
+    len = get_disk_space_drives(list, drives);
+    if (required_size)
+        *required_size = len;
+
+    if (buffer)
+    {
+        if (size < len)
+        {
+            for (copied = 0; copied + 3 <= size && copied + 3 < len; copied += 3)
+                memcpy(buffer + copied, drives + copied, 3 * sizeof(WCHAR));
+            SetLastError(ERROR_INSUFFICIENT_BUFFER);
+            return FALSE;
+        }
+        memcpy(buffer, drives, len * sizeof(WCHAR));
+    }
+
+    SetLastError(ERROR_SUCCESS);
+    return TRUE;
+}
+
+/***********************************************************************
+ *      SetupQueryDrivesInDiskSpaceListA (SETUPAPI.@)
+ */
+BOOL WINAPI SetupQueryDrivesInDiskSpaceListA(HDSKSPC handle, PSTR buffer, DWORD size, PDWORD required_size)
+{
+    struct disk_space_list *list = handle;
+    WCHAR drives[26 * 3 + 1];
+    DWORD len, copied, i;
+
+    TRACE("%p, %p, %lu, %p\n", handle, buffer, size, required_size);
+
+    len = get_disk_space_drives(list, drives);
+    if (required_size)
+        *required_size = len;
+
+    if (buffer)
+    {
+        copied = len;
+        if (size < len)
+        {
+            for (copied = 0; copied + 3 <= size && copied + 3 < len; copied += 3)
+                ;
+        }
+        for (i = 0; i < copied; i++)
+            buffer[i] = (char)drives[i];
+        if (size < len)
+        {
+            SetLastError(ERROR_INSUFFICIENT_BUFFER);
+            return FALSE;
+        }
+    }
+
+    SetLastError(ERROR_SUCCESS);
+    return TRUE;
+}
+
 /***********************************************************************
 *		SetupDestroyDiskSpaceList  (SETUPAPI.@)
 */
