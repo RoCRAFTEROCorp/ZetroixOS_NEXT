@@ -1053,6 +1053,7 @@ MiCreateImageControlArea(
 {
     PSECTION_OBJECT_POINTERS Pointers = FileObject->SectionObjectPointer;
     PMI_CONTROL_AREA Control;
+    PMI_CONTROL_AREA Existing;
     LARGE_INTEGER FileSize;
     NTSTATUS Status;
 
@@ -1093,19 +1094,34 @@ MiCreateImageControlArea(
         return STATUS_SUCCESS;
     }
 
+    MI_RW_RELEASE_EXCLUSIVE(&MiControlLock);
+
     Control = MiAllocateControlArea(FileObject, TRUE);
     if (Control == NULL)
-    {
-        MI_RW_RELEASE_EXCLUSIVE(&MiControlLock);
         return STATUS_INSUFFICIENT_RESOURCES;
-    }
 
     Status = MiBuildImageControlArea(Control, (ULONG64)FileSize.QuadPart);
     if (!NT_SUCCESS(Status))
     {
-        MI_RW_RELEASE_EXCLUSIVE(&MiControlLock);
         MiFreeControlArea(Control);
         return Status;
+    }
+
+    MI_RW_ACQUIRE_EXCLUSIVE(&MiControlLock);
+
+    while (!MiLookupControlArea(Pointers, TRUE, &Existing))
+    {
+        MI_RW_RELEASE_EXCLUSIVE(&MiControlLock);
+        MiWaitForControlTeardown();
+        MI_RW_ACQUIRE_EXCLUSIVE(&MiControlLock);
+    }
+
+    if (Existing != NULL)
+    {
+        MI_RW_RELEASE_EXCLUSIVE(&MiControlLock);
+        MiSegmentDereferenceAndClose(Control->Segment);
+        *ControlOut = Existing;
+        return STATUS_SUCCESS;
     }
 
     Pointers->ImageSectionObject = Control;
