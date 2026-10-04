@@ -255,8 +255,6 @@ SETUP_CreateInterfaceList(
             }
 
             /* Step 3. Update flags */
-            if (KeyBuffer[1] == '\0')
-                interfaceInfo->Flags |= SPINT_DEFAULT;
             rc = RegOpenKeyExW(hReferenceKey, Control, 0, KEY_QUERY_VALUE, &hControlKey);
             if (rc != ERROR_SUCCESS)
             {
@@ -331,6 +329,7 @@ CreateSymbolicLink(
         wcscat(SymbolicLink, L"\\");
         wcscat(SymbolicLink, ReferenceString);
     }
+    CharLowerW(SymbolicLink);
 
     return SymbolicLink;
 }
