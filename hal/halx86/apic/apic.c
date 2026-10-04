@@ -680,16 +680,17 @@ HalpApcInterruptHandler(IN PKTRAP_FRAME TrapFrame)
     KiEnterInterruptTrap(TrapFrame);
 
 #ifdef APIC_LAZY_IRQL
-    if (!HalBeginSystemInterrupt(APC_LEVEL, APC_VECTOR, &OldIrql))
+    if (ApicGetCurrentIrql() >= APC_LEVEL)
     {
+        HalBeginSystemInterrupt(APC_LEVEL, APC_VECTOR, &OldIrql);
+
         /* "Spurious" interrupt, exit the interrupt */
         KiEoiHelper(TrapFrame);
     }
-#else
+#endif
     /* Save the old IRQL */
     OldIrql = ApicGetCurrentIrql();
     ASSERT(OldIrql < APC_LEVEL);
-#endif
 
     /* Raise to APC_LEVEL */
     ApicRaiseIrql(APC_LEVEL);
