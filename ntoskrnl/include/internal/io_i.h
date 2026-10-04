@@ -109,7 +109,9 @@ UCHAR IopSetOperationLength[FileMaximumInformation] =
     0,
     sizeof(FILE_VALID_DATA_LENGTH_INFORMATION),
     sizeof(UNICODE_STRING),
-    sizeof(FILE_IO_COMPLETION_NOTIFICATION_INFORMATION)
+    sizeof(FILE_IO_COMPLETION_NOTIFICATION_INFORMATION),
+    0,
+    sizeof(FILE_IO_PRIORITY_HINT_INFORMATION)
 };
 
 ACCESS_MASK IopQueryOperationAccess[FileMaximumInformation] =

@@ -111,6 +111,7 @@ typedef struct _FILE_OBJECT_EXTENSION
     PDEVICE_OBJECT TopDeviceObjectHint;
     PVOID FilterContext;
     ULONG FoExtFlags;
+    IO_PRIORITY_HINT PriorityHint;
 
 } FILE_OBJECT_EXTENSION, *PFILE_OBJECT_EXTENSION;
 

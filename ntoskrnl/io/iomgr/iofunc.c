@@ -4408,6 +4408,25 @@ NtSetInformationFile(IN HANDLE FileHandle,
         Irp->IoStatus.Status = Status;
         Irp->IoStatus.Information = 0;
     }
+    else if (FileInformationClass == FileIoPriorityHintInformation)
+    {
+        PFILE_IO_PRIORITY_HINT_INFORMATION HintInfo = Irp->AssociatedIrp.SystemBuffer;
+
+        if ((HintInfo->PriorityHint < IoPriorityVeryLow) ||
+            (HintInfo->PriorityHint >= MaxIoPriorityTypes))
+        {
+            Status = STATUS_INVALID_PARAMETER;
+        }
+        else
+        {
+            Status = IopAllocateFileObjectExtension(FileObject);
+            if (NT_SUCCESS(Status))
+                ((PFILE_OBJECT_EXTENSION)FileObject->FileObjectExtension)->PriorityHint = HintInfo->PriorityHint;
+        }
+
+        Irp->IoStatus.Status = Status;
+        Irp->IoStatus.Information = 0;
+    }
     else if (FileInformationClass == FileRenameInformation ||
              FileInformationClass == FileLinkInformation ||
              FileInformationClass == FileMoveClusterInformation)
