@@ -1446,12 +1446,9 @@ USBH_IoctlGetNodeConnectionInformationExV2(
 
         if (PortData->ConnectionStatus == DeviceConnected)
         {
-            USB_PORT_STATUS PortStatus = PortData->PortStatus.PortStatus;
-
             /* Operating at SuperSpeed if we are on a USB 3 hub and the negotiated
              * link speed is SuperSpeed (code 4 in USB_30_PORT_STATUS). */
-            if (HubExtension->HubDescriptor->bDescriptorType == USB_30_HUB_DESCRIPTOR_TYPE &&
-                PortStatus.Usb30PortStatus.NegotiatedDeviceSpeed == 4)
+            if (PortExtension->PortPdoFlags & USBHUB_PDO_FLAG_PORT_SUPER_SPEED)
             {
                 Flags.DeviceIsOperatingAtSuperSpeedOrHigher = 1;
             }

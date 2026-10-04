@@ -914,6 +914,18 @@ USBH_StartHubFdoDevice(IN PUSBHUB_FDO_EXTENSION HubExtension,
         goto ErrorExit;
     }
 
+    if (USBH_IsSuperSpeedHub(HubExtension) && HubCount >= 2)
+    {
+        Status = USBH_SyncSetHubDepth(HubExtension, (USHORT)(HubCount - 2));
+
+        if (!NT_SUCCESS(Status))
+        {
+            DPRINT1("USBH_StartHubFdoDevice: USBH_SyncSetHubDepth() failed - %lX\n",
+                    Status);
+            goto ErrorExit;
+        }
+    }
+
     HubExtension->SCEIrp = IoAllocateIrp(HubExtension->Common.SelfDevice->StackSize,
                                          FALSE);
 

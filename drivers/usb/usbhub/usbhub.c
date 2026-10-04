@@ -1869,6 +1869,39 @@ USBH_SyncClearHubStatus(IN PUSBHUB_FDO_EXTENSION HubExtension,
                          0);
 }
 
+BOOLEAN
+NTAPI
+USBH_IsSuperSpeedHub(IN PUSBHUB_FDO_EXTENSION HubExtension)
+{
+    return HubExtension->LowerPDO != HubExtension->RootHubPdo &&
+           HubExtension->HubDescriptor->bDescriptorType == USB_30_HUB_DESCRIPTOR_TYPE;
+}
+
+NTSTATUS
+NTAPI
+USBH_SyncSetHubDepth(IN PUSBHUB_FDO_EXTENSION HubExtension,
+                     IN USHORT HubDepth)
+{
+    BM_REQUEST_TYPE RequestType;
+
+    DPRINT("USBH_SyncSetHubDepth: HubDepth - %x\n", HubDepth);
+
+    RequestType.B = 0;
+    RequestType.Recipient = BMREQUEST_TO_DEVICE;
+    RequestType.Type = BMREQUEST_CLASS;
+    RequestType.Dir = BMREQUEST_HOST_TO_DEVICE;
+
+    return USBH_Transact(HubExtension,
+                         NULL,
+                         0,
+                         BMREQUEST_HOST_TO_DEVICE,
+                         URB_FUNCTION_CLASS_DEVICE,
+                         RequestType,
+                         USB_REQUEST_SET_HUB_DEPTH,
+                         HubDepth,
+                         0);
+}
+
 NTSTATUS
 NTAPI
 USBH_SyncGetPortStatus(IN PUSBHUB_FDO_EXTENSION HubExtension,
@@ -2336,6 +2369,7 @@ USBH_ProcessPortStateChange(IN PUSBHUB_FDO_EXTENSION HubExtension,
     PVOID DeviceHandle;
     USHORT RequestValue;
     KIRQL Irql;
+    BOOLEAN SuperSpeedHub;
 
     ASSERT(Port > 0);
     PortData = &HubExtension->PortData[Port - 1];
@@ -2489,10 +2523,19 @@ USBH_ProcessPortStateChange(IN PUSBHUB_FDO_EXTENSION HubExtension,
         PortData->ConnectionStatus = DeviceConnected;
     }
 
+    SuperSpeedHub = USBH_IsSuperSpeedHub(HubExtension);
+
     if (PortStatusChange20.ResetChange ||
-        PortStatusChange30.BHResetChange)
+        (PortStatusChange30.BHResetChange && !SuperSpeedHub))
     {
         RequestValue = USBHUB_FEATURE_C_PORT_RESET;
+        PortData->PortStatus = *PortStatus;
+        USBH_SyncClearPortStatus(HubExtension, Port, RequestValue);
+        return;
+    }
+    else if (PortStatusChange30.BHResetChange)
+    {
+        RequestValue = USBHUB_FEATURE_C_BH_PORT_RESET;
         PortData->PortStatus = *PortStatus;
         USBH_SyncClearPortStatus(HubExtension, Port, RequestValue);
         return;
@@ -2500,6 +2543,20 @@ USBH_ProcessPortStateChange(IN PUSBHUB_FDO_EXTENSION HubExtension,
     else if (PortStatusChange20.PortEnableDisableChange)
     {
         RequestValue = USBHUB_FEATURE_C_PORT_ENABLE;
+        PortData->PortStatus = *PortStatus;
+        USBH_SyncClearPortStatus(HubExtension, Port, RequestValue);
+        return;
+    }
+    else if (SuperSpeedHub && PortStatusChange30.PortLinkStateChange)
+    {
+        RequestValue = USBHUB_FEATURE_C_PORT_LINK_STATE;
+        PortData->PortStatus = *PortStatus;
+        USBH_SyncClearPortStatus(HubExtension, Port, RequestValue);
+        return;
+    }
+    else if (SuperSpeedHub && PortStatusChange30.PortConfigErrorChange)
+    {
+        RequestValue = USBHUB_FEATURE_C_PORT_CONFIG_ERROR;
         PortData->PortStatus = *PortStatus;
         USBH_SyncClearPortStatus(HubExtension, Port, RequestValue);
         return;
@@ -3383,6 +3440,11 @@ USBD_CreateDeviceEx(IN PUSBHUB_FDO_EXTENSION HubExtension,
     if (!CreateUsbDevice)
     {
         return STATUS_NOT_IMPLEMENTED;
+    }
+
+    if (USBH_IsSuperSpeedHub(HubExtension))
+    {
+        UsbPortStatus.Usb30PortStatus.NegotiatedDeviceSpeed = 4;
     }
 
     HubDeviceHandle = USBH_SyncGetDeviceHandle(HubExtension->LowerDevice);
@@ -5950,7 +6012,8 @@ USBH_CreateDevice(IN PUSBHUB_FDO_EXTENSION HubExtension,
      * We check NegotiatedDeviceSpeed first (USB 3.0), and if it indicates
      * SuperSpeed, use that. Otherwise fall back to USB 2.0 interpretation.
      */
-    if (UsbPortStatus.Usb30PortStatus.NegotiatedDeviceSpeed >= 4)
+    if (USBH_IsSuperSpeedHub(HubExtension) ||
+        UsbPortStatus.Usb30PortStatus.NegotiatedDeviceSpeed >= 4)
     {
         /* SuperSpeed or SuperSpeed+ device */
         PortExtension->PortPdoFlags = USBHUB_PDO_FLAG_PORT_SUPER_SPEED;
