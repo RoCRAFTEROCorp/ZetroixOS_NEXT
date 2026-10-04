@@ -297,6 +297,8 @@ SimpleErrorChecks(HANDLE FileHandleReadOnly, HANDLE FileHandleWriteOnly, HANDLE 
     OBJECT_ATTRIBUTES InvalidObjectAttributes;
     IO_STATUS_BLOCK IoStatusBlock;
     FILE_STANDARD_INFORMATION FileStandardInfo;
+    SECTION_BASIC_INFORMATION SectionInfo;
+    LARGE_INTEGER ImageSize;
     LARGE_INTEGER MaximumSize;
     UNICODE_STRING SectReadOnly = RTL_CONSTANT_STRING(L"\\BaseNamedObjects\\KmtTestReadSect");
     UNICODE_STRING SectWriteOnly = RTL_CONSTANT_STRING(L"\\BaseNamedObjects\\KmtTestWriteSect");
@@ -428,17 +430,30 @@ SimpleErrorChecks(HANDLE FileHandleReadOnly, HANDLE FileHandleWriteOnly, HANDLE 
     Status = ZwQueryInformationFile(FileHandleExecuteOnly, &IoStatusBlock, &FileStandardInfo, sizeof(FILE_STANDARD_INFORMATION), FileStandardInformation);
     if (!skip(NT_SUCCESS(Status), "Cannot query file information\n"))
     {
+        MaximumSize.QuadPart = 0;
+        CREATE_SECTION(Section, SECTION_ALL_ACCESS, NULL, MaximumSize, PAGE_EXECUTE_READ, SEC_IMAGE, FileHandleExecuteOnly, STATUS_SUCCESS, NO_HANDLE_CLOSE);
+        ImageSize.QuadPart = 0;
+        if (NT_SUCCESS(Status))
+        {
+            Status = ZwQuerySection(Section, SectionBasicInformation, &SectionInfo, sizeof(SectionInfo), NULL);
+            ok_eq_hex(Status, STATUS_SUCCESS);
+            if (NT_SUCCESS(Status))
+                ImageSize = SectionInfo.Size;
+            ZwClose(Section);
+            Section = NULL;
+        }
+
         //as big as file
         MaximumSize = FileStandardInfo.EndOfFile;
-        CREATE_SECTION(Section, SECTION_ALL_ACCESS, NULL, MaximumSize, PAGE_EXECUTE_READ, SEC_IMAGE, FileHandleExecuteOnly, STATUS_SUCCESS, STATUS_SUCCESS);
+        CREATE_SECTION(Section, SECTION_ALL_ACCESS, NULL, MaximumSize, PAGE_EXECUTE_READ, SEC_IMAGE, FileHandleExecuteOnly, (MaximumSize.QuadPart > ImageSize.QuadPart) ? STATUS_SECTION_TOO_BIG : STATUS_SUCCESS, STATUS_SUCCESS);
 
         //less than file
         MaximumSize.QuadPart = FileStandardInfo.EndOfFile.QuadPart - 2;
-        CREATE_SECTION(Section, SECTION_ALL_ACCESS, NULL, MaximumSize, PAGE_EXECUTE_READ, SEC_IMAGE, FileHandleExecuteOnly, STATUS_SUCCESS, STATUS_SUCCESS);
+        CREATE_SECTION(Section, SECTION_ALL_ACCESS, NULL, MaximumSize, PAGE_EXECUTE_READ, SEC_IMAGE, FileHandleExecuteOnly, (MaximumSize.QuadPart > ImageSize.QuadPart) ? STATUS_SECTION_TOO_BIG : STATUS_SUCCESS, STATUS_SUCCESS);
 
         //larger than file
         MaximumSize.QuadPart = FileStandardInfo.EndOfFile.QuadPart + 2;
-        CREATE_SECTION(Section, SECTION_ALL_ACCESS, NULL, MaximumSize, PAGE_EXECUTE_READ, SEC_IMAGE, FileHandleExecuteOnly, STATUS_SUCCESS, STATUS_SUCCESS);
+        CREATE_SECTION(Section, SECTION_ALL_ACCESS, NULL, MaximumSize, PAGE_EXECUTE_READ, SEC_IMAGE, FileHandleExecuteOnly, (MaximumSize.QuadPart > ImageSize.QuadPart) ? STATUS_SECTION_TOO_BIG : STATUS_SUCCESS, STATUS_SUCCESS);
 
         //0
         MaximumSize.QuadPart = 0;
