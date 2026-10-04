@@ -132,8 +132,25 @@ void TestRedirection(void)
             }
             else
             {
+                WCHAR Expected[MAX_PATH];
+
+                if (wcsncmp(Tests[i].ExpectedSubString, L"\\winsxs\\x86_", 12) == 0)
+                {
+#if defined(_M_AMD64)
+                    wcscpy(Expected, L"\\winsxs\\amd64_");
+#elif defined(_M_ARM64)
+                    wcscpy(Expected, L"\\winsxs\\arm64_");
+#else
+                    wcscpy(Expected, L"\\winsxs\\x86_");
+#endif
+                    wcscat(Expected, &Tests[i].ExpectedSubString[12]);
+                }
+                else
+                {
+                    wcscpy(Expected, Tests[i].ExpectedSubString);
+                }
                 RtlDowncaseUnicodeString(&DynamicString, &DynamicString, FALSE);
-                ok(wcsstr(DynamicString.Buffer, Tests[i].ExpectedSubString) != 0, "%d: Expected string %S in %S\n", Tests[i].testline, Tests[i].ExpectedSubString, DynamicString.Buffer);
+                ok(wcsstr(DynamicString.Buffer, Expected) != 0, "%d: Expected string %S in %S\n", Tests[i].testline, Expected, DynamicString.Buffer);
             }
         }
     }
