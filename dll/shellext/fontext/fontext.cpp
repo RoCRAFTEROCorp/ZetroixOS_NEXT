@@ -61,9 +61,9 @@ STDAPI DllRegisterServer()
     if (FAILED_UNEXPECTEDLY(hr))
         return hr;
 
-    hr = SHGetFolderPathW(NULL, CSIDL_FONTS, NULL, 0, Path);
-    if (FAILED_UNEXPECTEDLY(hr))
-        return hr;
+    DWORD cchPath = ExpandEnvironmentStringsW(L"%SystemRoot%\\Fonts", Path, _countof(Path));
+    if (cchPath == 0 || cchPath > _countof(Path))
+        return E_FAIL;
 
     // Make this a system folder:
     // Ideally this should not be done here, but when installing
