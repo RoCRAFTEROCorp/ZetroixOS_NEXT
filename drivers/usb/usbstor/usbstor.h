@@ -149,6 +149,7 @@ typedef struct
     KSPIN_LOCK CommonLock;
     PIO_WORKITEM ResetDeviceWorkItem;
     ULONG Flags;
+    volatile LONG BotResetPending;
     IRP_CONTEXT CurrentIrpContext;
     KSPIN_LOCK RequestTimerLock;
     KTIMER RequestTimer;

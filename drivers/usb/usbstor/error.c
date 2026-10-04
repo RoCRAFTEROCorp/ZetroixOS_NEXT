@@ -120,26 +120,16 @@ USBSTOR_ResetDeviceWorkItemRoutine(
     PFDO_DEVICE_EXTENSION FDODeviceExtension;
     UINT32 ix;
     NTSTATUS Status;
+    BOOLEAN SingleInterface;
 
     DPRINT("USBSTOR_ResetDeviceWorkItemRoutine\n");
 
     FDODeviceExtension = FdoDevice->DeviceExtension;
+    SingleInterface = (FDODeviceExtension->ConfigurationDescriptor &&
+                       FDODeviceExtension->ConfigurationDescriptor->bNumInterfaces == 1);
 
-    /* A device may acknowledge a BOT reset without recovering an aborted
-     * data phase. Reset the port while the request queue is frozen; the hub
-     * restores the configuration and retains our pipe handles. Limit this
-     * to devices owned entirely by USBSTOR so other interfaces keep running. */
-    if (FDODeviceExtension->ConfigurationDescriptor &&
-        FDODeviceExtension->ConfigurationDescriptor->bNumInterfaces == 1)
-    {
-        Status = USBSTOR_SyncInternalRequest(FDODeviceExtension->LowerDeviceObject,
-                                            IOCTL_INTERNAL_USB_RESET_PORT,
-                                            NULL);
-        /* A failed port reset may leave the device unaddressed. Preserve
-         * the failure so the queue retries full recovery on the next request;
-         * a class request cannot use the old address or configuration. */
-        goto Exit;
-    }
+    if (SingleInterface && InterlockedExchange(&FDODeviceExtension->BotResetPending, 0))
+        goto PortReset;
 
     for (ix = 0; ix < 3; ++ix)
     {
@@ -160,6 +150,25 @@ USBSTOR_ResetDeviceWorkItemRoutine(
             }
         }
     }
+
+    if (NT_SUCCESS(Status) || !SingleInterface)
+    {
+        if (NT_SUCCESS(Status) && SingleInterface)
+            InterlockedExchange(&FDODeviceExtension->BotResetPending, 1);
+        goto Exit;
+    }
+
+PortReset:
+    /* A device may acknowledge a BOT reset without recovering an aborted
+     * data phase. Reset the port while the request queue is frozen; the hub
+     * restores the configuration and retains our pipe handles. Limit this
+     * to devices owned entirely by USBSTOR so other interfaces keep running. */
+    Status = USBSTOR_SyncInternalRequest(FDODeviceExtension->LowerDeviceObject,
+                                        IOCTL_INTERNAL_USB_RESET_PORT,
+                                        NULL);
+    /* A failed port reset may leave the device unaddressed. Preserve
+     * the failure so the queue retries full recovery on the next request;
+     * a class request cannot use the old address or configuration. */
 
 Exit:
     USBSTOR_QueueEndReset(FdoDevice, Status);

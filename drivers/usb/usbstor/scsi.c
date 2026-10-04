@@ -232,6 +232,8 @@ USBSTOR_CSWCompletionRoutine(
         goto ResetRecovery;
     }
 
+    InterlockedExchange(&FDODeviceExtension->BotResetPending, 0);
+
     // finally check for CSW errors
     if (Context->Csw->Status == CSW_STATUS_COMMAND_PASSED)
     {
