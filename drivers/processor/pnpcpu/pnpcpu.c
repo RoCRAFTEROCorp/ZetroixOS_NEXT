@@ -1905,6 +1905,109 @@ PnpcpuReleaseAcpiInterface(
     }
 }
 
+#if defined(_M_IX86) || defined(_M_AMD64)
+#define PNPCPU_INTEL_CAP_PERF_MSR  0x00000001
+#define PNPCPU_INTEL_CAP_SMP_C1PT  0x00000008
+#define PNPCPU_INTEL_CAP_SMP_C2C3  0x00000010
+#define PNPCPU_INTEL_CAP_C2C3_FFH  0x00000200
+#define PNPCPU_INTEL_CAP_HW_PSTATE 0x00000800
+
+static
+NTSTATUS
+PnpcpuEvaluateCapabilities(
+    _In_ PPNPCPU_DEVICE_EXTENSION DeviceExtension,
+    _In_ PACPI_EVAL_INPUT_BUFFER_COMPLEX InputBuffer,
+    _In_ ULONG InputLength,
+    _Out_ PULONG Errors)
+{
+    UCHAR OutputStorage[FIELD_OFFSET(ACPI_EVAL_OUTPUT_BUFFER, Argument) + ACPI_METHOD_ARGUMENT_LENGTH(16)];
+    PACPI_EVAL_OUTPUT_BUFFER OutputBuffer = (PACPI_EVAL_OUTPUT_BUFFER)OutputStorage;
+    IO_STATUS_BLOCK IoStatus;
+    KEVENT Event;
+    PIRP Irp;
+    NTSTATUS Status;
+
+    *Errors = 0;
+    KeInitializeEvent(&Event, NotificationEvent, FALSE);
+    Irp = IoBuildDeviceIoControlRequest(IOCTL_ACPI_EVAL_METHOD, DeviceExtension->LowerDevice, InputBuffer, InputLength, OutputBuffer, sizeof(OutputStorage), FALSE, &Event, &IoStatus);
+    if (!Irp)
+        return STATUS_INSUFFICIENT_RESOURCES;
+    Status = IoCallDriver(DeviceExtension->LowerDevice, Irp);
+    if (Status == STATUS_PENDING)
+    {
+        KeWaitForSingleObject(&Event, Executive, KernelMode, FALSE, NULL);
+        Status = IoStatus.Status;
+    }
+    if (NT_SUCCESS(Status) && IoStatus.Information >= FIELD_OFFSET(ACPI_EVAL_OUTPUT_BUFFER, Argument) + FIELD_OFFSET(ACPI_METHOD_ARGUMENT, Data) + sizeof(ULONG) &&
+        OutputBuffer->Count >= 1 && OutputBuffer->Argument[0].Type == ACPI_METHOD_ARGUMENT_BUFFER &&
+        OutputBuffer->Argument[0].DataLength >= sizeof(ULONG))
+        RtlCopyMemory(Errors, OutputBuffer->Argument[0].Data, sizeof(ULONG));
+    return Status;
+}
+
+static
+VOID
+PnpcpuDeclareCapabilities(
+    _In_ PPNPCPU_DEVICE_EXTENSION DeviceExtension)
+{
+    static const UCHAR IntelUuid[16] = { 0x16, 0xA6, 0x77, 0x40, 0x0C, 0x29, 0xBE, 0x47, 0x9E, 0xBD, 0xD8, 0x70, 0x58, 0x71, 0x39, 0x53 };
+    const ULONG Capabilities = PNPCPU_INTEL_CAP_PERF_MSR | PNPCPU_INTEL_CAP_SMP_C1PT | PNPCPU_INTEL_CAP_SMP_C2C3 |
+                               PNPCPU_INTEL_CAP_C2C3_FFH | PNPCPU_INTEL_CAP_HW_PSTATE;
+    UCHAR InputStorage[FIELD_OFFSET(ACPI_EVAL_INPUT_BUFFER_COMPLEX, Argument) + ACPI_METHOD_ARGUMENT_LENGTH(16) +
+                       2 * ACPI_METHOD_ARGUMENT_LENGTH(sizeof(ULONG)) + ACPI_METHOD_ARGUMENT_LENGTH(2 * sizeof(ULONG))];
+    PACPI_EVAL_INPUT_BUFFER_COMPLEX InputBuffer = (PACPI_EVAL_INPUT_BUFFER_COMPLEX)InputStorage;
+    PACPI_METHOD_ARGUMENT Argument;
+    ULONG Buffer[3];
+    ULONG Errors;
+    int Registers[4];
+    NTSTATUS Status;
+
+    __cpuid(Registers, 0);
+    if ((ULONG)Registers[1] != 0x756E6547 || (ULONG)Registers[3] != 0x49656E69 || (ULONG)Registers[2] != 0x6C65746E)
+        return;
+
+    RtlZeroMemory(InputStorage, sizeof(InputStorage));
+    InputBuffer->Signature = ACPI_EVAL_INPUT_BUFFER_COMPLEX_SIGNATURE;
+    InputBuffer->MethodNameAsUlong = PNPCPU_METHOD('_', 'O', 'S', 'C');
+    InputBuffer->ArgumentCount = 4;
+    InputBuffer->Size = sizeof(InputStorage) - FIELD_OFFSET(ACPI_EVAL_INPUT_BUFFER_COMPLEX, Argument);
+    Argument = InputBuffer->Argument;
+    ACPI_METHOD_SET_ARGUMENT_BUFFER(Argument, IntelUuid, sizeof(IntelUuid));
+    Argument = ACPI_METHOD_NEXT_ARGUMENT(Argument);
+    ACPI_METHOD_SET_ARGUMENT_INTEGER(Argument, 1);
+    Argument = ACPI_METHOD_NEXT_ARGUMENT(Argument);
+    ACPI_METHOD_SET_ARGUMENT_INTEGER(Argument, 2);
+    Argument = ACPI_METHOD_NEXT_ARGUMENT(Argument);
+    Buffer[0] = 0;
+    Buffer[1] = Capabilities;
+    ACPI_METHOD_SET_ARGUMENT_BUFFER(Argument, Buffer, 2 * sizeof(ULONG));
+    Status = PnpcpuEvaluateCapabilities(DeviceExtension, InputBuffer, sizeof(InputStorage), &Errors);
+    if (NT_SUCCESS(Status))
+    {
+        DPRINT1("PNPCPU: _OSC capabilities 0x%lx errors 0x%lx\n", Capabilities, Errors);
+        return;
+    }
+    if (Status != STATUS_OBJECT_NAME_NOT_FOUND)
+    {
+        DPRINT1("PNPCPU: _OSC failed, status 0x%08lx\n", Status);
+        return;
+    }
+
+    RtlZeroMemory(InputStorage, sizeof(InputStorage));
+    InputBuffer->Signature = ACPI_EVAL_INPUT_BUFFER_COMPLEX_SIGNATURE;
+    InputBuffer->MethodNameAsUlong = PNPCPU_METHOD('_', 'P', 'D', 'C');
+    InputBuffer->ArgumentCount = 1;
+    InputBuffer->Size = ACPI_METHOD_ARGUMENT_LENGTH(sizeof(Buffer));
+    Buffer[0] = 1;
+    Buffer[1] = 1;
+    Buffer[2] = Capabilities;
+    ACPI_METHOD_SET_ARGUMENT_BUFFER(InputBuffer->Argument, Buffer, sizeof(Buffer));
+    Status = PnpcpuEvaluateCapabilities(DeviceExtension, InputBuffer,
+                                        FIELD_OFFSET(ACPI_EVAL_INPUT_BUFFER_COMPLEX, Argument) + InputBuffer->Size, &Errors);
+    DPRINT1("PNPCPU: _PDC capabilities 0x%lx status 0x%08lx\n", Capabilities, Status);
+}
+#endif
+
 static
 NTSTATUS
 PnpcpuStartDevice(
@@ -1917,11 +2020,23 @@ PnpcpuStartDevice(
     DeviceExtension->ProximityValid = PnpcpuQueryInteger(DeviceExtension, PNPCPU_METHOD('_', 'P', 'X', 'M'), &DeviceExtension->ProximityDomain);
     PnpcpuQueryMat(DeviceExtension);
     PnpcpuFindProcessorNumber(DeviceExtension);
+#if defined(_M_IX86) || defined(_M_AMD64)
+    PnpcpuDeclareCapabilities(DeviceExtension);
+#endif
     PnpcpuRefreshCapabilities(DeviceExtension);
     DeviceExtension->Started = TRUE;
     PnpcpuRefreshPowerConfiguration(DeviceExtension);
     PnpcpuPublishProperties(DeviceExtension);
     KeReleaseMutex(&DeviceExtension->ConfigurationLock, FALSE);
+#if defined(_M_IX86) || defined(_M_AMD64)
+    for (ULONG Index = 0; Index < MAXIMUM_PROCESSORS; Index++)
+    {
+        PPNPCPU_DEVICE_EXTENSION Other = InterlockedCompareExchangePointer((PVOID volatile *)&PnpcpuProcessors[Index], NULL, NULL);
+
+        if (Other && Other != DeviceExtension && Other->IdleFallback)
+            PnpcpuNotification(Other, 0x81);
+    }
+#endif
 
     Status = PnpcpuQueryAcpiInterface(DeviceExtension);
     if (NT_SUCCESS(Status))
