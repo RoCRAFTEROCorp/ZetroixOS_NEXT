@@ -2960,6 +2960,19 @@ DxgkGpuVaDestroyProcess(
  * address through DxgkGpuVaReserve.  A failed user copy therefore cannot leave
  * an unreachable reservation behind.
  */
+static D3DGPU_VIRTUAL_ADDRESS
+GpuVaAddressSpaceEnd(
+    _In_ PDXGKRNL_PROCESS Process)
+{
+    PDXGKRNL_ADAPTER Adapter = Process->Adapter;
+
+    if (Adapter != NULL && Adapter->GpuMmuCapsValid &&
+        Adapter->GpuMmuCaps.VirtualAddressBitCount != 0 &&
+        Adapter->GpuMmuCaps.VirtualAddressBitCount < 64)
+        return 1ULL << Adapter->GpuMmuCaps.VirtualAddressBitCount;
+    return GPUVA_DEFAULT_SPACE_SIZE;
+}
+
 NTSTATUS
 DxgkGpuVaPlanReserve(_In_ PDXGKRNL_PROCESS Process, _In_ D3DGPU_VIRTUAL_ADDRESS BaseAddress, _In_ D3DGPU_VIRTUAL_ADDRESS MinAddress, _In_ D3DGPU_VIRTUAL_ADDRESS MaxAddress, _In_ ULONGLONG SizeInBytes, _In_ D3DDDIGPUVIRTUALADDRESS_RESERVATION_TYPE ReservationType, _Out_ D3DGPU_VIRTUAL_ADDRESS *OutAddress)
 {
@@ -2973,7 +2986,7 @@ DxgkGpuVaPlanReserve(_In_ PDXGKRNL_PROCESS Process, _In_ D3DGPU_VIRTUAL_ADDRESS 
     *OutAddress = 0;
     if (BaseAddress != 0)
     {
-        if ((BaseAddress & GPUVA_RESERVATION_MASK) != 0 || BaseAddress < GPUVA_START_ADDRESS || BaseAddress >= GPUVA_DEFAULT_SPACE_SIZE || SizeInBytes > GPUVA_DEFAULT_SPACE_SIZE - BaseAddress)
+        if ((BaseAddress & GPUVA_RESERVATION_MASK) != 0 || BaseAddress < GPUVA_START_ADDRESS || BaseAddress >= GpuVaAddressSpaceEnd(Process) || SizeInBytes > GpuVaAddressSpaceEnd(Process) - BaseAddress)
             return STATUS_INVALID_PARAMETER;
     }
     else
@@ -2994,8 +3007,8 @@ DxgkGpuVaPlanReserve(_In_ PDXGKRNL_PROCESS Process, _In_ D3DGPU_VIRTUAL_ADDRESS 
             MinAddress = GPUVA_START_ADDRESS;
         if (MaxAddress != 0 && MaxAddress != MAXULONGLONG)
             MaxAddress += 1;
-        if (MaxAddress == 0 || MaxAddress > GPUVA_DEFAULT_SPACE_SIZE)
-            MaxAddress = GPUVA_DEFAULT_SPACE_SIZE;
+        if (MaxAddress == 0 || MaxAddress > GpuVaAddressSpaceEnd(Process))
+            MaxAddress = GpuVaAddressSpaceEnd(Process);
         MinAddress = max(MinAddress, GPUVA_START_ADDRESS);
         if (MinAddress >= MaxAddress || SizeInBytes > MaxAddress - MinAddress)
             return STATUS_INVALID_PARAMETER;
@@ -3068,7 +3081,7 @@ DxgkGpuVaPlanMap(_In_ PDXGKRNL_ADAPTER Adapter, _In_ PDXGKRNL_PROCESS Process, _
     *OutAddress = 0;
     if (BaseAddress != 0)
     {
-        if (BaseAddress < GPUVA_START_ADDRESS || BaseAddress >= GPUVA_DEFAULT_SPACE_SIZE || SizeInBytes > GPUVA_DEFAULT_SPACE_SIZE - BaseAddress)
+        if (BaseAddress < GPUVA_START_ADDRESS || BaseAddress >= GpuVaAddressSpaceEnd(Process) || SizeInBytes > GpuVaAddressSpaceEnd(Process) - BaseAddress)
             return STATUS_INVALID_PARAMETER;
     }
     else
@@ -3089,8 +3102,8 @@ DxgkGpuVaPlanMap(_In_ PDXGKRNL_ADAPTER Adapter, _In_ PDXGKRNL_PROCESS Process, _
             MinAddress = GPUVA_START_ADDRESS;
         if (MaxAddress != 0 && MaxAddress != MAXULONGLONG)
             MaxAddress += 1;
-        if (MaxAddress == 0 || MaxAddress > GPUVA_DEFAULT_SPACE_SIZE)
-            MaxAddress = GPUVA_DEFAULT_SPACE_SIZE;
+        if (MaxAddress == 0 || MaxAddress > GpuVaAddressSpaceEnd(Process))
+            MaxAddress = GpuVaAddressSpaceEnd(Process);
         MinAddress = max(MinAddress, GPUVA_START_ADDRESS);
         if (MinAddress >= MaxAddress || SizeInBytes > MaxAddress - MinAddress)
             return STATUS_INVALID_PARAMETER;
@@ -3180,7 +3193,7 @@ DxgkGpuVaReserve(
     Protection.Zero = ReservationType == D3DDDIGPUVIRTUALADDRESS_RESERVE_ZERO;
     if (BaseAddress != 0)
     {
-        if ((BaseAddress & GPUVA_RESERVATION_MASK) != 0 || BaseAddress < GPUVA_START_ADDRESS || BaseAddress >= GPUVA_DEFAULT_SPACE_SIZE || SizeInBytes > GPUVA_DEFAULT_SPACE_SIZE - BaseAddress)
+        if ((BaseAddress & GPUVA_RESERVATION_MASK) != 0 || BaseAddress < GPUVA_START_ADDRESS || BaseAddress >= GpuVaAddressSpaceEnd(Process) || SizeInBytes > GpuVaAddressSpaceEnd(Process) - BaseAddress)
             return STATUS_INVALID_PARAMETER;
     }
     else
@@ -3201,8 +3214,8 @@ DxgkGpuVaReserve(
             MinAddress = GPUVA_START_ADDRESS;
         if (MaxAddress != 0 && MaxAddress != MAXULONGLONG)
             MaxAddress += 1;
-        if (MaxAddress == 0 || MaxAddress > GPUVA_DEFAULT_SPACE_SIZE)
-            MaxAddress = GPUVA_DEFAULT_SPACE_SIZE;
+        if (MaxAddress == 0 || MaxAddress > GpuVaAddressSpaceEnd(Process))
+            MaxAddress = GpuVaAddressSpaceEnd(Process);
         MinAddress = max(MinAddress, GPUVA_START_ADDRESS);
         if (MinAddress >= MaxAddress || SizeInBytes > MaxAddress - MinAddress)
             return STATUS_INVALID_PARAMETER;
@@ -3575,8 +3588,8 @@ DxgkGpuVaMap(
     if (BaseAddress != 0)
     {
         if (BaseAddress < GPUVA_START_ADDRESS ||
-            BaseAddress >= GPUVA_DEFAULT_SPACE_SIZE ||
-            SizeInBytes > GPUVA_DEFAULT_SPACE_SIZE - BaseAddress)
+            BaseAddress >= GpuVaAddressSpaceEnd(Process) ||
+            SizeInBytes > GpuVaAddressSpaceEnd(Process) - BaseAddress)
             return STATUS_INVALID_PARAMETER;
     }
     else
@@ -3597,8 +3610,8 @@ DxgkGpuVaMap(
             MinAddress = GPUVA_START_ADDRESS;
         if (MaxAddress != 0 && MaxAddress != MAXULONGLONG)
             MaxAddress += 1;
-        if (MaxAddress == 0 || MaxAddress > GPUVA_DEFAULT_SPACE_SIZE)
-            MaxAddress = GPUVA_DEFAULT_SPACE_SIZE;
+        if (MaxAddress == 0 || MaxAddress > GpuVaAddressSpaceEnd(Process))
+            MaxAddress = GpuVaAddressSpaceEnd(Process);
         MinAddress = max(MinAddress, GPUVA_START_ADDRESS);
         if (MinAddress >= MaxAddress || SizeInBytes > MaxAddress - MinAddress)
             return STATUS_INVALID_PARAMETER;
@@ -3896,7 +3909,7 @@ DxgkGpuVaMapFencePage(
         return Status;
     }
     ActualAddress = GpuVaFindFreeRegion(Process, GPUVA_START_ADDRESS,
-                                        GPUVA_DEFAULT_SPACE_SIZE, GPUVA_PAGE_SIZE,
+                                        GpuVaAddressSpaceEnd(Process), GPUVA_PAGE_SIZE,
                                         GPUVA_RESERVATION_ALIGNMENT);
     if (ActualAddress == 0)
     {
