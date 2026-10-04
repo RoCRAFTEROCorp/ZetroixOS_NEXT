@@ -2162,6 +2162,8 @@ PNP_GetDeviceRegProp(
         else
         {
             ret = NtStatusToCrError(Status);
+            if (ret == CR_NO_SUCH_VALUE)
+                *pulLength = 0;
         }
     }
 
