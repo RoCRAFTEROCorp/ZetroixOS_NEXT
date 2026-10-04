@@ -840,7 +840,7 @@ SetupDiInstallClassExW(
 
             /* OPTIONAL: Install .Services section */
             lstrcatW(SectionName, DotServices);
-            SetupInstallServicesFromInfSectionExW(
+            ret = SetupInstallServicesFromInfSectionExW(
                 hInf,
                 SectionName,
                 0,
@@ -848,6 +848,8 @@ SetupDiInstallClassExW(
                 NULL,
                 NULL,
                 NULL);
+            if (!ret && GetLastError() != ERROR_SECTION_NOT_FOUND)
+                goto cleanup;
             SetLastError(ERROR_SUCCESS);
             ret = TRUE;
         }
