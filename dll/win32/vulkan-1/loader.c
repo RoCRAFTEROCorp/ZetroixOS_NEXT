@@ -114,13 +114,17 @@ static BOOL vk_manifest_library(const WCHAR *ManifestPath, WCHAR *Library, DWORD
 
 static BOOL vk_load_icd(const WCHAR *ManifestPath)
 {
-    WCHAR Library[MAX_PATH];
+    WCHAR Library[MAX_PATH], Manifest[MAX_PATH];
     PFN_vkNegotiateLoaderICDInterfaceVersion Negotiate;
     PFN_vkGetInstanceProcAddr GetInstanceProcAddr;
     uint32_t Version = VK_LOADER_ICD_INTERFACE_VERSION;
     HMODULE Module;
+    DWORD Chars;
 
-    if (!vk_manifest_library(ManifestPath, Library, ARRAYSIZE(Library)))
+    Chars = ExpandEnvironmentStringsW(ManifestPath, Manifest, ARRAYSIZE(Manifest));
+    if (!Chars || Chars > ARRAYSIZE(Manifest))
+        return FALSE;
+    if (!vk_manifest_library(Manifest, Library, ARRAYSIZE(Library)))
         return FALSE;
 
     Module = LoadLibraryExW(Library, NULL, 0);
