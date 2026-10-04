@@ -1039,14 +1039,6 @@ static void test_debug_loop(int argc, char **argv)
         win_skip("CheckRemoteDebuggerPresent not available, skipping test.\n");
         return;
     }
-#if defined(__REACTOS__) && defined(_WIN64)
-    if (is_reactos()) {
-        /* In theory this should be caught below and exit. In practice stack
-         * corruption occurs and the test crashes after exiting this function. */
-        skip("FIXME: Skipping test on ReactOS x64 because it is 64bit only!\n");
-        return;
-    }
-#endif
     if (sizeof(void *) > sizeof(int))
     {
         WCHAR buffer[MAX_PATH];
@@ -1165,12 +1157,6 @@ static void test_debug_loop_wow64(void)
     unsigned order = 0, bp_order = 0, bpwx_order = 0, num_ntdll = 0, num_wow64 = 0;
 
     /* checking conditions for running this test */
-#if defined(__REACTOS__) && defined(_WIN64)
-    if (is_reactos()) {
-        skip("FIXME: ReactOS x64 does not have WoW64 yet!\n");
-        return;
-    }
-#endif
     if (GetSystemWow64DirectoryW( buffer, ARRAY_SIZE(buffer) ) && sizeof(void*) > sizeof(int) && pGetMappedFileNameW)
     {
         wcscat( buffer, L"\\msinfo32.exe" );
@@ -1779,13 +1765,11 @@ static void test_debugger(const char *argv0)
         ok(ret, "WriteProcessMemory failed: %lu\n", GetLastError());
 
         /* BREAKPOINT_PRINT */
-#ifndef __REACTOS__ // These tests don't pass on WS03-Win10 1607
         thread = CreateRemoteThread(pi.hProcess, NULL, 0, (void*)thread_proc, (void*)2, 0, NULL);
         ok(thread != NULL, "CreateRemoteThread failed: %lu\n", GetLastError());
         expect_event(&ctx, CREATE_THREAD_DEBUG_EVENT);
         expect_breakpoint_exception(&ctx, NULL);
         expect_event(&ctx, EXIT_THREAD_DEBUG_EVENT);
-#endif
 
         /* BREAKPOINT_PROMPT */
         thread = CreateRemoteThread(pi.hProcess, NULL, 0, (void*)thread_proc, (void*)1, 0, NULL);
@@ -2050,11 +2034,6 @@ static void test_debugger(const char *argv0)
          * It happens that on Windows, the exception & exit thread events can be intertwined.
          * So detect this situation.
          */
-#if defined(__REACTOS__) && defined(_WIN64)
-        if (GetNTVersion() >= _WIN32_WINNT_WIN8 || is_reactos()) {
-            skip("These tests run far too long on Windows 8+ x64 and ReactOS x64.\n");
-        } else {
-#endif
         for (;;)
         {
             DEBUG_EVENT ev;
@@ -2093,9 +2072,6 @@ static void test_debugger(const char *argv0)
         ok(!worker_cnt, "Missing %u exit thread events\n", worker_cnt);
         ok(event_order == 1 || broken(event_order == 2), "Intertwined exit thread & exception debug events\n");
     }
-#if defined(__REACTOS__) && defined(_WIN64)
-    }
-#endif
 
     if (OP_BP)
     {
