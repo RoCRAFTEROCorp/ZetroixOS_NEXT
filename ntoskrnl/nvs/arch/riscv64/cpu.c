@@ -121,12 +121,26 @@ MiRiscvCheckInstructionSync(_In_ MI_PTE Old, _In_ MI_PTE New)
     KeSweepICache(NULL, 0);
 }
 
+static
+VOID
+MiRiscvCheckNewTranslation(_In_ MI_PTE Old, _In_ MI_PTE New)
+{
+    if ((Old & MI_RISCV_PTE_VALID) || !(New & MI_RISCV_PTE_VALID))
+        return;
+
+    if (MiRiscvPteIsLeaf(New) && !(New & MI_RISCV_PTE_OWNER))
+        MiArchInvalidateTlbAll(MiTlbAllProcessors);
+    else
+        MiArchInvalidateTlbAll(MiTlbLocal);
+}
+
 VOID
 MiArchPteWrite(_Inout_ PMI_PTE Slot, _In_ MI_PTE Value)
 {
     MI_PTE Old = __atomic_exchange_n(Slot, Value, __ATOMIC_ACQ_REL);
 
     MiRiscvCheckTableUnlink(Old, Value);
+    MiRiscvCheckNewTranslation(Old, Value);
     MiRiscvCheckInstructionSync(Old, Value);
 }
 
@@ -140,6 +154,7 @@ MiArchPteCompareExchange(_Inout_ PMI_PTE Slot, _In_ MI_PTE Expected, _In_ MI_PTE
     if (Swapped)
     {
         MiRiscvCheckTableUnlink(Expected, Value);
+        MiRiscvCheckNewTranslation(Expected, Value);
         MiRiscvCheckInstructionSync(Expected, Value);
     }
 
