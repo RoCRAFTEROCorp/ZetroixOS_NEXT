@@ -148,6 +148,9 @@ PspCopyThreadWow64Context(IN PETHREAD Thread,
     NTSTATUS Status = STATUS_SUCCESS;
 
     if (!PspIsX86Wow64Process(Process)) return STATUS_INVALID_PARAMETER;
+    Status = PspArchCopyLiveWow64Context(Thread, Context, SetContext);
+    if (Status != STATUS_NOT_FOUND) return Status;
+    Status = STATUS_SUCCESS;
     if (!ExAcquireRundownProtection(&Thread->RundownProtect)) return STATUS_THREAD_IS_TERMINATING;
     if (Attached) KeStackAttachProcess(&Process->Pcb, &ApcState);
 

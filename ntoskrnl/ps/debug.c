@@ -254,6 +254,56 @@ PsGetContextThread(IN PETHREAD Thread,
     return Status;
 }
 
+NTSTATUS
+NTAPI
+PspGetOrSetUserContext(IN PETHREAD Thread,
+                       IN OUT PCONTEXT Context,
+                       IN BOOLEAN SetContext)
+{
+    GET_SET_CTX_CONTEXT GetSetContext;
+    PVOID Argument = SetContext ? UlongToPtr(1) : NULL;
+    NTSTATUS Status = STATUS_SUCCESS;
+
+    KeInitializeEvent(&GetSetContext.Event, NotificationEvent, FALSE);
+    RtlCopyMemory(&GetSetContext.Context, Context, sizeof(CONTEXT));
+    GetSetContext.Mode = UserMode;
+    GetSetContext.Status = STATUS_SUCCESS;
+
+    if (Thread == PsGetCurrentThread())
+    {
+        GetSetContext.Apc.SystemArgument1 = Argument;
+        GetSetContext.Apc.SystemArgument2 = Thread;
+        KeEnterGuardedRegion();
+        PspGetOrSetContextKernelRoutine(&GetSetContext.Apc,
+                                        NULL,
+                                        NULL,
+                                        &GetSetContext.Apc.SystemArgument1,
+                                        &GetSetContext.Apc.SystemArgument2);
+        KeLeaveGuardedRegion();
+    }
+    else
+    {
+        KeInitializeApc(&GetSetContext.Apc,
+                        &Thread->Tcb,
+                        OriginalApcEnvironment,
+                        PspGetOrSetContextKernelRoutine,
+                        NULL,
+                        NULL,
+                        KernelMode,
+                        NULL);
+        if (!KeInsertQueueApc(&GetSetContext.Apc, Argument, Thread, 2))
+            Status = STATUS_UNSUCCESSFUL;
+        else
+            Status = KeWaitForSingleObject(&GetSetContext.Event, 0, KernelMode, FALSE, NULL);
+    }
+
+    if (NT_SUCCESS(Status))
+        Status = GetSetContext.Status;
+    if (NT_SUCCESS(Status) && !SetContext)
+        RtlCopyMemory(Context, &GetSetContext.Context, sizeof(CONTEXT));
+    return Status;
+}
+
 /*
  * @implemented
  */

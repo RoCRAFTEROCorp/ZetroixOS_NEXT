@@ -77,3 +77,18 @@ PsArchInitializeUserThreadContext(
     Context->A1 = (ULONG64)(ULONG_PTR)Argument;
     Context->Sp = (ULONG64)(ULONG_PTR)StackBase & ~15ULL;
 }
+
+NTSTATUS
+NTAPI
+PspArchCopyLiveWow64Context(
+    _In_ PETHREAD Thread,
+    _Inout_ PWOW64_CONTEXT Context,
+    _In_ BOOLEAN SetContext)
+{
+    UNREFERENCED_PARAMETER(Thread);
+    UNREFERENCED_PARAMETER(Context);
+    UNREFERENCED_PARAMETER(SetContext);
+
+    /* TODO: get or set the live x86 state through the emulator backend when it is not in the CPU area */
+    return STATUS_NOT_FOUND;
+}

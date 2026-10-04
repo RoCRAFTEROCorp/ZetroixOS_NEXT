@@ -666,6 +666,20 @@ PsSuspendThread(
     OUT PULONG PreviousCount OPTIONAL
 );
 
+NTSTATUS
+NTAPI
+PspGetOrSetUserContext(
+    _In_ PETHREAD Thread,
+    _Inout_ PCONTEXT Context,
+    _In_ BOOLEAN SetContext);
+
+NTSTATUS
+NTAPI
+PspArchCopyLiveWow64Context(
+    _In_ PETHREAD Thread,
+    _Inout_ PWOW64_CONTEXT Context,
+    _In_ BOOLEAN SetContext);
+
 VOID
 NTAPI
 PspGetOrSetContextKernelRoutine(
