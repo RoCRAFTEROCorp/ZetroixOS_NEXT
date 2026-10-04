@@ -880,6 +880,7 @@ BaseInitializeContext(IN PCONTEXT Context,
 
     /* Set MXCSR */
     Context->MxCsr = INITIAL_MXCSR;
+    Context->FltSave.ControlWord = INITIAL_FPCSR;
 
     if (ContextType == 1)      /* For Threads */
     {
@@ -888,7 +889,6 @@ BaseInitializeContext(IN PCONTEXT Context,
     else if (ContextType == 2) /* For Fibers */
     {
         Context->Rip = (ULONG_PTR)BaseFiberStartup;
-        Context->FltSave.ControlWord = INITIAL_FPCSR;
     }
     else                       /* For first thread in a Process */
     {
