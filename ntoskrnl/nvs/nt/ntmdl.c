@@ -501,6 +501,8 @@ MmAllocatePagesForMdlEx(
     ULONG64 Wanted = BYTES_TO_PAGES(TotalBytes);
     ULONG64 LowFrame = (ULONG64)(LowAddress.QuadPart + PAGE_SIZE - 1) >> PAGE_SHIFT;
     ULONG64 HighFrame = (ULONG64)HighAddress.QuadPart >> PAGE_SHIFT;
+    ULONG CacheFlags = ((CacheType & 0xFF) == MmNonCached) ? MI_LEAF_NOCACHE
+        : (((CacheType & 0xFF) == MmWriteCombined) ? MI_LEAF_WRITECOMBINE : 0);
     PPFN_NUMBER Pages;
     ULONG64 Got = 0;
     PMDL Mdl;
@@ -531,8 +533,8 @@ MmAllocatePagesForMdlEx(
         if (!(Flags & MM_DONT_ZERO_ALLOCATION))
             RtlZeroMemory(MiArchMapFrame(Frame), PAGE_SIZE);
 
-        MiSystem.Pfn.Pfn[Frame].CacheFlags = ((CacheType & 0xFF) == MmNonCached) ? MI_LEAF_NOCACHE
-            : (((CacheType & 0xFF) == MmWriteCombined) ? MI_LEAF_WRITECOMBINE : 0);
+        if (CacheFlags == 0 || !NT_SUCCESS(MiPfnSetCache(&MiSystem.Pfn, Frame, CacheFlags)))
+            MiSystem.Pfn.Pfn[Frame].CacheFlags = CacheFlags;
 
         Pages[Got++] = Frame;
     }
@@ -607,6 +609,8 @@ MmFreePagesFromMdl(
 
     for (i = 0; i < Count && Pages[i] != MI_MDL_PFN_END; i++)
     {
+        if (MiSystem.Pfn.Pfn[Pages[i]].CacheFlags != 0)
+            MiPfnSetCache(&MiSystem.Pfn, (ULONG)Pages[i], 0);
         MiSystem.Pfn.Pfn[Pages[i]].CacheFlags = 0;
         MiPfnShareDecrement(&MiSystem.Pfn, (ULONG)Pages[i], TRUE);
         MiReturnCommit(&MiSystem.SystemSpace, 1);
