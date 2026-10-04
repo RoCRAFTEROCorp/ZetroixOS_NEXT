@@ -4,6 +4,7 @@
 // IID B722BCCB-4E68-101B-A2BC-00AA00404770
 
 #define WM_SHOWSTATUSDLG    (WM_USER+10)
+#define WM_NETSTATUSCHANGED (WM_USER+11)
 
 struct INetworkListManager;
 
@@ -23,7 +24,11 @@ typedef struct
     HWND hwndStatusDlg;         /* LanStatusDlg window */
     HWND hwndDlg;               /* status dialog window */
     DWORD dwAdapterIndex;
+    DWORD dwIfType;
     UINT_PTR nIDEvent;
+    HANDLE hInterfaceNotify;
+    HANDLE hAddressNotify;
+    HANDLE hRouteNotify;
     UINT DHCPEnabled;
     DWORD dwInOctets;
     DWORD dwOutOctets;

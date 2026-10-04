@@ -423,6 +423,20 @@ UpdateLanStatusUiDlg(
 
 }
 
+static VOID
+NetShellUpdateTimer(LANSTATUSUI_CONTEXT *pContext)
+{
+    BOOL bPoll = pContext->hwndDlg != NULL || pContext->dwIfType == IF_TYPE_IEEE80211;
+
+    if (bPoll && !pContext->nIDEvent)
+        pContext->nIDEvent = SetTimer(pContext->hwndStatusDlg, NETTIMERID, 1000, NULL);
+    else if (!bPoll && pContext->nIDEvent)
+    {
+        KillTimer(pContext->hwndStatusDlg, pContext->nIDEvent);
+        pContext->nIDEvent = 0;
+    }
+}
+
 VOID
 UpdateLanStatus(HWND hwndDlg, LANSTATUSUI_CONTEXT * pContext)
 {
@@ -440,6 +454,7 @@ UpdateLanStatus(HWND hwndDlg, LANSTATUSUI_CONTEXT * pContext)
         NetShellClearTrayRank(pContext->uID, pContext->hwndStatusDlg);
         return;
     }
+    pContext->dwIfType = IfEntry.dwType;
 
     if (pContext->Status == (UINT)-1)
     {
@@ -976,6 +991,7 @@ LANStatusUiDlg(
             pContext->hwndDlg = hwndDlg;
             InitializeLANStatusUiDlg(hwndDlg, pContext);
             SetWindowLongPtr(hwndDlg, DWLP_USER, (LONG_PTR)pContext);
+            NetShellUpdateTimer(pContext);
             return TRUE;
         case WM_COMMAND:
             pContext = (LANSTATUSUI_CONTEXT*)GetWindowLongPtr(hwndDlg, DWLP_USER);
@@ -1000,6 +1016,7 @@ LANStatusUiDlg(
                 pContext = (LANSTATUSUI_CONTEXT*)GetWindowLongPtr(hwndDlg, DWLP_USER);
                 SetWindowLongPtr(hwndDlg, DWLP_MSGRESULT, PSNRET_NOERROR);
                 pContext->hwndDlg = NULL;
+                NetShellUpdateTimer(pContext);
                 return TRUE;
             }
             break;
@@ -1250,6 +1267,45 @@ HRESULT RepairConnection(INetConnection *pNet, HWND hwndOwner)
     return E_NOTIMPL;
 }
 
+static VOID WINAPI
+NetShellInterfaceChanged(PVOID CallerContext, PMIB_IPINTERFACE_ROW Row, MIB_NOTIFICATION_TYPE NotificationType)
+{
+    PostMessageW((HWND)CallerContext, WM_NETSTATUSCHANGED, 0, 0);
+}
+
+static VOID WINAPI
+NetShellAddressChanged(PVOID CallerContext, PMIB_UNICASTIPADDRESS_ROW Row, MIB_NOTIFICATION_TYPE NotificationType)
+{
+    PostMessageW((HWND)CallerContext, WM_NETSTATUSCHANGED, 0, 0);
+}
+
+static VOID WINAPI
+NetShellRouteChanged(PVOID CallerContext, PMIB_IPFORWARD_ROW2 Row, MIB_NOTIFICATION_TYPE NotificationType)
+{
+    PostMessageW((HWND)CallerContext, WM_NETSTATUSCHANGED, 0, 0);
+}
+
+static VOID
+NetShellStartNotify(LANSTATUSUI_CONTEXT *pContext)
+{
+    HWND hwnd = pContext->hwndStatusDlg;
+
+    NotifyIpInterfaceChange(AF_UNSPEC, NetShellInterfaceChanged, hwnd, FALSE, &pContext->hInterfaceNotify);
+    NotifyUnicastIpAddressChange(AF_UNSPEC, NetShellAddressChanged, hwnd, FALSE, &pContext->hAddressNotify);
+    NotifyRouteChange2(AF_UNSPEC, NetShellRouteChanged, hwnd, FALSE, &pContext->hRouteNotify);
+    NetShellUpdateTimer(pContext);
+}
+
+static VOID
+NetShellCancelNotify(PHANDLE phNotify)
+{
+    if (*phNotify)
+    {
+        CancelMibChangeNotify2(*phNotify);
+        *phNotify = NULL;
+    }
+}
+
 INT_PTR
 CALLBACK
 LANStatusDlg(
@@ -1266,13 +1322,17 @@ LANStatusDlg(
             pContext = (LANSTATUSUI_CONTEXT *)lParam;
             SetWindowLongPtr(hwndDlg, DWLP_USER, (LONG_PTR)lParam);
             pContext->hwndStatusDlg = hwndDlg;
-            pContext->nIDEvent = SetTimer(hwndDlg, NETTIMERID, 1000, NULL);
             return TRUE;
 
         case WM_DESTROY:
             pContext = (LANSTATUSUI_CONTEXT*)GetWindowLongPtr(hwndDlg, DWLP_USER);
             if (pContext)
+            {
+                NetShellCancelNotify(&pContext->hInterfaceNotify);
+                NetShellCancelNotify(&pContext->hAddressNotify);
+                NetShellCancelNotify(&pContext->hRouteNotify);
                 NetShellClearTrayRank(pContext->uID, hwndDlg);
+            }
             if (pContext && pContext->nIDEvent)
             {
                 KillTimer(hwndDlg, pContext->nIDEvent);
@@ -1291,8 +1351,23 @@ LANStatusDlg(
             if (wParam == (WPARAM)pContext->nIDEvent)
             {
                 UpdateLanStatus(pContext->hwndDlg, pContext);
+                NetShellUpdateTimer(pContext);
             }
             break;
+
+        case WM_NETSTATUSCHANGED:
+        {
+            MSG Msg;
+
+            pContext = (LANSTATUSUI_CONTEXT*)GetWindowLongPtr(hwndDlg, DWLP_USER);
+            if (!pContext)
+                break;
+            while (PeekMessageW(&Msg, hwndDlg, WM_NETSTATUSCHANGED, WM_NETSTATUSCHANGED, PM_REMOVE))
+                ;
+            UpdateLanStatus(pContext->hwndDlg, pContext);
+            NetShellUpdateTimer(pContext);
+            break;
+        }
 
         case WM_SHOWSTATUSDLG:
             pContext = (LANSTATUSUI_CONTEXT*)GetWindowLongPtr(hwndDlg, DWLP_USER);
@@ -1531,6 +1606,7 @@ CLanStatus::EnumerateTrayConnections()
 
             pLast = pItem;
             UpdateLanStatus(NULL, pContext);
+            NetShellStartNotify(pContext);
         }
         else
         {
