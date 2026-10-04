@@ -12,8 +12,70 @@
 #define NTOS_MODE_USER
 #include <ndk/pstypes.h> /* For SharedUserData */
 
-static TCHAR BugLink[] = _T("https://bugs.libernt.com/");
 static TCHAR ReportAsWorkstationKey[] = _T("SYSTEM\\CurrentControlSet\\Control\\ReactOS\\Settings\\Version");
+static TCHAR DataCollectionKey[] = _T("SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Policies\\DataCollection");
+
+#define DIAGDATA_LEVEL_REQUIRED 1
+#define DIAGDATA_LEVEL_OPTIONAL 3
+
+static DWORD
+ReadDiagnosticDataLevel(VOID)
+{
+    HKEY hKey;
+    DWORD Level = DIAGDATA_LEVEL_REQUIRED;
+    DWORD Type = 0;
+    DWORD Size = sizeof(Level);
+
+    if (RegOpenKeyEx(HKEY_LOCAL_MACHINE, DataCollectionKey, 0, KEY_QUERY_VALUE, &hKey) == ERROR_SUCCESS)
+    {
+        if (RegQueryValueEx(hKey, _T("AllowTelemetry"), NULL, &Type, (LPBYTE)&Level, &Size) != ERROR_SUCCESS || Type != REG_DWORD)
+            Level = DIAGDATA_LEVEL_REQUIRED;
+        RegCloseKey(hKey);
+    }
+    return Level;
+}
+
+static VOID
+WriteDiagnosticDataLevel(DWORD Level)
+{
+    HKEY hKey;
+
+    if (RegCreateKeyEx(HKEY_LOCAL_MACHINE, DataCollectionKey, 0, NULL, 0, KEY_SET_VALUE, NULL, &hKey, NULL) == ERROR_SUCCESS)
+    {
+        RegSetValueEx(hKey, _T("AllowTelemetry"), 0, REG_DWORD, (const BYTE *)&Level, sizeof(Level));
+        RegCloseKey(hKey);
+    }
+}
+
+INT_PTR CALLBACK
+ErrorReportingDlgProc(HWND hwndDlg, UINT uMsg, WPARAM wParam, LPARAM lParam)
+{
+    UNREFERENCED_PARAMETER(lParam);
+
+    switch (uMsg)
+    {
+        case WM_INITDIALOG:
+            CheckDlgButton(hwndDlg, IDC_SENDOPTIONAL,
+                           ReadDiagnosticDataLevel() >= DIAGDATA_LEVEL_OPTIONAL ? BST_CHECKED : BST_UNCHECKED);
+            return TRUE;
+
+        case WM_COMMAND:
+            switch (LOWORD(wParam))
+            {
+                case IDOK:
+                    WriteDiagnosticDataLevel(IsDlgButtonChecked(hwndDlg, IDC_SENDOPTIONAL) == BST_CHECKED ?
+                                        DIAGDATA_LEVEL_OPTIONAL : DIAGDATA_LEVEL_REQUIRED);
+                    EndDialog(hwndDlg, IDOK);
+                    return TRUE;
+
+                case IDCANCEL:
+                    EndDialog(hwndDlg, IDCANCEL);
+                    return TRUE;
+            }
+            break;
+    }
+    return FALSE;
+}
 
 
 static VOID
@@ -165,12 +227,10 @@ AdvancedPageProc(HWND hwndDlg,
                     break;
 
                 case IDC_ERRORREPORT:
-                    ShellExecute(NULL,
-                                 _T("open"),
-                                 BugLink,
-                                 NULL,
-                                 NULL,
-                                 SW_SHOWNORMAL);
+                    DialogBox(hApplet,
+                              MAKEINTRESOURCE(IDD_ERRORREPORTING),
+                              hwndDlg,
+                              ErrorReportingDlgProc);
                     break;
             }
         }

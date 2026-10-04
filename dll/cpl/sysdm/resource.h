@@ -100,6 +100,10 @@
 #define IDC_USERPROFILE      405
 #define IDC_ERRORREPORT      406
 
+#define IDD_ERRORREPORTING   1600
+#define IDC_SENDOPTIONAL     1601
+#define IDC_OPTIONALINFO     1602
+
 /* System settings */
 #define IDD_SYSSETTINGS         800
 #define IDC_REPORTASWORKSTATION 801
