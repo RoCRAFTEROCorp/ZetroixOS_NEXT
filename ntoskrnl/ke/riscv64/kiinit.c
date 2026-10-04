@@ -440,6 +440,7 @@ KiRiscvSystemStartup(
      * every DPRINT) becomes live before the executive starts. */
     KdInitSystem(0, LoaderBlock);
     KiRiscvReportProcessorFeatures();
+    KiRiscvSaveProcessorClock(Prcb);
 
     KiRiscvStartupPhase = KiRiscvStartupExecutiveEntered;
     ExpInitializeExecutive(0, LoaderBlock);

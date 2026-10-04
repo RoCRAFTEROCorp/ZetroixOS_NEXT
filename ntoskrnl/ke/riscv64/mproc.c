@@ -27,6 +27,7 @@ KiRiscvStartProcessor(KI_RISCV_AP *Ap)
         KeBugCheckEx(HAL_INITIALIZATION_FAILED, Prcb->Number, Pcr->HartId, 0, 0);
     Thread->ApcState.Process = Process;
     PoInitializePrcb(Prcb);
+    KiRiscvSaveProcessorClock(Prcb);
     ExInitPoolLookasidePointers();
     KiSaveProcessorControlState(&Prcb->ProcessorState);
     KfLowerIrql(APC_LEVEL);

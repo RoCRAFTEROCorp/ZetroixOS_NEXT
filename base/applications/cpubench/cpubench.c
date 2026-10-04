@@ -470,6 +470,65 @@ static void RunStringBench(LONGLONG Freq)
              LibBps / RefBps, ((LibBps % RefBps) * 100ULL) / RefBps);
 }
 
+static unsigned CountProcessors(ULONG_PTR Mask)
+{
+    unsigned Count = 0;
+
+    while (Mask)
+    {
+        Count += (unsigned)(Mask & 1);
+        Mask >>= 1;
+    }
+    return Count;
+}
+
+static int SameCache(const SYSTEM_LOGICAL_PROCESSOR_INFORMATION *A, const SYSTEM_LOGICAL_PROCESSOR_INFORMATION *B)
+{
+    return A->Relationship == RelationCache && B->Relationship == RelationCache &&
+           A->Cache.Level == B->Cache.Level && A->Cache.Type == B->Cache.Type &&
+           A->Cache.Size == B->Cache.Size;
+}
+
+typedef BOOL (WINAPI *GET_LPI)(PSYSTEM_LOGICAL_PROCESSOR_INFORMATION, PDWORD);
+
+static void ReportTopology(void)
+{
+    static const char *Types[] = { "unified", "instruction", "data", "trace" };
+    static SYSTEM_LOGICAL_PROCESSOR_INFORMATION Info[256];
+    DWORD Length = sizeof(Info), Count, i, j;
+    unsigned Packages = 0, Instances;
+    GET_LPI GetLpi = (GET_LPI)GetProcAddress(GetModuleHandleA("kernel32.dll"),
+                                             "GetLogicalProcessorInformation");
+
+    if (!GetLpi || !GetLpi(Info, &Length))
+    {
+        emit("[cpubench] topology unavailable (error %lu)\n", GetLastError());
+        return;
+    }
+    Count = Length / sizeof(Info[0]);
+    for (i = 0; i < Count; i++)
+    {
+        if (Info[i].Relationship == RelationProcessorPackage)
+            Packages++;
+    }
+    emit("[cpubench] topology: %u package(s)\n", Packages);
+    for (i = 0; i < Count; i++)
+    {
+        if (Info[i].Relationship != RelationCache)
+            continue;
+        for (j = 0; j < i && !SameCache(&Info[j], &Info[i]); j++)
+            ;
+        if (j < i)
+            continue;
+        for (Instances = 0, j = i; j < Count; j++)
+            Instances += SameCache(&Info[j], &Info[i]);
+        emit("[cpubench] cache L%u %s %lu KiB, %u-byte lines, %u-way, %u cpu(s) each x %u\n",
+             Info[i].Cache.Level, Types[Info[i].Cache.Type & 3], Info[i].Cache.Size / 1024,
+             Info[i].Cache.LineSize, Info[i].Cache.Associativity,
+             CountProcessors(Info[i].ProcessorMask), Instances);
+    }
+}
+
 int main(int argc, char **argv)
 {
     SYSTEM_INFO Si;
@@ -506,6 +565,7 @@ int main(int argc, char **argv)
 
     emit("[cpubench] ===== ReactOS CPU benchmark =====\n");
     emit("[cpubench] baseline RPi5/Linux: Dhrystone ~20570 VAX-MIPS (8.57 DMIPS/MHz @2.4GHz), ~x4.0 on 4 cores\n");
+    ReportTopology();
     RunBench("Dhrystone", 0, 1, Freq.QuadPart, NumCpus);
     RunBench("FP", 1, FP_FLOPS_PER_ITER, Freq.QuadPart, NumCpus);
     RunStringBench(Freq.QuadPart);

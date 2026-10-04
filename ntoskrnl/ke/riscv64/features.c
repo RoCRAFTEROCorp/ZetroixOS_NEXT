@@ -14,6 +14,9 @@
 #define KI_SBI_BASE_GET_SPEC_VERSION 0UL
 #define KI_SBI_BASE_GET_IMPL_ID    1UL
 #define KI_SBI_BASE_GET_IMPL_VERSION 2UL
+#define KI_SBI_BASE_GET_MVENDORID  4UL
+#define KI_SBI_BASE_GET_MARCHID    5UL
+#define KI_SBI_BASE_GET_MIMPID     6UL
 
 KI_RISCV_PROCESSOR_FEATURES KiRiscvProcessorFeatures;
 
@@ -221,6 +224,15 @@ KiRiscvIdentifyProcessor(
     Result = KiRiscvSbiCall(KI_SBI_EXT_BASE, KI_SBI_BASE_GET_IMPL_VERSION, 0, 0, 0);
     if (Result.Error == 0)
         Features->SbiImplVersion = Result.Value;
+    Result = KiRiscvSbiCall(KI_SBI_EXT_BASE, KI_SBI_BASE_GET_MVENDORID, 0, 0, 0);
+    if (Result.Error == 0)
+        Features->MachineVendorId = Result.Value;
+    Result = KiRiscvSbiCall(KI_SBI_EXT_BASE, KI_SBI_BASE_GET_MARCHID, 0, 0, 0);
+    if (Result.Error == 0)
+        Features->MachineArchId = Result.Value;
+    Result = KiRiscvSbiCall(KI_SBI_EXT_BASE, KI_SBI_BASE_GET_MIMPID, 0, 0, 0);
+    if (Result.Error == 0)
+        Features->MachineImplId = Result.Value;
 
     if (!(RiscvBlock->Flags & RISCV64_LOADER_FLAG_DEVICE_TREE_VALID) ||
         !RiscvFdtOpen((const VOID *)(ULONG_PTR)RiscvBlock->DeviceTree,
@@ -265,6 +277,7 @@ KiRiscvIdentifyProcessor(
         Features->CbozBlockSize = (ULONG)Value;
     if (KiRiscvReadCellValue(&Fdt, Cpu, "riscv,cbop-block-size", &Value))
         Features->CbopBlockSize = (ULONG)Value;
+    KiRiscvCaptureCacheTopology(&Fdt, Cpus);
     Features->Valid = TRUE;
 }
 
@@ -274,6 +287,33 @@ NTAPI
 KiRiscvQueryFeatureFlags(VOID)
 {
     return KiRiscvProcessorFeatures.Flags;
+}
+
+VOID
+NTAPI
+KiRiscvSaveProcessorClock(_In_ PKPRCB Prcb)
+{
+    ULONG64 Frequency = KiRiscvProcessorFeatures.TimebaseFrequency;
+    ULONG64 Window, StartTicks, NowTicks, StartCycles, EndCycles, CpuClock;
+
+    if (!(KiRiscvProcessorFeatures.Flags & KI_RISCV_FEATURE_ZICNTR) || !Frequency)
+        return;
+
+    Window = (Frequency + 499ULL) / 500ULL;
+    __asm__ __volatile__("rdtime %0" : "=r"(StartTicks));
+    __asm__ __volatile__("rdcycle %0" : "=r"(StartCycles));
+    do
+    {
+        __asm__ __volatile__("rdtime %0" : "=r"(NowTicks));
+    } while ((NowTicks - StartTicks) < Window);
+    __asm__ __volatile__("rdcycle %0" : "=r"(EndCycles));
+
+    CpuClock = ((EndCycles - StartCycles) * Frequency) / (NowTicks - StartTicks);
+    if (CpuClock < 10000000ULL)
+        return;
+
+    Prcb->MHz = (ULONG)((CpuClock + 500000ULL) / 1000000ULL);
+    DPRINT1("[riscv64] CPU%u clock %u MHz\n", Prcb->Number, Prcb->MHz);
 }
 
 VOID
@@ -294,10 +334,16 @@ KiRiscvReportProcessorFeatures(VOID)
             Features->CbomBlockSize,
             Features->CbozBlockSize,
             Features->CbopBlockSize);
+    if (KiRiscvVectorLength != 0)
+        DPRINT1("RISC-V vector registers %I64u bytes\n", KiRiscvVectorLength);
     DPRINT1("SBI spec %lu.%lu, impl id %Iu version 0x%Ix, timebase %I64u Hz\n",
             (Features->SbiSpecVersion >> 24) & 0x7F,
             Features->SbiSpecVersion & 0x00FFFFFF,
             Features->SbiImplId,
             Features->SbiImplVersion,
             Features->TimebaseFrequency);
+    DPRINT1("RISC-V boot hart mvendorid 0x%Ix marchid 0x%Ix mimpid 0x%Ix\n",
+            Features->MachineVendorId,
+            Features->MachineArchId,
+            Features->MachineImplId);
 }
