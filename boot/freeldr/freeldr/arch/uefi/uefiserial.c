@@ -12,6 +12,7 @@ extern volatile BOOLEAN BootServicesExitedFlag;
 static EFI_GUID EfiSerialIoProtocolGuid = EFI_SERIAL_IO_PROTOCOL_GUID;
 static EFI_SERIAL_IO_PROTOCOL* UefiSerial = NULL;
 static BOOLEAN UefiSerialTried = FALSE;
+static BOOLEAN UefiSerialUseConOut = FALSE;
 
 BOOLEAN
 UefiSerialInitialize(VOID)
@@ -38,7 +39,9 @@ UefiSerialInitialize(VOID)
     if ((Status != EFI_SUCCESS) || (UefiSerial == NULL) || (UefiSerial->Write == NULL))
     {
         UefiSerial = NULL;
-        return FALSE;
+        UefiSerialUseConOut = (GlobalSystemTable->ConOut != NULL) &&
+                              (GlobalSystemTable->ConOut->OutputString != NULL);
+        return UefiSerialUseConOut;
     }
 
     if (UefiSerial->SetAttributes != NULL)
@@ -68,7 +71,18 @@ UefiSerialPutChar(
 {
     UINTN Size = 1;
 
-    if ((UefiSerial == NULL) || BootServicesExitedFlag)
+    if (BootServicesExitedFlag)
+        return;
+
+    if (UefiSerialUseConOut)
+    {
+        CHAR16 Text[2] = { Character, 0 };
+
+        GlobalSystemTable->ConOut->OutputString(GlobalSystemTable->ConOut, Text);
+        return;
+    }
+
+    if (UefiSerial == NULL)
         return;
 
     UefiSerial->Write(UefiSerial, &Size, &Character);
@@ -78,4 +92,5 @@ VOID
 UefiSerialDisableFirmware(VOID)
 {
     UefiSerial = NULL;
+    UefiSerialUseConOut = FALSE;
 }

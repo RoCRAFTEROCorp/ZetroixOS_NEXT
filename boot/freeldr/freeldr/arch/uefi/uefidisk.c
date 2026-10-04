@@ -413,6 +413,55 @@ DiskReadGptHeader(
 
 static
 BOOLEAN
+UefiGetBootHandlePartition(
+    _In_ EFI_HANDLE BootHandle,
+    _In_ UCHAR DriveNumber,
+    _In_ ULONG BlockSize,
+    _Out_ PULONG BootPartition)
+{
+    EFI_DEVICE_PATH_PROTOCOL* DevicePath = NULL;
+    HARDDRIVE_DEVICE_PATH HardDrive;
+    PARTITION_INFORMATION PartitionEntry;
+    ULONG PartitionNumber;
+
+    if (EFI_ERROR(GlobalSystemTable->BootServices->HandleProtocol(
+            BootHandle,
+            &DevicePathProtocolGuid,
+            (VOID**)&DevicePath)) ||
+        !DevicePath)
+    {
+        return FALSE;
+    }
+
+    while (!IsDevicePathEnd(DevicePath))
+    {
+        if (DevicePath->Type == MEDIA_DEVICE_PATH &&
+            DevicePath->SubType == MEDIA_HARDDRIVE_DP &&
+            DevicePathNodeLength(DevicePath) >= sizeof(HardDrive))
+        {
+            RtlCopyMemory(&HardDrive, DevicePath, sizeof(HardDrive));
+            for (PartitionNumber = FIRST_PARTITION;
+                 DiskGetPartitionEntry(DriveNumber, BlockSize, PartitionNumber, &PartitionEntry);
+                 ++PartitionNumber)
+            {
+                if ((ULONGLONG)PartitionEntry.StartingOffset.QuadPart ==
+                    HardDrive.PartitionStart * BlockSize)
+                {
+                    *BootPartition = PartitionNumber;
+                    return TRUE;
+                }
+            }
+            return FALSE;
+        }
+
+        DevicePath = NextDevicePathNode(DevicePath);
+    }
+
+    return FALSE;
+}
+
+static
+BOOLEAN
 UefiGetBootPartitionEntry(
     _In_ UCHAR DriveNumber,
     _Out_opt_ PPARTITION_INFORMATION PartitionEntry,
@@ -1384,10 +1433,13 @@ UefiSetBootpath(VOID)
         /* If boot handle is a logical partition, we need to determine which partition number */
         if (BootBlockIo && BootBlockIo->Media && BootBlockIo->Media->LogicalPartition)
         {
-            /* For logical partitions, we need to find the partition number.
-             * This is tricky - we'll use partition 1 as default for now. */
-            // TODO: Properly determine partition number from boot handle.
-            BootPartition = FIRST_PARTITION;
+            if (!UefiGetBootHandlePartition(PublicBootHandle,
+                                            FrldrBootDrive,
+                                            BootBlockIo->Media->BlockSize,
+                                            &BootPartition))
+            {
+                BootPartition = FIRST_PARTITION;
+            }
             TRACE("Boot handle is logical partition, using partition %lu\n", BootPartition);
         }
         else
