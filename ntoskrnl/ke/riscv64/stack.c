@@ -82,6 +82,8 @@ KiRiscvPrepareKernelStack(
     if (Thread->TrapFrame)
         Thread->TrapFrame = (PKTRAP_FRAME)((ULONG_PTR)Thread->TrapFrame + Delta);
     Thread->InitialStack = (PVOID)((ULONG_PTR)Thread->InitialStack + Delta);
+    if (Thread->StateSaveArea != NULL)
+        Thread->StateSaveArea = (PVOID)((ULONG_PTR)Thread->StateSaveArea + Delta);
     Thread->KernelStack = (PVOID)(StackPointer + Delta);
     Thread->StackBase = StackBase;
     Thread->StackLimit = (ULONG_PTR)StackLimit;

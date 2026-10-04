@@ -64,7 +64,7 @@ KeContextToTrapFrame(
      * existing user frame. Invalid user addresses fault in U mode; they
      * must not turn this operation into a supervisor-context restore. */
     if ((PreviousMode == UserMode) || KiUserTrap(TrapFrame))
-        TrapFrame->Sstatus = RISCV_USER_SSTATUS;
+        TrapFrame->Sstatus = RISCV_USER_SSTATUS | (TrapFrame->Sstatus & RISCV_SSTATUS_VS);
     KiRiscvCopyContext(&TrapFrame->Context, Context, ContextFlags);
     TrapFrame->Context.ContextFlags |= ContextFlags;
     KeRestoreInterrupts(Interrupts);

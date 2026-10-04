@@ -64,6 +64,9 @@ KiInitializeContextThread(
     if (SystemRoutine == NULL)
         KiRiscvUnimplemented("KiInitializeContextThread/no-system-routine");
 
+    if (Context)
+        Thread->InitialStack = KiRiscvInitializeVectorArea(Thread, Thread->InitialStack);
+
     FrameSize = sizeof(KKINIT_FRAME) + (Context ? sizeof(KTRAP_FRAME) : 0);
     if (((ULONG_PTR)Thread->InitialStack & 15) ||
         ((ULONG_PTR)Thread->InitialStack - Thread->StackLimit < FrameSize))
@@ -204,7 +207,7 @@ VOID
 NTAPI
 KiRundownThread(_In_ PKTHREAD Thread)
 {
-    UNREFERENCED_PARAMETER(Thread);
+    KiRiscvRundownVectorState(Thread);
 }
 
 /* Interrupt sources are enabled by the HAL alone. Until it enables one, a

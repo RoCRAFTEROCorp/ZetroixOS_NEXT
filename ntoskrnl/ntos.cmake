@@ -460,6 +460,7 @@ elseif(ARCH STREQUAL "riscv64")
         ${REACTOS_SOURCE_DIR}/ntoskrnl/ke/riscv64/usercall.S
         ${REACTOS_SOURCE_DIR}/ntoskrnl/ke/riscv64/usercopy.S
         ${REACTOS_SOURCE_DIR}/ntoskrnl/ke/riscv64/syscall.S
+        ${REACTOS_SOURCE_DIR}/ntoskrnl/ke/riscv64/vector.S
         ${REACTOS_SOURCE_DIR}/ntoskrnl/rtl/riscv64/capture.S)
     list(APPEND SOURCE
         ${REACTOS_SOURCE_DIR}/ntoskrnl/config/riscv64/cmhardwr.c
@@ -484,6 +485,7 @@ elseif(ARCH STREQUAL "riscv64")
         ${REACTOS_SOURCE_DIR}/ntoskrnl/ke/riscv64/trap.c
         ${REACTOS_SOURCE_DIR}/ntoskrnl/ke/riscv64/usercall.c
         ${REACTOS_SOURCE_DIR}/ntoskrnl/ke/riscv64/usercopy.c
+        ${REACTOS_SOURCE_DIR}/ntoskrnl/ke/riscv64/vector.c
         ${REACTOS_SOURCE_DIR}/ntoskrnl/ps/riscv64/psctx.c
         ${REACTOS_SOURCE_DIR}/ntoskrnl/rtl/riscv64/rtlexcpt.c
         ${REACTOS_SOURCE_DIR}/ntoskrnl/rtl/riscv64/slist.c)

@@ -414,6 +414,11 @@ KiRiscvTrapHandler(_Inout_ PKTRAP_FRAME TrapFrame)
 
     if (!(Scause & (1ULL << 63)))
     {
+        if ((Code == 2) && (Mode == UserMode) && KiRiscvHandleVectorFirstUse(TrapFrame))
+        {
+            Thread->TrapFrame = TrapFrame->PreviousTrapFrame;
+            return;
+        }
         if (KiRiscvFixupUserCopy(TrapFrame, STATUS_ACCESS_VIOLATION))
         {
             Thread->TrapFrame = TrapFrame->PreviousTrapFrame;

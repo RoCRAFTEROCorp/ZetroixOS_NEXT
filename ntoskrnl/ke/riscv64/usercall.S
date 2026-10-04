@@ -9,6 +9,7 @@
 
 #define SSTATUS_SIE 0x2
 #define SSTATUS_FS  0x6000
+#define SSTATUS_VS  0x0600
 
     .text
     .balign 4
@@ -52,6 +53,10 @@ KiRiscvCallbackReturn:
 .Lcallback_resume:
     csrci sstatus, SSTATUS_SIE
     ld t0, CoSstatus(sp)
+    csrr t2, sstatus
+    andi t2, t2, SSTATUS_VS
+    andi t0, t0, ~SSTATUS_VS
+    or t0, t0, t2
     andi t1, t0, ~SSTATUS_SIE
     csrw sstatus, t1
     li t2, SSTATUS_FS

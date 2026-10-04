@@ -95,7 +95,7 @@ KiInitializeUserApc(
     Frame->Context.Sp = Stack;
     Frame->Context.Pc = (ULONG_PTR)KeUserApcDispatcher;
     Frame->Context.Ra = 0;
-    Frame->Sstatus = RISCV_USER_SSTATUS;
+    Frame->Sstatus = RISCV_USER_SSTATUS | (Frame->Sstatus & RISCV_SSTATUS_VS);
 }
 
 /* Fault in the initial execution/stack/TEB pages and verify actual U/R/W/X
@@ -172,7 +172,7 @@ Retry:
 
     _disable();
     if (Thread->ApcState.UserApcPending) goto Retry;
-    Frame->Sstatus = RISCV_USER_SSTATUS;
+    Frame->Sstatus = RISCV_USER_SSTATUS | KiRiscvReadVectorStatus();
     Thread->PreviousMode = UserMode;
     Thread->TrapFrame = Frame->PreviousTrapFrame;
     KiRiscvRestoreTrapFrame(Frame);
@@ -299,7 +299,7 @@ KeUserModeCallback(
     CallbackFrame.Context.A0 = RoutineIndex;
     CallbackFrame.Context.A1 = UserArguments;
     CallbackFrame.Context.A2 = ArgumentLength;
-    CallbackFrame.Sstatus = RISCV_USER_SSTATUS;
+    CallbackFrame.Sstatus = RISCV_USER_SSTATUS | (CallbackFrame.Sstatus & RISCV_SSTATUS_VS);
     Status = KiRiscvCheckUserPage((PVOID)CallbackFrame.Context.Pc, MI_RISCV_PTE_EXECUTE, &CallbackFrame);
     if (NT_SUCCESS(Status))
         Status = KiRiscvCheckUserPage((PVOID)(UserStack - 1), MI_RISCV_PTE_WRITE, &CallbackFrame);
@@ -363,7 +363,7 @@ NtCallbackReturn(_In_ PVOID Result, _In_ ULONG ResultLength, _In_ NTSTATUS Callb
     if (CallbackStatus == STATUS_CALLBACK_POP_STACK)
     {
         OuterFrame->Context = CurrentFrame->Context;
-        OuterFrame->Sstatus = RISCV_USER_SSTATUS;
+        OuterFrame->Sstatus = RISCV_USER_SSTATUS | (OuterFrame->Sstatus & RISCV_SSTATUS_VS);
         /* In particular, never copy CurrentFrame's PreviousTrapFrame link:
          * it belongs to the callback stack that is being discarded. */
     }
