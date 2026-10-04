@@ -299,6 +299,7 @@ LSTATUS WINAPI RegOpenKeyA(_In_ HKEY, _In_opt_ LPCSTR, _Out_ PHKEY);
 LSTATUS WINAPI RegOpenKeyW(_In_ HKEY, _In_opt_ LPCWSTR, _Out_ PHKEY);
 LSTATUS WINAPI RegOpenKeyExA(_In_ HKEY, _In_opt_ LPCSTR, _In_opt_ DWORD, _In_ REGSAM, _Out_ PHKEY);
 LSTATUS WINAPI RegOpenKeyExW(_In_ HKEY, _In_opt_ LPCWSTR, _In_opt_ DWORD, _In_ REGSAM, _Out_ PHKEY);
+LSTATUS WINAPI RegOverridePredefKey(_In_ HKEY, _In_opt_ HKEY);
 
 LSTATUS
 WINAPI
