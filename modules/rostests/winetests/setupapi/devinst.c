@@ -4187,6 +4187,9 @@ static void test_call_class_installer(void)
     HMODULE coinst;
     HDEVINFO set;
     BOOL ret;
+#ifdef __REACTOS__
+    char coinst_path[MAX_PATH];
+#endif
 
     if (wow64)
     {
@@ -4223,7 +4226,13 @@ static void test_call_class_installer(void)
     ok(ret, "Failed to destroy device list.\n");
     ok(!GetLastError(), "Got unexpected error %#lx.\n", GetLastError());
 
+#ifdef __REACTOS__
+    GetSystemDirectoryA(coinst_path, MAX_PATH);
+    strcat(coinst_path, "\\winetest_coinst.dll");
+    load_resource("coinst.dll", coinst_path);
+#else
     load_resource("coinst.dll", "C:\\windows\\system32\\winetest_coinst.dll");
+#endif
 
     coinst = LoadLibraryA("winetest_coinst.dll");
     coinst_callback_count = (void *)GetProcAddress(coinst, "callback_count");
@@ -4234,7 +4243,11 @@ static void test_call_class_installer(void)
 
     FreeLibrary(coinst);
 
+#ifdef __REACTOS__
+    ret = DeleteFileA(coinst_path);
+#else
     ret = DeleteFileA("C:\\windows\\system32\\winetest_coinst.dll");
+#endif
     ok(ret, "Failed to delete file, error %lu.\n", GetLastError());
 }
 
