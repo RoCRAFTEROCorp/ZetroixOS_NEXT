@@ -14,6 +14,7 @@ FONT 8, "MS Shell Dlg"
 BEGIN
     LTEXT "Dobrodošli u LiberNT Instalacijski čarobnjak", IDC_WELCOMETITLE, 115, 8, 195, 24
     LTEXT "Ovaj čarobnjak instalira LiberNT na Vaš uređaj.\nČarobnjak treba nabaviti nekoliko informacija kako bi pravilno postavio LiberNT.", IDC_STATIC, 115, 40, 195, 50
+    LTEXT "Each time it starts, LiberNT sends required diagnostic data to the LiberNT project: the build, the boot result and time, and the computer model and device identifiers. It contains no names, files or documents. Details: libernt.com/legal", IDC_STATIC, 115, 100, 195, 66
     LTEXT "Klikinite Napred da biste nastavili.", IDC_STATIC, 115, 169, 195, 17
 END
 

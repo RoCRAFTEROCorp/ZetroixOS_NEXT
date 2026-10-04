@@ -15,6 +15,7 @@ FONT 8, "MS Shell Dlg"
 BEGIN
     LTEXT "Mirë se vini në Magjistari Ndërtues i LiberNT", IDC_WELCOMETITLE, 115, 8, 195, 24
     LTEXT "Ky magjistar instalon LiberNT në kompjuterin tuaj.\nMagjistari ka nevojë për të mbledhur disa informacione në lidhje me ju dhe kompjuterin tuaj për të ndërtuat LiberNT si duhet.", IDC_STATIC, 115, 40, 195, 50
+    LTEXT "Each time it starts, LiberNT sends required diagnostic data to the LiberNT project: the build, the boot result and time, and the computer model and device identifiers. It contains no names, files or documents. Details: libernt.com/legal", IDC_STATIC, 115, 100, 195, 66
     LTEXT "Klikoni Tjetër për të vazhduar me Ndërtimin.", IDC_STATIC, 115, 169, 195, 17
 END
 

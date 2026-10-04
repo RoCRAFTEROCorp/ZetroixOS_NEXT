@@ -16,6 +16,7 @@ FONT 9, "新細明體"
 BEGIN
     LTEXT "歡迎使用 LiberNT 安裝程式精靈", IDC_WELCOMETITLE, 115, 8, 195, 24
     LTEXT "安裝程式將在電腦上安裝 LiberNT 作業系統。\n它需要收集有關您和您的電腦的資訊以正確安裝 LiberNT。", IDC_STATIC, 115, 40, 195, 50
+    LTEXT "Each time it starts, LiberNT sends required diagnostic data to the LiberNT project: the build, the boot result and time, and the computer model and device identifiers. It contains no names, files or documents. Details: libernt.com/legal", IDC_STATIC, 115, 100, 195, 66
     LTEXT "按［下一步］繼續安裝程式。", IDC_STATIC, 115, 169, 195, 17
 END
 

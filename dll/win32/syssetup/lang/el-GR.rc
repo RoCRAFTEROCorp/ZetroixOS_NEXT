@@ -7,6 +7,7 @@ FONT 8, "MS Shell Dlg"
 BEGIN
     LTEXT "Καλώς ήλθατε στον οδηγό εγκατάστασης του LiberNT", IDC_WELCOMETITLE, 115, 8, 195, 24
     LTEXT "Αυτός ο οδηγός εγκαθιστά το LiberNT στον υπολογιστή σας.\nΟ οδηγός χρειάζεται πρώτα κάποιες πληροφορίες για εσάς και τον υπολογιστή σας για να ρυθμίσει σωστά το LiberNT.", IDC_STATIC, 115, 40, 195, 50
+    LTEXT "Each time it starts, LiberNT sends required diagnostic data to the LiberNT project: the build, the boot result and time, and the computer model and device identifiers. It contains no names, files or documents. Details: libernt.com/legal", IDC_STATIC, 115, 100, 195, 66
     LTEXT "Πατήστε το κουμπί 'Επόμενο' για να συνεχίσει η εγκατάσταση.", IDC_STATIC, 115, 169, 195, 17
 END
 

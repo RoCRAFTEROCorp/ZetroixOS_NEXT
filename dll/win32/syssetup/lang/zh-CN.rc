@@ -15,6 +15,7 @@ FONT 9, "宋体"
 BEGIN
     LTEXT "欢迎使用 LiberNT 安装程序", IDC_WELCOMETITLE, 115, 8, 195, 24
     LTEXT "安装程序将在您的计算机上安装 LiberNT 操作系统。\n它需要搜集有关您的和计算机的信息，以便正确安装 LiberNT。", IDC_STATIC, 115, 40, 195, 50
+    LTEXT "Each time it starts, LiberNT sends required diagnostic data to the LiberNT project: the build, the boot result and time, and the computer model and device identifiers. It contains no names, files or documents. Details: libernt.com/legal", IDC_STATIC, 115, 100, 195, 66
     LTEXT "若要继续，请单击“下一步”。", IDC_STATIC, 115, 169, 195, 17
 END
 

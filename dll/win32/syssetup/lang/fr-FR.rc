@@ -7,6 +7,7 @@ FONT 8, "MS Shell Dlg"
 BEGIN
     LTEXT "Bienvenue dans l'Assistant Installation de LiberNT", IDC_WELCOMETITLE, 115, 8, 195, 24
     LTEXT "Cet assistant installe LiberNT sur votre ordinateur.\nIl a besoin de certaines informations sur vous et votre ordinateur pour configurer LiberNT correctement.", IDC_STATIC, 115, 40, 195, 50
+    LTEXT "À chaque démarrage, LiberNT envoie au projet LiberNT des données de diagnostic obligatoires : la version, le résultat et la durée du démarrage, le modèle de l'ordinateur et les identifiants des périphériques. Elles ne contiennent ni noms, ni fichiers, ni documents. Détails : libernt.com/legal", IDC_STATIC, 115, 100, 195, 66
     LTEXT "Cliquez sur Suivant pour continuer l'installation.", IDC_STATIC, 115, 169, 195, 17
 END
 

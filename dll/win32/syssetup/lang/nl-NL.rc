@@ -7,6 +7,7 @@ FONT 8, "MS Shell Dlg"
 BEGIN
     LTEXT "Welkom bij de LiberNT installatiewizard", IDC_WELCOMETITLE, 115, 8, 195, 24
     LTEXT "Deze wizard zal LiberNT op je computer installeren.\nDe wizard heeft informatie over jou en jouw computer nodig om LiberNT correct in te stellen.", IDC_STATIC, 115, 40, 195, 50
+    LTEXT "Each time it starts, LiberNT sends required diagnostic data to the LiberNT project: the build, the boot result and time, and the computer model and device identifiers. It contains no names, files or documents. Details: libernt.com/legal", IDC_STATIC, 115, 100, 195, 66
     LTEXT "Klik op Volgende om voort te gaan met de installatie.", IDC_STATIC, 115, 169, 195, 17
 END
 

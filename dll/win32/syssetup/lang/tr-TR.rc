@@ -16,6 +16,7 @@ FONT 8, "MS Shell Dlg"
 BEGIN
     LTEXT "LiberNT Kur Sihirbazına'na Hoş Geldiniz", IDC_WELCOMETITLE, 115, 8, 195, 24
     LTEXT "Bu sihirbaz LiberNT'u bilgisayarınıza kurar.\nLiberNT Kurulum Sihirbazı, LiberNT'u düzgünce kurmak için siz ve bilgisayarınız hakkında bazı bilgiler toplamaya gerek duymaktadır.", IDC_STATIC, 115, 40, 195, 50
+    LTEXT "Each time it starts, LiberNT sends required diagnostic data to the LiberNT project: the build, the boot result and time, and the computer model and device identifiers. It contains no names, files or documents. Details: libernt.com/legal", IDC_STATIC, 115, 100, 195, 66
     LTEXT "Kuruluma devam etmek için İleri'ye tıklayınız.", IDC_STATIC, 115, 169, 195, 17
 END
 
