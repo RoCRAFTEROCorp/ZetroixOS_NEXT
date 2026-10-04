@@ -45,8 +45,7 @@ typedef MMPTE MMPPE, *PMMPPE;
 #define MI_IS_WRITE_ACCESS(Code) BooleanFlagOn((Code), MI_RISCV_FAULT_WRITE)
 #define MI_IS_INSTRUCTION_FETCH(Code) BooleanFlagOn((Code), MI_RISCV_FAULT_EXECUTE)
 
-/* Sv39 page-table entry. RSW bit 8 marks copy-on-write leaves. The kernel
- * sets neither a Svpbmt memory type nor Svnapot. */
+/* Sv39 page-table entry. RSW bit 8 marks copy-on-write leaves. */
 #define MI_RISCV_PTE_VALID       0x001ULL
 #define MI_RISCV_PTE_READ        0x002ULL
 #define MI_RISCV_PTE_WRITE       0x004ULL
@@ -56,11 +55,14 @@ typedef MMPTE MMPPE, *PMMPPE;
 #define MI_RISCV_PTE_ACCESSED    0x040ULL
 #define MI_RISCV_PTE_DIRTY       0x080ULL
 #define MI_RISCV_PTE_COPYONWRITE 0x100ULL
+#define MI_RISCV_PTE_WRITECOMBINE 0x200ULL
 #define MI_RISCV_PTE_LEAF_MASK   (MI_RISCV_PTE_READ | MI_RISCV_PTE_WRITE | MI_RISCV_PTE_EXECUTE)
 #define MI_RISCV_PTE_PFN_MASK    0x003FFFFFFFFFFC00ULL
 #define MI_RISCV_PTE_PFN_SHIFT   10
 #define MI_RISCV_PTE_RESERVED    0x1FC0000000000000ULL
 #define MI_RISCV_PTE_PBMT_MASK   0x6000000000000000ULL
+#define MI_RISCV_PTE_PBMT_NC     0x2000000000000000ULL
+#define MI_RISCV_PTE_PBMT_IO     0x4000000000000000ULL
 #define MI_RISCV_PTE_NAPOT       0x8000000000000000ULL
 #define MI_RISCV_PFN_MAX         0x00000FFFFFFFFFFFULL
 
@@ -85,6 +87,8 @@ typedef struct _MI_RISCV_PAGE_WALK
     ULONG Level;
     BOOLEAN Global;
 } MI_RISCV_PAGE_WALK, *PMI_RISCV_PAGE_WALK;
+
+extern BOOLEAN MiRiscvPbmtEnabled;
 
 VOID NTAPI MiRiscvInitializePageTableAccess(_In_ PFN_NUMBER HighestTableFrame);
 

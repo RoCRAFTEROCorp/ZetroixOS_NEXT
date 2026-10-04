@@ -44,6 +44,78 @@ KeSweepICache(
     KfLowerIrql(OldIrql);
 }
 
+ULONG
+NTAPI
+KiRiscvQueryCacheBlockSize(VOID)
+{
+    ULONG Block = KiRiscvProcessorFeatures.CbomBlockSize;
+
+    if (!(KiRiscvProcessorFeatures.Flags & KI_RISCV_FEATURE_ZICBOM) ||
+        Block < 16 || Block > PAGE_SIZE || (Block & (Block - 1)))
+    {
+        return 0;
+    }
+    return Block;
+}
+
+static
+VOID
+KiRiscvMaintainRange(
+    _In_ ULONG_PTR Start,
+    _In_ SIZE_T Length,
+    _In_ BOOLEAN Invalidate)
+{
+    ULONG_PTR Block = KiRiscvQueryCacheBlockSize();
+    ULONG_PTR Address, End = Start + Length;
+
+    if (!Block)
+        KiRiscvUnimplemented("KiRiscvMaintainRange/no-zicbom");
+    __asm__ __volatile__("fence rw, rw" ::: "memory");
+    for (Address = Start & ~(Block - 1); Address < End; Address += Block)
+    {
+        if (Invalidate)
+            __asm__ __volatile__(".insn i 0x0f, 2, x0, %0, 2" :: "r"(Address) : "memory");
+        else
+            __asm__ __volatile__(".insn i 0x0f, 2, x0, %0, 1" :: "r"(Address) : "memory");
+    }
+    __asm__ __volatile__("fence iorw, iorw" ::: "memory");
+}
+
+BOOLEAN
+NTAPI
+KiRiscvIsPhysicalCached(
+    _In_ ULONG64 PhysicalAddress)
+{
+    MI_RISCV_PAGE_WALK Walk;
+
+    if (PhysicalAddress >= RISCV64_LOADER_PHYSICAL_LIMIT ||
+        !NT_SUCCESS(MiRiscvWalkCurrentPageTables((PVOID)(ULONG_PTR)(RISCV64_LOADER_DIRECT_MAP_BASE + PhysicalAddress),
+                                                 &Walk)))
+    {
+        return TRUE;
+    }
+    return (Walk.Value.u.Long & MI_RISCV_PTE_PBMT_MASK) == 0;
+}
+
+BOOLEAN
+NTAPI
+KiRiscvFlushDmaRange(
+    _In_ ULONG64 PhysicalAddress,
+    _In_ SIZE_T Length,
+    _In_ BOOLEAN Invalidate)
+{
+    if (!Length)
+        return TRUE;
+    if (!KiRiscvQueryCacheBlockSize() ||
+        PhysicalAddress >= RISCV64_LOADER_PHYSICAL_LIMIT ||
+        Length > RISCV64_LOADER_PHYSICAL_LIMIT - PhysicalAddress)
+    {
+        return FALSE;
+    }
+    KiRiscvMaintainRange((ULONG_PTR)(RISCV64_LOADER_DIRECT_MAP_BASE + PhysicalAddress), Length, Invalidate);
+    return TRUE;
+}
+
 VOID
 NTAPI
 KeFlushIoBuffers(
@@ -60,7 +132,21 @@ KeFlushIoBuffers(
     if (DmaOperation)
     {
         if (!KiDmaIoCoherency)
-            KiRiscvUnimplemented("KeFlushIoBuffers/noncoherent-DMA");
+        {
+            PPFN_NUMBER Pages = MmGetMdlPfnArray(Mdl);
+            ULONG Offset = Mdl->ByteOffset, Remaining = Mdl->ByteCount;
+
+            while (Remaining)
+            {
+                ULONG Chunk = min(Remaining, PAGE_SIZE - Offset);
+
+                if (!KiRiscvFlushDmaRange(((ULONG64)*Pages << PAGE_SHIFT) + Offset, Chunk, ReadOperation))
+                    KiRiscvUnimplemented("KeFlushIoBuffers/noncoherent-DMA");
+                Remaining -= Chunk;
+                Offset = 0;
+                Pages++;
+            }
+        }
         __asm__ __volatile__("fence iorw, iorw" ::: "memory");
         return;
     }
@@ -91,7 +177,7 @@ KeInvalidateRangeAllCaches(
      * instruction caches on every active hart. A noncoherent platform needs
      * cache-block operations supplied by its hardware provider. */
     if (!KiDmaIoCoherency)
-        KiRiscvUnimplemented("KeInvalidateRangeAllCaches/noncoherent-platform");
+        KiRiscvMaintainRange((ULONG_PTR)BaseAddress, Length, TRUE);
     __asm__ __volatile__("fence iorw, iorw" ::: "memory");
     KeSweepICache(BaseAddress, Length);
 }
