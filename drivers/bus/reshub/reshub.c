@@ -1301,6 +1301,6 @@ DriverEntry(
     DriverObject->MajorFunction[IRP_MJ_DEVICE_CONTROL] = RhDeviceControl;
     DriverObject->DriverUnload = RhUnload;
     RhDeviceObject->Flags &= ~DO_DEVICE_INITIALIZING;
-    DPRINT1("RESHUB: connection broker initialized\n");
+    DPRINT("RESHUB: connection broker initialized\n");
     return STATUS_SUCCESS;
 }

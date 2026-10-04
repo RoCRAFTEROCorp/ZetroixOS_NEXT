@@ -1059,7 +1059,7 @@ Tpm2StartTis(
     DeviceExtension->CommandSize = TPM2_MAXIMUM_BUFFER_SIZE;
     DeviceExtension->ResponseSize = TPM2_MAXIMUM_BUFFER_SIZE;
     DeviceExtension->InterfaceType = TPM2_INTERFACE_TIS;
-    DPRINT1("TPM2: TIS DID_VID 0x%08lx\n", DidVid);
+    DPRINT("TPM2: TIS DID_VID 0x%08lx\n", DidVid);
     return STATUS_SUCCESS;
 }
 

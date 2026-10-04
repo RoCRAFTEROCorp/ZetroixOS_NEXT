@@ -457,7 +457,7 @@ DriverEntry(
 {
     UNREFERENCED_PARAMETER(RegistryPath);
 
-    DPRINT1("SD Bus Driver: DriverEntry\n");
+    DPRINT("SD Bus Driver: DriverEntry\n");
 
     /* Set up the dispatch table */
     DriverObject->MajorFunction[IRP_MJ_PNP] = SdBusDispatchPnpImpl;

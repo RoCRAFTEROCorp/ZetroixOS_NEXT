@@ -2149,6 +2149,6 @@ KsecInitializeBCrypt(VOID)
     if (!NT_SUCCESS(Status))
         return Status;
 
-    DPRINT1("KSECDD: kernel BCrypt provider initialized; SHA-256, HMAC-SHA-256 and AES-CMAC (plain/MAC flag) KATs passed\n");
+    DPRINT("KSECDD: kernel BCrypt provider initialized; SHA-256, HMAC-SHA-256 and AES-CMAC (plain/MAC flag) KATs passed\n");
     return STATUS_SUCCESS;
 }

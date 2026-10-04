@@ -229,7 +229,7 @@ i8042InitializeHwHacks(
     /* Store SMBios data in registry */
     i8042StoreSMBiosTables(AllData + 1,
                            AllData->FixedInstanceSize);
-    DPRINT1("SMBiosTables HACK, see CORE-14867\n");
+    DPRINT("SMBiosTables HACK, see CORE-14867\n");
 
     /* Parse the table */
     i8042ParseSMBiosTables(AllData + 1,
