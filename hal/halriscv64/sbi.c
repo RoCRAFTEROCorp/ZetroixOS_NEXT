@@ -40,6 +40,9 @@ HalpRiscvSbiCall(
     return Result;
 }
 
+static BOOLEAN HalpRiscvSbiLegacyTimer;
+static BOOLEAN HalpRiscvSstcTimer;
+
 BOOLEAN
 HalpRiscvInitializeSbi(VOID)
 {
@@ -62,13 +65,14 @@ HalpRiscvInitializeSbi(VOID)
     if ((Major == 0) && (Minor < 2))
         return FALSE;
 
-    Result = HalpRiscvSbiCall(RISCV_SBI_EXTENSION_BASE,
-                              RISCV_SBI_BASE_PROBE_EXTENSION,
-                              RISCV_SBI_EXTENSION_TIME,
-                              0,
-                              0, 0);
-    if ((Result.Error != 0) || (Result.Value == 0))
-        return FALSE;
+    HalpRiscvSbiLegacyTimer = FALSE;
+    HalpRiscvSstcTimer = (KiRiscvQueryFeatureFlags() & RISCV_HAL_FEATURE_SSTC) != 0;
+    if (!HalpRiscvSstcTimer && !HalpRiscvSbiExtensionAvailable(RISCV_SBI_EXTENSION_TIME))
+    {
+        if (!HalpRiscvSbiExtensionAvailable(RISCV_SBI_EXTENSION_LEGACY_SET_TIMER))
+            return FALSE;
+        HalpRiscvSbiLegacyTimer = TRUE;
+    }
 
     HalpRiscvSbiVersion = Version;
     Result = HalpRiscvSbiCall(RISCV_SBI_EXTENSION_BASE,
@@ -86,6 +90,28 @@ RISCV_SBI_RETURN
 HalpRiscvSetTimer(
     _In_ ULONG64 Deadline)
 {
+    RISCV_SBI_RETURN Result;
+
+    if (HalpRiscvSstcTimer)
+    {
+        __asm__ __volatile__("csrw 0x14D, %0" :: "r"((ULONG_PTR)Deadline) : "memory");
+        Result.Error = 0;
+        Result.Value = 0;
+        return Result;
+    }
+
+    if (HalpRiscvSbiLegacyTimer)
+    {
+        HalpRiscvSbiCall(RISCV_SBI_EXTENSION_LEGACY_SET_TIMER,
+                         0,
+                         (ULONG_PTR)Deadline,
+                         0,
+                         0, 0);
+        Result.Error = 0;
+        Result.Value = 0;
+        return Result;
+    }
+
     return HalpRiscvSbiCall(RISCV_SBI_EXTENSION_TIME,
                             RISCV_SBI_TIME_SET_TIMER,
                             (ULONG_PTR)Deadline,
