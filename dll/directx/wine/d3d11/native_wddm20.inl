@@ -159,15 +159,35 @@ static D3DWDDM2_0DDIARG_CREATEUNORDEREDACCESSVIEW NativeWddm20Convert(const D3D1
     return value;
 }
 
+template<class Args> static void NativeWddm20Extend(NativeDevice *, Args &) {}
+static void NativeWddm20Extend(NativeDevice *device, D3DWDDM2_0DDIARG_CREATERENDERTARGETVIEW &value)
+{
+    if (value.ResourceDimension == D3D10DDIRESOURCE_TEXTURE2D) value.Tex2D.PlaneSlice = device->plane_slice;
+}
+static void NativeWddm20Extend(NativeDevice *device, D3DWDDM2_0DDIARG_CREATESHADERRESOURCEVIEW &value)
+{
+    if (value.ResourceDimension == D3D10DDIRESOURCE_TEXTURE2D) value.Tex2D.PlaneSlice = device->plane_slice;
+}
+static void NativeWddm20Extend(NativeDevice *device, D3DWDDM2_0DDIARG_CREATEUNORDEREDACCESSVIEW &value)
+{
+    if (value.ResourceDimension == D3D10DDIRESOURCE_TEXTURE2D) value.Tex2D.PlaneSlice = device->plane_slice;
+}
+static void NativeWddm20Extend(NativeDevice *device, D3DWDDM2_0DDIARG_CREATEQUERY &value)
+{
+    value.ContextType = device->query_context;
+}
+
 #define NATIVE_WDDM20_OBJECT(Name, Old, New, DriverHandle, RuntimeHandle) \
 static SIZE_T APIENTRY NativeWddm20CalcPrivate##Name##Size(D3D10DDI_HDEVICE h, const Old *old) \
 { \
     New value = NativeWddm20Convert(*old); \
+    NativeWddm20Extend(NativeWddm20Device(h), value); \
     return NativeWddm20Device(h)->wddm20_functions.pfnCalcPrivate##Name##Size(h, &value); \
 } \
 static void APIENTRY NativeWddm20Create##Name(D3D10DDI_HDEVICE h, const Old *old, DriverHandle object, RuntimeHandle runtime) \
 { \
     New value = NativeWddm20Convert(*old); \
+    NativeWddm20Extend(NativeWddm20Device(h), value); \
     NativeWddm20Device(h)->wddm20_functions.pfnCreate##Name(h, &value, object, runtime); \
 }
 NATIVE_WDDM20_OBJECT(BlendState, D3D10_1_DDI_BLEND_DESC, D3D11_1_DDI_BLEND_DESC, D3D10DDI_HBLENDSTATE, D3D10DDI_HRTBLENDSTATE)
