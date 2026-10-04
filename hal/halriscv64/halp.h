@@ -25,7 +25,7 @@
 #define RISCV_SBI_SRST_TYPE_COLD_REBOOT 1UL
 #define RISCV_SBI_SRST_REASON_NONE     0UL
 
-#define RISCV_HAL_MAXIMUM_INCREMENT    100000UL
+#define RISCV_HAL_MAXIMUM_INCREMENT    156250UL
 #define RISCV_HAL_MINIMUM_INCREMENT    10000UL
 
 /* Kernel-private bridge values (ntoskrnl internal/riscv64/ke.h): the native
@@ -83,6 +83,8 @@ VOID FASTCALL KeUpdateSystemTime(_In_ PKTRAP_FRAME TrapFrame, _In_ ULONG Increme
 
 VOID HalpRiscvStartClock(VOID);
 VOID NTAPI HalpRiscvClockInterrupt(_In_ PKTRAP_FRAME TrapFrame);
+VOID NTAPI HalpRiscvSuspendClockTick(VOID);
+ULONG NTAPI HalpRiscvResumeClockTick(VOID);
 BOOLEAN HalpRiscvInitializeSbi(VOID);
 RISCV_SBI_RETURN HalpRiscvSetTimer(_In_ ULONG64 Deadline);
 BOOLEAN HalpRiscvSystemReset(_In_ ULONG_PTR ResetType);

@@ -229,6 +229,16 @@ KiRiscvIdleWait(_In_ PKPCR Pcr)
     _disable();
 }
 
+static
+VOID
+KiRiscvCreditIdleTicks(_In_ ULONG Ticks)
+{
+    KTRAP_FRAME TrapFrame;
+
+    TrapFrame.Sstatus = RISCV_SSTATUS_SPP;
+    KiUpdateRunTime(&TrapFrame, DISPATCH_LEVEL, Ticks);
+}
+
 DECLSPEC_NORETURN
 VOID
 KiIdleLoop(VOID)
@@ -288,7 +298,16 @@ KiIdleLoop(VOID)
             Prcb->TimerRequest || Prcb->DeferredReadyListHead.Next)
             continue;
         Prcb->Sleeping = TRUE;
+        if (Pcr->InterruptEnable)
+            HalpRiscvSuspendClockTick();
         KiRiscvIdleWait(Pcr);
+        if (Pcr->InterruptEnable)
+        {
+            ULONG Ticks = HalpRiscvResumeClockTick();
+
+            if (Ticks)
+                KiRiscvCreditIdleTicks(Ticks);
+        }
         Prcb->Sleeping = FALSE;
     }
 }
