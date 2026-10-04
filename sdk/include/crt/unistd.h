@@ -9,6 +9,8 @@
  * unistd.h maps (roughly) to io.h
  */
 
+#include <io.h>
+
 #ifndef _SSIZE_T_DEFINED
 #define _SSIZE_T_DEFINED
 #ifdef _WIN64
@@ -17,8 +19,6 @@ typedef __int64 ssize_t;
 typedef int ssize_t;
 #endif
 #endif
-
-#include <io.h>
 #include <process.h>
 
 #define __UNISTD_GETOPT__
