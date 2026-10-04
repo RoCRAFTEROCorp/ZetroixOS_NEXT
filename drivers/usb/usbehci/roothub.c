@@ -10,7 +10,7 @@
 #define NDEBUG
 #include <debug.h>
 
-/* Keep root hub traces enabled in DBG builds (controlled by g_EhciTraceMask bit1) */
+#define NDEBUG_EHCI_ROOT_HUB
 #include "dbg_ehci.h"
 
 MPSTATUS

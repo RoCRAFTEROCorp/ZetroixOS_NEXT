@@ -10,24 +10,8 @@
 #define NDEBUG
 #include <debug.h>
 
-/* Enable EHCI trace channel for noisy chatty logs in DBG builds */
-/* Intentionally NOT defining NDEBUG_EHCI_TRACE so DPRINT_EHCI is active */
 #define NDEBUG_EHCI_TRACE
 #include "dbg_ehci.h"
-
-#if DBG
-static VOID
-EHCI_DumpSetupPacket(IN PUSB_DEFAULT_PIPE_SETUP_PACKET Setup)
-{
-    if (!Setup) return;
-    DPRINT_EHCI("EHCI SETUP: bmReq=0x%02x bReq=0x%02x wVal=0x%04x wIdx=0x%04x wLen=%u\n",
-            Setup->bmRequestType.B,
-            Setup->bRequest,
-            Setup->wValue.W,
-            Setup->wIndex.W,
-            Setup->wLength);
-}
-#endif
 
 #define EHCI_RECLAIM_IDLE      0
 #define EHCI_RECLAIM_SCHEDULE  1
@@ -36,17 +20,6 @@ EHCI_DumpSetupPacket(IN PUSB_DEFAULT_PIPE_SETUP_PACKET Setup)
 #define EHCI_RECLAIM_TIMEOUT  (100ULL * 10000)
 
 USBPORT_REGISTRATION_PACKET RegPacket;
-
-/* Runtime trace control (DBG builds):
- *  bit0: general EHCI logs (DPRINT_EHCI)
- *  bit1: root hub logs (DPRINT_RH)
- *  bit2: poll tick logs
- */
-#if DBG
-/* Default: enable general + root hub traces; poll logs via registry */
-ULONG g_EhciTraceMask = 0x3;
-ULONG g_EhciPollLogDiv = 0x400; /* default: log every 1024 polls */
-#endif
 
 /* Forward declarations for local routines referenced before definition */
 VOID
@@ -61,89 +34,6 @@ BOOLEAN
 NTAPI
 EHCI_RemoveQhFromAsyncList(IN PEHCI_EXTENSION EhciExtension,
                            IN PEHCI_HCD_QH QH);
-
-#if DBG
-static VOID
-EHCI_HexDump(IN PCSTR Tag, IN const VOID* Buf, IN ULONG Length)
-{
-    const UCHAR* p = (const UCHAR*)Buf;
-    CHAR Line[64];
-    const char *Hex = "0123456789ABCDEF";
-    ULONG i, j, Chunk;
-
-    if (!Buf || !Length) return;
-
-    DbgPrint("%s (Length %u):\n", Tag, Length);
-
-    for (i = 0; i < Length; i += 16)
-    {
-        PCHAR d = Line;
-        Chunk = Length - i;
-        if (Chunk > 16) Chunk = 16;
-
-        for (j = 0; j < Chunk; j++)
-        {
-            UCHAR v = p[i + j];
-            *d++ = Hex[(v >> 4) & 0x0F];
-            *d++ = Hex[v & 0x0F];
-            *d++ = ' ';
-        }
-        *d = '\0';
-
-        DbgPrint("  +%04x: %s\n", i, Line);
-    }
-}
-#endif
-
-#if DBG
-static
-VOID
-EHCI_DumpScatterGatherList(IN PCSTR Tag,
-                           IN PUSBPORT_TRANSFER_PARAMETERS TransferParameters,
-                           IN PUSBPORT_SCATTER_GATHER_LIST SgList)
-{
-    ULONG Index;
-
-    if (!TransferParameters)
-    {
-        DPRINT_EHCI("EHCI_SG_DUMP: %s: TransferParameters NULL\n", Tag);
-        return;
-    }
-
-    if (!TransferParameters->TransferBufferLength)
-    {
-        DPRINT_EHCI("EHCI_SG_DUMP: %s: TransferBufferLength=0\n", Tag);
-        return;
-    }
-
-    if (!SgList)
-    {
-        DPRINT_EHCI("EHCI_SG_DUMP: %s: SgList NULL (Length=%lu)\n",
-                Tag,
-                TransferParameters->TransferBufferLength);
-        return;
-    }
-
-    DPRINT_EHCI("EHCI_SG_DUMP: %s: Len=%lu Flags=0x%lx Elements=%lu CurrentVa=%p\n",
-            Tag,
-            TransferParameters->TransferBufferLength,
-            TransferParameters->TransferFlags,
-            SgList->SgElementCount,
-            (PVOID)SgList->CurrentVa);
-
-    for (Index = 0; Index < SgList->SgElementCount; Index++)
-    {
-        ULONGLONG PhysicalAddress = SgList->SgElement[Index].SgPhysicalAddress.QuadPart;
-
-        DPRINT_EHCI("EHCI_SG_DUMP: %s: SG[%lu] PA=0x%I64x Len=%lu Offset=%lu\n",
-                Tag,
-                Index,
-                PhysicalAddress,
-                SgList->SgElement[Index].SgTransferLength,
-                SgList->SgElement[Index].SgOffset);
-    }
-}
-#endif
 
 static const UCHAR ClassicPeriod[8] = {
     ENDPOINT_INTERRUPT_1ms - 1,
@@ -1166,15 +1056,6 @@ EHCI_InitializeSchedule(IN PEHCI_EXTENSION EhciExtension,
     WRITE_REGISTER_ULONG(&OperationalRegs->AsyncListBase,
                          NextLink.AsULONG);
 
-#if DBG
-    {
-        ULONG seg = READ_REGISTER_ULONG(&OperationalRegs->SegmentSelector);
-        ULONG plb = READ_REGISTER_ULONG(&OperationalRegs->PeriodicListBase);
-        ULONG alb = READ_REGISTER_ULONG(&OperationalRegs->AsyncListBase);
-        DPRINT_EHCI("EHCI_InitializeSchedule: CTRLDSSegment=0x%08lx PLB=0x%08lx ALB=0x%08lx\n", seg, plb, alb);
-    }
-#endif
-
     return MP_STATUS_SUCCESS;
 }
 
@@ -1239,12 +1120,6 @@ EHCI_InitializeHardware(IN PEHCI_EXTENSION EhciExtension)
     WRITE_REGISTER_ULONG(&OperationalRegs->AsyncListBase, 0);
     /* Force 32-bit addressing for schedule structures (EHCI CTRLDSSegment) */
     WRITE_REGISTER_ULONG(&OperationalRegs->SegmentSelector, 0);
-#if DBG
-    {
-        ULONG seg = READ_REGISTER_ULONG(&OperationalRegs->SegmentSelector);
-        DPRINT_EHCI("EHCI_InitializeHardware: CTRLDSSegment after reset=0x%08lx\n", seg);
-    }
-#endif
 
     EhciExtension->InterruptMask.AsULONG = 0;
     EhciExtension->InterruptMask.Interrupt = 1;
@@ -1364,8 +1239,6 @@ EHCI_TakeControlHC(IN PEHCI_EXTENSION EhciExtension)
 
 static const WCHAR EHCI_REG_FRAME_LENGTH_ADJ[] = L"FrameLengthAdjustment";
 static const WCHAR EHCI_REG_IDLE_SUPPORT[] = L"EnableIdleSupport";
-static const WCHAR EHCI_REG_TRACE_MASK[]   = L"EhciTraceMask";
-static const WCHAR EHCI_REG_POLL_DIV[]     = L"EhciPollLogDiv";
 
 VOID
 NTAPI
@@ -1415,37 +1288,6 @@ EHCI_GetRegistryParameters(IN PEHCI_EXTENSION EhciExtension)
             DPRINT("EHCI_GetRegistryParameters: idle support disabled via registry\n");
         }
     }
-
-#if DBG
-    /* Optional runtime trace mask */
-    ParameterValue = 0xFFFFFFFF;
-    MpStatus = RegPacket.UsbPortGetMiniportRegistryKeyValue(EhciExtension,
-                                                            TRUE,
-                                                            EHCI_REG_TRACE_MASK,
-                                                            sizeof(EHCI_REG_TRACE_MASK),
-                                                            &ParameterValue,
-                                                            sizeof(ParameterValue));
-    if (MpStatus == MP_STATUS_SUCCESS)
-    {
-        g_EhciTraceMask = ParameterValue;
-        DPRINT("EHCI_GetRegistryParameters: EhciTraceMask=0x%08lx\n", g_EhciTraceMask);
-    }
-
-    /* Optional poll log divisor */
-    ParameterValue = g_EhciPollLogDiv;
-    MpStatus = RegPacket.UsbPortGetMiniportRegistryKeyValue(EhciExtension,
-                                                            TRUE,
-                                                            EHCI_REG_POLL_DIV,
-                                                            sizeof(EHCI_REG_POLL_DIV),
-                                                            &ParameterValue,
-                                                            sizeof(ParameterValue));
-    if (MpStatus == MP_STATUS_SUCCESS)
-    {
-        if (ParameterValue == 0) ParameterValue = 1;
-        g_EhciPollLogDiv = ParameterValue;
-        DPRINT("EHCI_GetRegistryParameters: EhciPollLogDiv=%lu\n", g_EhciPollLogDiv);
-    }
-#endif
 }
 
 MPSTATUS
@@ -1822,12 +1664,6 @@ EHCI_ResumeController(IN PVOID ehciExtension)
 
     /* Keep 32-bit addressing across resume as well */
     WRITE_REGISTER_ULONG(&OperationalRegs->SegmentSelector, 0);
-#if DBG
-    {
-        ULONG seg = READ_REGISTER_ULONG(&OperationalRegs->SegmentSelector);
-        DPRINT_EHCI("EHCI_ResumeController: CTRLDSSegment restored=0x%08lx (forced 0)\n", seg);
-    }
-#endif
 
     WRITE_REGISTER_ULONG(&OperationalRegs->PeriodicListBase,
                          EhciExtension->BackupPeriodiclistbase);
@@ -2111,18 +1947,6 @@ EHCI_MapAsyncTransferToTd(IN PEHCI_EXTENSION EhciExtension,
 
     TD->HwTD.Token.TransferBytes = LengthThisTD;
     TD->LengthThisTD = LengthThisTD;
-
-    /* debug: remember start PA and length for TD completion correlation */
-    TD->Pad[0] = TD->HwTD.Buffer[0];
-    TD->Pad[1] = LengthThisTD;
-    /* also remember a mapped VA for debug hexdump at completion */
-#if DBG
-    {
-        ULONGLONG va = (ULONGLONG)(ULONG_PTR)SgList->MappedSystemVa + TransferedLen;
-        TD->Pad[2] = (ULONG)(va & 0xFFFFFFFF);
-        TD->Pad[3] = (ULONG)((va >> 32) & 0xFFFFFFFF);
-    }
-#endif
 
     {
         ULONG expected = SgList->SgElement[SgIdx].SgPhysicalAddress.LowPart -
@@ -2545,13 +2369,6 @@ EHCI_ControlTransfer(IN PEHCI_EXTENSION EhciExtension,
     if (EhciEndpoint->RemainTDs < EHCI_MAX_CONTROL_TD_COUNT)
         return MP_STATUS_FAILURE;
 
-#if DBG
-    EHCI_DumpScatterGatherList("EHCI_ControlTransfer",
-                               TransferParameters,
-                               SgList);
-    EHCI_DumpSetupPacket(&TransferParameters->SetupPacket);
-#endif
-
     EhciExtension->PendingTransfers++;
     EhciEndpoint->PendingTDs++;
 
@@ -2768,11 +2585,6 @@ EHCI_BulkTransfer(IN PEHCI_EXTENSION EhciExtension,
 
     if (TransferParameters->TransferBufferLength)
     {
-#if DBG
-        EHCI_DumpScatterGatherList("EHCI_BulkTransfer",
-                                   TransferParameters,
-                                   SgList);
-#endif
         while (TransferedLen < TransferParameters->TransferBufferLength)
         {
             TD = EHCI_AllocTd(EhciExtension, EhciEndpoint);
@@ -2952,14 +2764,6 @@ EHCI_InterruptTransfer(IN PEHCI_EXTENSION EhciExtension,
 
     while (TransferedLen < TransferParameters->TransferBufferLength)
     {
-#if DBG
-        if (TransferedLen == 0)
-        {
-            EHCI_DumpScatterGatherList("EHCI_InterruptTransfer",
-                                       TransferParameters,
-                                       SgList);
-        }
-#endif
         TD = EHCI_AllocTd(EhciExtension, EhciEndpoint);
 
         if (!TD)
@@ -3682,17 +3486,6 @@ EHCI_ProcessDoneAsyncTd(IN PEHCI_EXTENSION EhciExtension,
 
     EhciEndpoint = EhciTransfer->EhciEndpoint;
     TransferType = EhciEndpoint->EndpointProperties.TransferType;
-#if DBG
-    DPRINT_EHCI("EHCI_TD_DONE: TD=%p Token=0x%08lx Status=0x%02x PID=%u Toggle=%u RemBytes=%u LenThis=%lu Buf0=0x%08lx\n",
-            TD,
-            TD->HwTD.Token.AsULONG,
-            TD->HwTD.Token.Status,
-            TD->HwTD.Token.PIDCode,
-            TD->HwTD.Token.DataToggle,
-            TD->HwTD.Token.TransferBytes,
-            TD->LengthThisTD,
-            TD->HwTD.Buffer[0]);
-#endif
 
     if (!(TD->TdFlags & EHCI_HCD_TD_FLAG_ACTIVE))
     {
@@ -3715,31 +3508,6 @@ EHCI_ProcessDoneAsyncTd(IN PEHCI_EXTENSION EhciExtension,
         }
 
         LengthTransfered = TD->LengthThisTD - TD->HwTD.Token.TransferBytes;
-
-#if DBG
-        if (TD->HwTD.Token.PIDCode != EHCI_TD_TOKEN_PID_SETUP)
-        {
-            ULONG startPa = TD->Pad[0];
-            ULONG lenPa = TD->Pad[1];
-            ULONG endPa = startPa + lenPa;
-            DPRINT_EHCI("EHCI_TD_DONE: PAstart=0x%08lx PAend=0x%08lx ObservedBuf0=0x%08lx LenXfer=%lu RemBytes=%u\n",
-                    startPa,
-                    endPa,
-                    TD->HwTD.Buffer[0],
-                    LengthTransfered,
-                    TD->HwTD.Token.TransferBytes);
-
-            /* Optional hexdump of transferred data (first bytes) */
-            {
-                ULONGLONG va = ((ULONGLONG)TD->Pad[3] << 32) | TD->Pad[2];
-                if (va && LengthTransfered)
-                {
-                    ULONG dumpLen = (LengthTransfered < 32) ? LengthTransfered : 32;
-                    EHCI_HexDump("EHCI_TD_DONE DATA", (const VOID*)(ULONG_PTR)va, dumpLen);
-                }
-            }
-        }
-#endif
 
         if (TD->HwTD.Token.PIDCode != EHCI_TD_TOKEN_PID_SETUP)
         {
@@ -4136,13 +3904,6 @@ EHCI_CheckController(IN PVOID ehciExtension)
 
     if (EhciExtension->IsStarted)
         EHCI_HardwarePresent(EhciExtension, TRUE);
-#if DBG
-    else
-    {
-        /* Emit a trace when we are asked to check while not started */
-        DPRINT_EHCI("EHCI_CheckController: called while !IsStarted (ext=%p)\n", EhciExtension);
-    }
-#endif
 }
 
 ULONG
@@ -4200,25 +3961,7 @@ EHCI_PollController(IN PVOID ehciExtension)
     ULONG Port;
     EHCI_PORT_STATUS_CONTROL PortSC;
 
-    /* Optional poll logging (DBG) */
-#if DBG
-    if (g_EhciTraceMask & 0x4)
-    {
-        static ULONG s_pollLogTick;
-        ULONG div = g_EhciPollLogDiv ? g_EhciPollLogDiv : 1;
-        if ((++s_pollLogTick % div) == 0)
-            DPRINT_EHCI("EHCI_PollController: tick=%lu div=%lu\n", s_pollLogTick, div);
-    }
-#endif
-
     OperationalRegs = EhciExtension->OperationalRegs;
-#if DBG
-    {
-        ULONG seg = READ_REGISTER_ULONG(&OperationalRegs->SegmentSelector);
-        if (seg)
-            DPRINT_EHCI("EHCI_PollController: CTRLDSSegment nonzero=0x%08lx\n", seg);
-    }
-#endif
 
     if (!(EhciExtension->Flags & EHCI_FLAGS_CONTROLLER_SUSPEND))
     {
