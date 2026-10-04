@@ -62,6 +62,7 @@ set_entrypoint(ucrtbase __acrt_DllMain 12)
 
 target_link_libraries(ucrtbase
     ucrt
+    msvcrt_undname_ucrt
     msvcrt_shared
     crtmath
     vcruntime
