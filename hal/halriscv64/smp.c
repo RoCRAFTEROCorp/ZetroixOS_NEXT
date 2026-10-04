@@ -211,40 +211,48 @@ BOOLEAN NTAPI HalAllProcessorsStarted(VOID)
     return TRUE;
 }
 
+static VOID
+HalpRiscvSbiCallHarts(KAFFINITY Targets, ULONG_PTR Extension, ULONG_PTR Function,
+                      ULONG_PTR Argument2, ULONG_PTR Argument3)
+{
+    while (Targets)
+    {
+        KAFFINITY Remaining, Group = 0;
+        ULONG_PTR Base = MAXULONG_PTR, Mask = 0;
+        RISCV_SBI_RETURN Result;
+        ULONG Number;
+
+        for (Number = 0, Remaining = Targets; Remaining; ++Number, Remaining >>= 1)
+        {
+            if (!(Remaining & 1)) continue;
+            ASSERT(Number < HalpRiscvStartedProcessors);
+            if (HalpRiscvHartIds[Number] < Base) Base = HalpRiscvHartIds[Number];
+        }
+        for (Number = 0, Remaining = Targets; Remaining; ++Number, Remaining >>= 1)
+        {
+            if (!(Remaining & 1) || HalpRiscvHartIds[Number] - Base >= sizeof(ULONG_PTR) * 8) continue;
+            Mask |= (ULONG_PTR)1 << (HalpRiscvHartIds[Number] - Base);
+            Group |= (KAFFINITY)1 << Number;
+        }
+        Result = HalpRiscvSbiCall(Extension, Function, Mask, Base, Argument2, Argument3);
+        if (Result.Error)
+            KeBugCheckEx(HAL_INITIALIZATION_FAILED, Extension, Result.Error, Mask, Base);
+        Targets &= ~Group;
+    }
+}
+
 VOID
 NTAPI
 HalRequestIpi(KAFFINITY Targets)
 {
-    ULONG Number;
-    RISCV_SBI_RETURN Result;
-    for (Number = 0; Targets; ++Number, Targets >>= 1)
-    {
-        if (!(Targets & 1)) continue;
-        ASSERT(Number < HalpRiscvStartedProcessors);
-        /* hart_mask_base allows sparse IDs, including IDs above XLEN. */
-        Result = HalpRiscvSbiCall(RISCV_SBI_EXTENSION_IPI, 0,
-                                  1, HalpRiscvHartIds[Number], 0, 0);
-        if (Result.Error)
-            KeBugCheckEx(HAL_INITIALIZATION_FAILED, RISCV_SBI_EXTENSION_IPI,
-                         Result.Error, Number, HalpRiscvHartIds[Number]);
-    }
+    HalpRiscvSbiCallHarts(Targets, RISCV_SBI_EXTENSION_IPI, 0, 0, 0);
 }
 
 VOID
 NTAPI
 HalpRiscvRemoteFence(KAFFINITY Targets, PVOID Address, SIZE_T Size, BOOLEAN Instruction)
 {
-    ULONG Number;
-    RISCV_SBI_RETURN Result;
     __asm__ __volatile__("fence rw, rw" ::: "memory");
-    for (Number = 0; Targets; ++Number, Targets >>= 1)
-    {
-        if (!(Targets & 1)) continue;
-        ASSERT(Number < HalpRiscvStartedProcessors);
-        Result = HalpRiscvSbiCall(RISCV_SBI_EXTENSION_RFENCE, Instruction ? 0 : 1,
-            1, HalpRiscvHartIds[Number], (ULONG_PTR)Address, Size);
-        if (Result.Error)
-            KeBugCheckEx(HAL_INITIALIZATION_FAILED, RISCV_SBI_EXTENSION_RFENCE,
-                         Result.Error, Number, Instruction);
-    }
+    HalpRiscvSbiCallHarts(Targets, RISCV_SBI_EXTENSION_RFENCE, Instruction ? 0 : 1,
+                          (ULONG_PTR)Address, Size);
 }
