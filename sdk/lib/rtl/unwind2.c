@@ -52,7 +52,7 @@ RtlVirtualUnwind2(
 
     if (MachineFrameUnwound != NULL)
         *MachineFrameUnwound = FALSE;
-    if (HandlerData != NULL)
+    if ((HandlerData != NULL) && (Handler != NULL))
         *HandlerData = LocalHandlerData;
     if (EstablisherFrame != NULL)
         *EstablisherFrame = (ULONG_PTR)LocalEstablisherFrame;
