@@ -32,6 +32,7 @@ typedef struct _RISCV_PLIC
 } RISCV_PLIC;
 
 static RISCV_PLIC HalpRiscvPlic;
+static KSPIN_LOCK HalpRiscvPlicEnableLock;
 
 /* Only the boot hart's supervisor context is owned by this uniprocessor HAL. */
 static BOOLEAN
@@ -202,24 +203,50 @@ HalpRiscvPlicValidSource(ULONG Source)
            Source <= HalpRiscvPlic.SourceCount;
 }
 
+static volatile ULONG *
+HalpRiscvPlicEnableWord(ULONG Source)
+{
+    return (volatile ULONG *)(HalpRiscvPlic.Mapping + RISCV_PLIC_ENABLE_BASE +
+                              HalpRiscvPlic.SupervisorContext * RISCV_PLIC_ENABLE_STRIDE +
+                              (Source / 32) * sizeof(ULONG));
+}
+
+static KIRQL
+HalpRiscvPlicLockEnable(VOID)
+{
+    KIRQL OldIrql;
+
+    KeRaiseIrql(HIGH_LEVEL, &OldIrql);
+    KeAcquireSpinLockAtDpcLevel(&HalpRiscvPlicEnableLock);
+    return OldIrql;
+}
+
+static VOID
+HalpRiscvPlicUnlockEnable(KIRQL OldIrql)
+{
+    KeReleaseSpinLockFromDpcLevel(&HalpRiscvPlicEnableLock);
+    KeLowerIrql(OldIrql);
+}
+
 BOOLEAN
 NTAPI
 HalEnableSystemInterrupt(ULONG Vector, KIRQL Irql, KINTERRUPT_MODE Mode)
 {
     volatile ULONG *Enable;
+    KIRQL OldIrql;
     ULONG Bit;
 
     if (!HalpRiscvPlic.Mapping || !HalpRiscvPlicValidSource(Vector) ||
         Irql != RISCV_HAL_EXTERNAL_IRQL || Mode != LevelSensitive)
         return FALSE;
 
-    Enable = (volatile ULONG *)(HalpRiscvPlic.Mapping + RISCV_PLIC_ENABLE_BASE +
-                                 HalpRiscvPlic.SupervisorContext * RISCV_PLIC_ENABLE_STRIDE +
-                                 (Vector / 32) * sizeof(ULONG));
+    Enable = HalpRiscvPlicEnableWord(Vector);
     Bit = 1UL << (Vector % 32);
+    OldIrql = HalpRiscvPlicLockEnable();
     *(volatile ULONG *)(HalpRiscvPlic.Mapping + Vector * sizeof(ULONG)) = 1;
     *Enable |= Bit;
     __asm__ __volatile__("fence iorw, iorw" ::: "memory");
+    HalpRiscvPlicUnlockEnable(OldIrql);
     KiRiscvSetInterruptEnabled(RISCV_HAL_SIE_SEIE, TRUE);
     return TRUE;
 }
@@ -229,18 +256,19 @@ NTAPI
 HalDisableSystemInterrupt(ULONG Vector, KIRQL Irql)
 {
     volatile ULONG *Enable;
+    KIRQL OldIrql;
     ULONG Bit;
 
     if (!HalpRiscvPlic.Mapping || !HalpRiscvPlicValidSource(Vector) ||
         Irql != RISCV_HAL_EXTERNAL_IRQL)
         return;
-    Enable = (volatile ULONG *)(HalpRiscvPlic.Mapping + RISCV_PLIC_ENABLE_BASE +
-                                 HalpRiscvPlic.SupervisorContext * RISCV_PLIC_ENABLE_STRIDE +
-                                 (Vector / 32) * sizeof(ULONG));
+    Enable = HalpRiscvPlicEnableWord(Vector);
     Bit = 1UL << (Vector % 32);
+    OldIrql = HalpRiscvPlicLockEnable();
     *Enable &= ~Bit;
     __asm__ __volatile__("fence iorw, iorw" ::: "memory");
     *(volatile ULONG *)(HalpRiscvPlic.Mapping + Vector * sizeof(ULONG)) = 0;
+    HalpRiscvPlicUnlockEnable(OldIrql);
 }
 
 ULONG
@@ -258,10 +286,31 @@ VOID
 NTAPI
 HalpRiscvCompletePlicInterrupt(ULONG Source)
 {
+    volatile ULONG *Complete, *Enable;
+    KIRQL OldIrql;
+    ULONG Bit;
+
     if (!HalpRiscvPlic.Mapping || !HalpRiscvPlicValidSource(Source))
         return;
+    Complete = (volatile ULONG *)(HalpRiscvPlic.Mapping + RISCV_PLIC_CONTEXT_BASE +
+                                   HalpRiscvPlic.SupervisorContext * RISCV_PLIC_CONTEXT_STRIDE +
+                                   RISCV_PLIC_CLAIM_OFFSET);
+    Enable = HalpRiscvPlicEnableWord(Source);
+    Bit = 1UL << (Source % 32);
     __asm__ __volatile__("fence iorw, iorw" ::: "memory");
-    *(volatile ULONG *)(HalpRiscvPlic.Mapping + RISCV_PLIC_CONTEXT_BASE +
-                         HalpRiscvPlic.SupervisorContext * RISCV_PLIC_CONTEXT_STRIDE +
-                         RISCV_PLIC_CLAIM_OFFSET) = Source;
+    OldIrql = HalpRiscvPlicLockEnable();
+    if (*Enable & Bit)
+    {
+        *Complete = Source;
+    }
+    else
+    {
+        *Enable |= Bit;
+        __asm__ __volatile__("fence iorw, iorw" ::: "memory");
+        *Complete = Source;
+        __asm__ __volatile__("fence iorw, iorw" ::: "memory");
+        *Enable &= ~Bit;
+    }
+    __asm__ __volatile__("fence iorw, iorw" ::: "memory");
+    HalpRiscvPlicUnlockEnable(OldIrql);
 }
