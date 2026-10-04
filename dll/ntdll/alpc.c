@@ -66,7 +66,7 @@ C_ASSERT(sizeof(ALPC_COMPLETION_LIST_HEADER) == 0x300);
 
 static ULONG_PTR AlpcpCompletionListAlign(ULONG_PTR Value, ULONG Alignment)
 {
-    return (Value + Alignment - 1) & ~(Alignment - 1);
+    return (Value + Alignment - 1) & ~((ULONG_PTR)Alignment - 1);
 }
 
 NTSTATUS WINAPI AlpcAdjustCompletionListConcurrencyCount(HANDLE port, ULONG concurrency_count)
