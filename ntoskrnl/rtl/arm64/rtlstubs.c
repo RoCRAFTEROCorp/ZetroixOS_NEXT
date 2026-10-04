@@ -768,7 +768,7 @@ RtlUnwindEx(
             return;
         }
 
-        LookupPc = (FrameCount == 0) ? UnwindContext.Pc : (UnwindContext.Pc - 4);
+        LookupPc = (UnwindContext.ContextFlags & CONTEXT_UNWOUND_TO_CALL) ? (UnwindContext.Pc - 4) : UnwindContext.Pc;
         FunctionEntry = RtlLookupFunctionEntry(LookupPc, &ImageBase, NULL);
         if (FunctionEntry == NULL)
         {
@@ -776,6 +776,7 @@ RtlUnwindEx(
                 break;
 
             UnwindContext.Pc = UnwindContext.Lr;
+            UnwindContext.ContextFlags |= CONTEXT_UNWOUND_TO_CALL;
             continue;
         }
 
