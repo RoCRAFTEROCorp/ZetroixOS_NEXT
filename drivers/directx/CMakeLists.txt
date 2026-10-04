@@ -26,3 +26,8 @@ if(REACTOS_USE_WDDM AND
    (ARCH STREQUAL "riscv64") AND SPACEMIT_K1_SUPPORT)
     add_subdirectory(k1xdpu)
 endif()
+if(REACTOS_USE_WDDM AND
+   (REACTOS_WDDM_TARGET_LEVEL GREATER_EQUAL 2000) AND
+   (ARCH STREQUAL "riscv64") AND SPACEMIT_K1_SUPPORT)
+    add_subdirectory(powervr)
+endif()
