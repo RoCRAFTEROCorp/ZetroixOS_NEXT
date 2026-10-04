@@ -30,7 +30,7 @@ static const WCHAR DotInterfaces[]  = {'.','I','n','t','e','r','f','a','c','e','
 static const WCHAR Linked[]  = {'L','i','n','k','e','d',0};
 static const WCHAR SymbolicLink[]  = {'S','y','m','b','o','l','i','c','L','i','n','k',0};
 
-static BOOL
+BOOL
 CreateDeviceInterface(
     IN struct DeviceInfo* deviceInfo,
     IN LPCWSTR SymbolicLink,
@@ -295,20 +295,21 @@ cleanup:
     return rc;
 }
 
-static LPWSTR
+LPWSTR
 CreateSymbolicLink(
     IN LPGUID InterfaceGuid,
     IN LPCWSTR ReferenceString,
     IN struct DeviceInfo *devInfo)
 {
-    SIZE_T ActualLength, Length;
+    SIZE_T Length;
     WCHAR GuidString[MAX_GUID_STRING_LEN];
-    LPWSTR SymbolicLink;
+    LPWSTR SymbolicLink, p;
+    BOOL HasReference = (ReferenceString && ReferenceString[0]);
 
     Length = 4 + // "\\\\?\\"
              wcslen(devInfo->instanceId) +
              1 + (MAX_GUID_STRING_LEN - 1) + 1 + // "#{GUID}\\"
-             wcslen(ReferenceString) +
+             (HasReference ? wcslen(ReferenceString) : 0) +
              1; // UNICODE_NULL
 
     SymbolicLink = HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, Length * sizeof(WCHAR));
@@ -317,13 +318,17 @@ CreateSymbolicLink(
 
     pSetupStringFromGuid(InterfaceGuid, GuidString, ARRAYSIZE(GuidString));
 
-    ActualLength = swprintf(SymbolicLink,
-                            Length,
-                            L"\\\\?\\%s#%s\\%s",
-                            devInfo->instanceId,
-                            GuidString,
-                            ReferenceString);
-    ASSERT(ActualLength == Length - 1);
+    swprintf(SymbolicLink, Length, L"\\\\?\\%s#%s", devInfo->instanceId, GuidString);
+    for (p = SymbolicLink + 4; *p; p++)
+    {
+        if (*p == L'\\')
+            *p = L'#';
+    }
+    if (HasReference)
+    {
+        wcscat(SymbolicLink, L"\\");
+        wcscat(SymbolicLink, ReferenceString);
+    }
 
     return SymbolicLink;
 }

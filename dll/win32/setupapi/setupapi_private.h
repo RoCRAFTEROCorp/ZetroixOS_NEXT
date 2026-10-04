@@ -192,6 +192,7 @@ struct DeviceInfo /* Element of DeviceInfoSet.ListHead */
     PCWSTR DeviceDescription;
     GUID ClassGuid;
     DWORD CreationFlags;
+    BOOL Phantom;
 
     /* If CreationFlags contains DICD_INHERIT_CLASSDRVS, this list is invalid */
     /* If the driver is not searched/detected, this list is empty */
@@ -387,6 +388,19 @@ BOOL
 GetStringField( PINFCONTEXT context, DWORD index, PWSTR *value);
 
 /* interface.c */
+
+BOOL
+CreateDeviceInterface(
+    IN struct DeviceInfo* deviceInfo,
+    IN LPCWSTR SymbolicLink,
+    IN LPCGUID pInterfaceGuid,
+    OUT struct DeviceInterface **pDeviceInterface);
+
+LPWSTR
+CreateSymbolicLink(
+    IN LPGUID InterfaceGuid,
+    IN LPCWSTR ReferenceString,
+    IN struct DeviceInfo *devInfo);
 
 BOOL
 DestroyDeviceInterface(
