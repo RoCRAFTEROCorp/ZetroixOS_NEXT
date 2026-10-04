@@ -7090,17 +7090,19 @@ INT WINAPI DECLSPEC_HOTPATCH LCMapStringW( LCID lcid, DWORD flags, const WCHAR *
 LCID WINAPI DECLSPEC_HOTPATCH LocaleNameToLCID( const WCHAR *name, DWORD flags )
 {
     LCID lcid;
+#ifdef __REACTOS__
     const NLS_LOCALE_DATA *locale;
 
-#ifdef __REACTOS__
     if ((flags & ~LOCALE_ALLOW_NEUTRAL_NAMES) ||
         (name && !compare_locale_names( name, LOCALE_NAME_SYSTEM_DEFAULT )))
     {
         SetLastError( ERROR_INVALID_PARAMETER );
         return 0;
     }
-#endif
     locale = get_locale_by_name( name, &lcid );
+#else
+    const NLS_LOCALE_DATA *locale = get_locale_by_name( name, &lcid );
+#endif
 
     if (!locale)
     {

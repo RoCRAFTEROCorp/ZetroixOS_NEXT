@@ -529,7 +529,11 @@ static HRESULT WINAPI ItemMonikerImpl_Enum(IMoniker* iface,BOOL fForward, IEnumM
     TRACE("(%p,%d,%p)\n",iface,fForward,ppenumMoniker);
 
     if (ppenumMoniker == NULL)
+#ifdef __REACTOS__
         return E_INVALIDARG;
+#else
+        return E_POINTER;
+#endif
 
     *ppenumMoniker = NULL;
 

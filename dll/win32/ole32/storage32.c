@@ -894,7 +894,9 @@ static inline IEnumSTATSTGImpl *impl_from_IEnumSTATSTG(IEnumSTATSTG *iface)
 
 static void IEnumSTATSTGImpl_Destroy(IEnumSTATSTGImpl* This)
 {
+#ifdef __REACTOS__
   InterlockedDecrement(&This->parentStorage->enumRef);
+#endif
   IStorage_Release(&This->parentStorage->IStorage_iface);
   HeapFree(GetProcessHeap(), 0, This);
 }
@@ -1203,7 +1205,9 @@ static IEnumSTATSTGImpl* IEnumSTATSTGImpl_Construct(
      */
     newEnumeration->parentStorage = parentStorage;
     IStorage_AddRef(&newEnumeration->parentStorage->IStorage_iface);
+#ifdef __REACTOS__
     InterlockedIncrement(&newEnumeration->parentStorage->enumRef);
+#endif
 
     newEnumeration->storageDirEntry = storageDirEntry;
   }
@@ -1284,7 +1288,11 @@ static ULONG WINAPI StorageBaseImpl_AddRef(
 
   TRACE("%p, refcount %lu.\n", iface, ref);
 
+#ifdef __REACTOS__
   return ref - This->enumRef;
+#else
+  return ref;
+#endif
 }
 
 /************************************************************************
@@ -1312,10 +1320,16 @@ static ULONG WINAPI StorageBaseImpl_Release(
      * using virtual functions to implement the destructor.
      */
     StorageBaseImpl_Destroy(This);
+#ifdef __REACTOS__
     return 0;
+#endif
   }
 
+#ifdef __REACTOS__
   return ref - This->enumRef;
+#else
+  return ref;
+#endif
 }
 
 static HRESULT StorageBaseImpl_CopyStorageEntryTo(StorageBaseImpl *This,
@@ -5895,7 +5909,11 @@ static void TransactedSnapshotImpl_DestroyTemporaryCopy(
 }
 
 /* Make a copy of our edited tree that we can use in the parent. */
+#ifdef __REACTOS__
 static HRESULT TransactedSnapshotImpl_CopyTree(TransactedSnapshotImpl* This, BOOL overwrite)
+#else
+static HRESULT TransactedSnapshotImpl_CopyTree(TransactedSnapshotImpl* This)
+#endif
 {
   DirRef cursor;
   TransactedDirEntry *entry;
@@ -5923,6 +5941,7 @@ static HRESULT TransactedSnapshotImpl_CopyTree(TransactedSnapshotImpl* This, BOO
          !TransactedSnapshotImpl_MadeCopy(This, entry->data.rightChild) &&
          !TransactedSnapshotImpl_MadeCopy(This, entry->data.dirRootEntry)))
       entry->newTransactedParentEntry = entry->transactedParentEntry;
+#ifdef __REACTOS__
     else if (overwrite && entry->transactedParentEntry != DIRENTRY_NULL)
     {
       DirEntry newData;
@@ -5963,6 +5982,7 @@ static HRESULT TransactedSnapshotImpl_CopyTree(TransactedSnapshotImpl* This, BOO
         return hr;
       }
     }
+#endif
     else
     {
       DirEntry newData;
@@ -6072,6 +6092,7 @@ static HRESULT WINAPI TransactedSnapshotImpl_Commit(
     if (!root_entry->read)
       goto end;
 
+#ifdef __REACTOS__
     if (grfCommitFlags & STGC_OVERWRITE)
     {
       for (i=0; i<This->entries_size; i++)
@@ -6083,6 +6104,9 @@ static HRESULT WINAPI TransactedSnapshotImpl_Commit(
     }
 
     hr = TransactedSnapshotImpl_CopyTree(This, (grfCommitFlags & STGC_OVERWRITE) != 0);
+#else
+    hr = TransactedSnapshotImpl_CopyTree(This);
+#endif
     if (FAILED(hr)) goto end;
 
     if (root_entry->data.dirRootEntry == DIRENTRY_NULL)
@@ -6144,10 +6168,12 @@ static HRESULT WINAPI TransactedSnapshotImpl_Commit(
             entry->dirty = FALSE;
             entry->transactedParentEntry = entry->newTransactedParentEntry;
           }
+#ifdef __REACTOS__
           else if ((grfCommitFlags & STGC_OVERWRITE) && entry->read && entry->dirty)
           {
             entry->dirty = FALSE;
           }
+#endif
         }
       }
     }
@@ -6784,6 +6810,7 @@ static HRESULT WINAPI TransactedSharedImpl_Commit(
     if (SUCCEEDED(hr))
       hr = StorageBaseImpl_ReadDirEntry(&This->scratch->base, This->scratch->base.storageDirEntry, &src_data);
 
+#ifdef __REACTOS__
     if (SUCCEEDED(hr) && (grfCommitFlags & STGC_OVERWRITE))
     {
       hr = StorageBaseImpl_ReadDirEntry(This->transactedParent, This->transactedParent->storageDirEntry, &dst_data);
@@ -6799,6 +6826,7 @@ static HRESULT WINAPI TransactedSharedImpl_Commit(
         hr = StorageBaseImpl_DeleteStorageTree(This->transactedParent, prev_storage_ref, TRUE);
     }
 
+#endif
     /* FIXME: If we're current, we should be able to copy only the changes in scratch. */
     if (SUCCEEDED(hr))
       hr = StorageBaseImpl_DupStorageTree(This->transactedParent, &new_storage_ref, &This->scratch->base, src_data.dirRootEntry);
@@ -8614,8 +8642,12 @@ static HRESULT create_storagefile(
   }
 
   /* in direct mode, can only use SHARE_EXCLUSIVE */
+#ifdef __REACTOS__
   if (!(grfMode & STGM_TRANSACTED) && (STGM_SHARE_MODE(grfMode) != STGM_SHARE_EXCLUSIVE) &&
       !((grfMode & STGM_DIRECT_SWMR) && STGM_SHARE_MODE(grfMode) == STGM_SHARE_DENY_WRITE))
+#else
+  if (!(grfMode & STGM_TRANSACTED) && (STGM_SHARE_MODE(grfMode) != STGM_SHARE_EXCLUSIVE))
+#endif
     goto end;
 
   /* but in transacted mode, any share mode is valid */

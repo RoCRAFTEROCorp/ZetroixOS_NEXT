@@ -317,7 +317,11 @@ static void test_manifest_path(void)
                 ok( (p && !wcsncmp( buffer, tests[i].expect, p + 1 - buffer )) ||
                      broken( tests[i].broken && !wcsncmp( buffer, tests[i].broken, p + 1 - buffer )),
                      "wrong result %s / %s\n", debugstr_w(buffer), debugstr_w(tests[i].expect) );
+#ifdef __REACTOS__
                 todo_wine todo_if(is_reactos())
+#else
+                todo_wine
+#endif
                 ok( !wcscmp( buffer, tests[i].expect ) ||
                     broken( tests[i].broken && !wcscmp( buffer, tests[i].broken )),
                     "wrong result %s / %s\n", debugstr_w(buffer), debugstr_w(tests[i].expect) );
