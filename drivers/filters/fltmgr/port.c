@@ -19,12 +19,12 @@ typedef struct _FLTP_SERVER_PORT
     PFLT_MESSAGE_NOTIFY MessageNotify;
     LONG MaxConnections;
     volatile LONG ConnectionCount;
+    volatile LONG Closed;
 } FLTP_SERVER_PORT, *PFLTP_SERVER_PORT;
 
 typedef struct _FLTP_CLIENT_PORT
 {
     LIST_ENTRY FilterLink;
-    volatile LONG ReferenceCount;
     PFLTP_SERVER_PORT ServerPort;
     PFLT_FILTER Filter;
     PVOID Cookie;
@@ -60,11 +60,13 @@ typedef struct _FLTP_MESSAGE
 
 static GENERIC_MAPPING FltpPortMapping =
 {
-    STANDARD_RIGHTS_READ,
-    STANDARD_RIGHTS_WRITE,
-    STANDARD_RIGHTS_EXECUTE | FLT_PORT_CONNECT,
+    READ_CONTROL | FLT_PORT_CONNECT,
+    DELETE | FLT_PORT_CONNECT,
+    0,
     FLT_PORT_ALL_ACCESS
 };
+
+#define FLTP_PORT_NONPAGED_CHARGE 0x158
 
 static
 VOID
@@ -82,15 +84,42 @@ FltpDeleteServerPort(
 
 static
 VOID
+NTAPI
+FltpCloseServerPort(
+    _In_opt_ PEPROCESS Process,
+    _In_ PVOID Object,
+    _In_ ULONG_PTR ProcessHandleCount,
+    _In_ ULONG_PTR SystemHandleCount)
+{
+    PFLTP_SERVER_PORT Port = Object;
+
+    UNREFERENCED_PARAMETER(Process);
+    UNREFERENCED_PARAMETER(ProcessHandleCount);
+
+    if (SystemHandleCount == 1)
+    {
+        InterlockedExchange(&Port->Closed, TRUE);
+    }
+}
+
+static
+VOID
+NTAPI
+FltpDeleteClientPort(
+    _In_ PVOID Object)
+{
+    PFLTP_CLIENT_PORT Port = Object;
+
+    ObDereferenceObject(Port->ServerPort);
+    FltpDereferencePointer(&Port->Filter->Base);
+}
+
+static
+VOID
 FltpDereferenceClientPort(
     _In_ PFLTP_CLIENT_PORT Port)
 {
-    if (InterlockedDecrement(&Port->ReferenceCount) == 0)
-    {
-        ObDereferenceObject(Port->ServerPort);
-        FltpDereferencePointer(&Port->Filter->Base);
-        ExFreePoolWithTag(Port, FLT_TAG_PORT);
-    }
+    ObDereferenceObject(Port);
 }
 
 static
@@ -330,20 +359,36 @@ NTSTATUS
 FltpInitializePorts(
     _In_ PDRIVER_OBJECT DriverObject)
 {
-    UNICODE_STRING TypeName = RTL_CONSTANT_STRING(L"FilterConnectionPort");
+    UNICODE_STRING ServerTypeName = RTL_CONSTANT_STRING(L"FilterConnectionPort");
+    UNICODE_STRING ClientTypeName = RTL_CONSTANT_STRING(L"FilterCommunicationPort");
     OBJECT_TYPE_INITIALIZER Initializer;
+    NTSTATUS Status;
 
     UNREFERENCED_PARAMETER(DriverObject);
 
     RtlZeroMemory(&Initializer, sizeof(Initializer));
     Initializer.Length = sizeof(Initializer);
+    Initializer.InvalidAttributes = OBJ_OPENLINK;
     Initializer.GenericMapping = FltpPortMapping;
     Initializer.ValidAccessMask = FLT_PORT_ALL_ACCESS;
-    Initializer.PoolType = NonPagedPool;
+    Initializer.PoolType = NonPagedPoolNx;
+    Initializer.DefaultNonPagedPoolCharge = FLTP_PORT_NONPAGED_CHARGE;
+    Initializer.UseDefaultObject = TRUE;
     Initializer.SecurityRequired = TRUE;
+    Initializer.CloseProcedure = FltpCloseServerPort;
     Initializer.DeleteProcedure = FltpDeleteServerPort;
 
-    return ObCreateObjectType(&TypeName, &Initializer, NULL, &FltGlobals.ServerPortType);
+    Status = ObCreateObjectType(&ServerTypeName, &Initializer, NULL, &FltGlobals.ServerPortType);
+    if (!NT_SUCCESS(Status))
+    {
+        return Status;
+    }
+
+    Initializer.SecurityRequired = FALSE;
+    Initializer.CloseProcedure = NULL;
+    Initializer.DeleteProcedure = FltpDeleteClientPort;
+
+    return ObCreateObjectType(&ClientTypeName, &Initializer, NULL, &FltGlobals.ClientPortType);
 }
 
 VOID
@@ -361,7 +406,7 @@ FltpCloseFilterPorts(
         for (Link = Filter->PortList.Flink; Link != &Filter->PortList; Link = Link->Flink)
         {
             Port = CONTAINING_RECORD(Link, FLTP_CLIENT_PORT, FilterLink);
-            InterlockedIncrement(&Port->ReferenceCount);
+            ObReferenceObject(Port);
             break;
         }
         ExReleaseFastMutex(&Filter->PortLock);
@@ -512,7 +557,7 @@ FltSendMessage(
     Port = (PFLTP_CLIENT_PORT)*ClientPort;
     if (Port != NULL)
     {
-        InterlockedIncrement(&Port->ReferenceCount);
+        ObReferenceObject(Port);
     }
     ExReleaseFastMutex(&Filter->PortLock);
 
@@ -754,6 +799,12 @@ FltpConnectPort(
         return Status;
     }
 
+    if (ServerPort->Closed)
+    {
+        ObDereferenceObject(ServerPort);
+        return STATUS_OBJECT_NAME_NOT_FOUND;
+    }
+
     Filter = ServerPort->Filter;
     if (!ExAcquireRundownProtection(&Filter->Base.RundownRef))
     {
@@ -767,19 +818,11 @@ FltpConnectPort(
         goto Fail;
     }
 
-    Port = ExAllocatePoolWithTag(NonPagedPoolNx, sizeof(*Port), FLT_TAG_PORT);
-    if (Port == NULL)
-    {
-        Status = STATUS_INSUFFICIENT_RESOURCES;
-        goto Fail;
-    }
-
     if (PortData->ContextSize != 0)
     {
         Context = ExAllocatePoolWithTag(PagedPool, PortData->ContextSize, FLT_TAG_PORT);
         if (Context == NULL)
         {
-            ExFreePoolWithTag(Port, FLT_TAG_PORT);
             Status = STATUS_INSUFFICIENT_RESOURCES;
             goto Fail;
         }
@@ -788,8 +831,26 @@ FltpConnectPort(
                       PortData->ContextSize);
     }
 
+    Status = ObCreateObject(KernelMode,
+                            FltGlobals.ClientPortType,
+                            NULL,
+                            KernelMode,
+                            NULL,
+                            sizeof(FLTP_CLIENT_PORT),
+                            0,
+                            0,
+                            (PVOID *)&Port);
+    if (!NT_SUCCESS(Status))
+    {
+        if (Context != NULL)
+        {
+            ExFreePoolWithTag(Context, FLT_TAG_PORT);
+        }
+        goto Fail;
+    }
+
     RtlZeroMemory(Port, sizeof(*Port));
-    Port->ReferenceCount = 2;
+    ObReferenceObject(Port);
     Port->ServerPort = ServerPort;
     Port->Filter = Filter;
     ExInitializeRundownProtection(&Port->Rundown);

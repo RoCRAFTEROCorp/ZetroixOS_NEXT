@@ -295,6 +295,7 @@ typedef struct _FLTP_GLOBALS
     BOOLEAN (NTAPI *Is32bitProcess)(_In_opt_ PIRP Irp);
     FAST_IO_DISPATCH FastIoDispatch;
     POBJECT_TYPE ServerPortType;
+    POBJECT_TYPE ClientPortType;
 } FLTP_GLOBALS;
 
 extern FLTP_GLOBALS FltGlobals;
