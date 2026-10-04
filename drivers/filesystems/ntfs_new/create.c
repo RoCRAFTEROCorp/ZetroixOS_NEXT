@@ -249,13 +249,15 @@ NtfsResolveFileIdName(
 static
 NTSTATUS
 NtfsValidateCreateName(
-    _In_ PUNICODE_STRING Name)
+    _In_ PUNICODE_STRING Name,
+    _In_ BOOLEAN AllowWildLeaf)
 {
     ULONG CharacterCount;
     ULONG LeadingSeparators = 0;
     ULONG ComponentStart;
     ULONG Index;
     BOOLEAN InStream;
+    BOOLEAN WildComponent = FALSE;
 
     if (!Name->Length)
         return STATUS_SUCCESS;
@@ -280,12 +282,13 @@ NtfsValidateCreateName(
             if (Character == L':')
                 InStream = TRUE;
             else if (!InStream &&
-                     (Character < 0x20 || Character == L'/' || Character == L'|' ||
-                      FsRtlIsUnicodeCharacterWild(Character)))
+                     (Character < 0x20 || Character == L'/' || Character == L'|'))
                 return STATUS_OBJECT_NAME_INVALID;
+            else if (!InStream && FsRtlIsUnicodeCharacterWild(Character))
+                WildComponent = TRUE;
             continue;
         }
-        if (InStream)
+        if (InStream || WildComponent)
             return STATUS_OBJECT_NAME_INVALID;
         if (Index == ComponentStart)
             return STATUS_OBJECT_NAME_INVALID;
@@ -307,6 +310,9 @@ NtfsValidateCreateName(
         if (ComponentLength == 2 && Name->Buffer[ComponentStart] == L'.' && Name->Buffer[ComponentStart + 1] == L'.')
             return STATUS_OBJECT_NAME_INVALID;
     }
+
+    if (WildComponent && !AllowWildLeaf)
+        return STATUS_OBJECT_NAME_INVALID;
 
     return STATUS_SUCCESS;
 }
@@ -1894,7 +1900,7 @@ NtfsFsdCreate(_In_ PDEVICE_OBJECT VolumeDeviceObject,
                               VolCB);
     }
 
-    Status = NtfsValidateCreateName(&FileObject->FileName);
+    Status = NtfsValidateCreateName(&FileObject->FileName, !OpenTargetDirectory);
     if (!NT_SUCCESS(Status))
         return NtfsCompleteCreate(Irp, Status, 0);
 
@@ -2286,7 +2292,7 @@ NtfsFsdCreate(_In_ PDEVICE_OBJECT VolumeDeviceObject,
         // The file was not found.
 
         FileExisted = FALSE;
-        if (Status == STATUS_OBJECT_PATH_NOT_FOUND)
+        if (Status == STATUS_OBJECT_PATH_NOT_FOUND || Status == STATUS_OBJECT_NAME_INVALID)
         {
             NtfsReleaseMetadata(VolCB);
             KeLeaveCriticalRegion();
