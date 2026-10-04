@@ -76,7 +76,11 @@ double FN_PROTOTYPE_REF(ldexp)(double x, int n)
 		{
 			val.u32[1] = sign | 0x00000000;
 			val.u32[0] = 0x00000000;
+#ifdef __REACTOS__
+            return __amd_handle_error("ldexp", __amd_ldexp, val.u64, _UNDERFLOW, AMD_F_INEXACT|AMD_F_UNDERFLOW, 0, x, (double)n, 2);
+#else
             return __amd_handle_error("ldexp", __amd_ldexp, val.u64, _UNDERFLOW, AMD_F_INEXACT|AMD_F_UNDERFLOW, ERANGE, x, (double)n, 2);
+#endif
 		}
 		if(exponent > 2046)/*overflow*/
 		{
@@ -97,7 +101,11 @@ double FN_PROTOTYPE_REF(ldexp)(double x, int n)
 	{
 		val.u32[1] = sign | 0x00000000;
 		val.u32[0] = 0x00000000;
+#ifdef __REACTOS__
+        return __amd_handle_error("ldexp", __amd_ldexp, val.u64, _UNDERFLOW, AMD_F_INEXACT|AMD_F_UNDERFLOW, 0, x, (double)n, 2);
+#else
         return __amd_handle_error("ldexp", __amd_ldexp, val.u64, _UNDERFLOW, AMD_F_INEXACT|AMD_F_UNDERFLOW, ERANGE, x, (double)n, 2);
+#endif
 	}
 
     if(exponent < 1)/*x is normal but output is debnormal*/

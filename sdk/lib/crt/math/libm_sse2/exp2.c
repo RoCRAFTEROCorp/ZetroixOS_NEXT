@@ -102,12 +102,22 @@ double FN_PROTOTYPE(exp2)(double x)
         }
       if (x > max_exp2_arg)
         /* Return +infinity with overflow flag */
+#ifdef __REACTOS__
+        return _handle_error("exp2", OP_EXP, PINFBITPATT_DP64, 0,
+                            AMD_F_OVERFLOW | AMD_F_INEXACT, ERANGE, x, 0.0, 1);
+#else
         return _handle_error("exp2", OP_EXP, PINFBITPATT_DP64, _OVERFLOW,
                             AMD_F_OVERFLOW | AMD_F_INEXACT, ERANGE, x, 0.0, 1);
+#endif
       else if (x < min_exp2_arg)
         /* x is negative. Return +zero with underflow and inexact flags */
+#ifdef __REACTOS__
+        return _handle_error("exp2", OP_EXP, 0, 0,
+                            AMD_F_UNDERFLOW | AMD_F_INEXACT, 0, x, 0.0, 1);
+#else
         return _handle_error("exp2", OP_EXP, 0, _UNDERFLOW,
                             AMD_F_UNDERFLOW | AMD_F_INEXACT, ERANGE, x, 0.0, 1);
+#endif
     }
 
 
