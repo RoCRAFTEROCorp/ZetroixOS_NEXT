@@ -19,6 +19,7 @@ typedef enum {
 BOOL WINAPI AddERExcludedApplicationA(LPCSTR);
 BOOL WINAPI AddERExcludedApplicationW(LPCWSTR);
 EFaultRepRetVal WINAPI ReportFault(LPEXCEPTION_POINTERS,DWORD);
+typedef EFaultRepRetVal (WINAPI *pfn_REPORTFAULT)(LPEXCEPTION_POINTERS,DWORD);
 #endif
 
 #ifdef UNICODE
