@@ -85,23 +85,25 @@ RtlLookupFunctionTable(
     OUT PULONG Length)
 {
     PVOID Table;
-    ULONG Size;
+    PVOID BaseAddress;
+    ULONG Size = 0;
 
     /* Find corresponding file header from code address */
-    if (!RtlPcToFileHeader((PVOID)ControlPc, (PVOID*)ImageBase))
+    if (!RtlPcToFileHeader((PVOID)ControlPc, &BaseAddress))
     {
         /* Nothing found */
         return NULL;
     }
 
+    *ImageBase = (DWORD64)BaseAddress;
+
     /* Locate the exception directory */
-    Table = RtlImageDirectoryEntryToData((PVOID)*ImageBase,
+    Table = RtlImageDirectoryEntryToData(BaseAddress,
                                          TRUE,
                                          IMAGE_DIRECTORY_ENTRY_EXCEPTION,
                                          &Size);
 
-    /* Return the number of entries */
-    *Length = Size / sizeof(RUNTIME_FUNCTION);
+    *Length = Size;
 
     /* Return the address of the table */
     return Table;
@@ -144,7 +146,7 @@ RtlLookupFunctionEntry(
 
     /* Do a binary search */
     IndexLo = 0;
-    IndexHi = TableLength;
+    IndexHi = TableLength / sizeof(RUNTIME_FUNCTION);
     while (IndexHi > IndexLo)
     {
         IndexMid = (IndexLo + IndexHi) / 2;
