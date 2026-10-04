@@ -14,6 +14,18 @@ static const DWORD ListTimeout = 10000;
 static DWORD ProcessActivityTimeout = 30000;
 static DWORD ProcessRunTimeout = 170000;
 
+static ULONGLONG
+ProcessCpuTime(HANDLE hProcess)
+{
+    FILETIME Creation, Exit, Kernel, User;
+
+    if (!GetProcessTimes(hProcess, &Creation, &Exit, &Kernel, &User))
+        return 0;
+
+    return ((ULONGLONG)Kernel.dwHighDateTime << 32 | Kernel.dwLowDateTime) +
+           ((ULONGLONG)User.dwHighDateTime << 32 | User.dwLowDateTime);
+}
+
 static VOID
 ReadTimeout(PCWSTR pwszName, DWORD& dwMilliseconds)
 {
@@ -395,6 +407,7 @@ CWineTest::RunTest(CTestInfo* TestInfo)
     {
         /* Execute the test */
         CPipedProcess Process(TestInfo->CommandLine, Pipe);
+        ULONGLONG LastCpuTime = ProcessCpuTime(Process.GetProcessHandle());
 
         /* Receive all the data from the pipe */
         for (;;)
@@ -407,6 +420,7 @@ CWineTest::RunTest(CTestInfo* TestInfo)
                 /* Output text through StringOut, even while the test is still running */
                 Buffer[BytesAvailable] = 0;
                 tailString = StringOut(tailString.append(string(Buffer)), false);
+                LastCpuTime = ProcessCpuTime(Process.GetProcessHandle());
 
                 if (Configuration.DoSubmit())
                     TestInfo->Log += Buffer;
@@ -419,6 +433,12 @@ CWineTest::RunTest(CTestInfo* TestInfo)
             else if (dwReadResult == WAIT_TIMEOUT)
             {
                 // The process activity timeout above has elapsed without any new data.
+                ULONGLONG CpuTime = ProcessCpuTime(Process.GetProcessHandle());
+                if (CpuTime - LastCpuTime >= 10000000)
+                {
+                    LastCpuTime = CpuTime;
+                    continue;
+                }
                 TESTEXCEPTION("Timeout while waiting for the test process\n");
             }
             else
