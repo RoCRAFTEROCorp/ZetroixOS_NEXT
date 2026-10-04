@@ -322,6 +322,8 @@ BOOL WINAPI SetupIterateCabinetA(const char *file, DWORD reserved,
     if (!hfdi) return FALSE;
 
     ret = FDICopy(hfdi, pszCabinet, pszCabPath, 0, sc_FNNOTIFY_A, NULL, &my_hsc);
+    if (!ret && erf.erfOper == FDIERROR_NOT_A_CABINET)
+        SetLastError(ERROR_INVALID_DATA);
 
     FDIDestroy(hfdi);
     return ret;
