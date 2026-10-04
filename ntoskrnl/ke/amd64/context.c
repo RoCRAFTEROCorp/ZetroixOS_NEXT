@@ -88,7 +88,7 @@ KeContextToTrapFrame(IN PCONTEXT Context,
         TrapFrame->Rsp = Context->Rsp;
         TrapFrame->EFlags = Context->EFlags;
 
-        if ((Context->SegCs & MODE_MASK) == KernelMode)
+        if (PreviousMode == KernelMode && (Context->SegCs & MODE_MASK) == KernelMode)
         {
             /* Set valid selectors */
             TrapFrame->SegCs = KGDT64_R0_CODE;
@@ -106,7 +106,7 @@ KeContextToTrapFrame(IN PCONTEXT Context,
                 TrapFrame->SegCs = (KGDT64_R3_CMCODE | RPL_MASK);
             }
 
-            TrapFrame->SegSs = Context->SegSs;
+            TrapFrame->SegSs = KGDT64_R3_DATA | RPL_MASK;
 
             /* Set valid EFLAGS */
             TrapFrame->EFlags &= EFLAGS_USER_SANITIZE;
