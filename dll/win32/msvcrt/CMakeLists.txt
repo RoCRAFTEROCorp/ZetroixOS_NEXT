@@ -172,6 +172,17 @@ if(ARCH STREQUAL "arm64" AND NOT ARM64EC_RUNTIME)
         ${REACTOS_SOURCE_DIR}/sdk/lib/crt/string/arm64/strchr.S
         ${REACTOS_SOURCE_DIR}/sdk/lib/crt/string/arm64/strrchr.S
     )
+    set(MSVCRT_ARCH_ROUTINES MSVCRT_ARCH_STRLEN MSVCRT_ARCH_STRCPY MSVCRT_ARCH_STRCHR MSVCRT_ARCH_STRRCHR)
+elseif(ARCH STREQUAL "riscv64")
+    list(APPEND MSVCRT_SOURCE
+        ${REACTOS_SOURCE_DIR}/sdk/lib/crt/string/riscv64/rvdispatch.c
+    )
+    list(APPEND MSVCRT_ASM_SOURCE
+        ${REACTOS_SOURCE_DIR}/sdk/lib/crt/string/riscv64/rvvector.S
+    )
+    set_source_files_properties(${REACTOS_SOURCE_DIR}/sdk/lib/crt/string/riscv64/rvdispatch.c
+        PROPERTIES COMPILE_OPTIONS "-fno-builtin")
+    set(MSVCRT_ARCH_ROUTINES MSVCRT_ARCH_STRLEN MSVCRT_ARCH_STRCPY MSVCRT_ARCH_STRCMP MSVCRT_ARCH_MEMCPY MSVCRT_ARCH_MEMSET MSVCRT_ARCH_MEMCMP)
 endif()
 
 add_asm_files(msvcrt_asm ${MSVCRT_ASM_SOURCE})
@@ -181,8 +192,16 @@ add_library(msvcrt_static
     ${MSVCRT_SOURCE}
 )
 
-target_compile_definitions(msvcrt_static PRIVATE _MSVCR_VER=0)
+target_compile_definitions(msvcrt_static PRIVATE _MSVCR_VER=0 ${MSVCRT_ARCH_ROUTINES})
 add_dependencies(msvcrt_static psdk asm)
+if(ARCH STREQUAL "riscv64")
+    if(RISCV64_FAST_MISALIGNED_ACCESS)
+        target_compile_options(msvcrt_static PRIVATE -mno-scalar-strict-align)
+    endif()
+    if(RISCV64_VECTOR)
+        target_compile_definitions(msvcrt_static PRIVATE RV_CRT_RVA23)
+    endif()
+endif()
 
 ###############################################################################
 # MSVCRT.DLL

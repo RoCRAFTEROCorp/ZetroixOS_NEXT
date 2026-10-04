@@ -40,6 +40,8 @@ set(RISCV64_MARCH "rv64gc" CACHE STRING
     "RISC-V ISA string or profile name (for example rva22u64) every module is compiled for")
 set(RISCV64_FAST_MISALIGNED_ACCESS FALSE CACHE BOOL
     "The target harts perform misaligned scalar loads and stores to main memory in hardware")
+set(RISCV64_VECTOR FALSE CACHE BOOL
+    "The target harts implement the V extension; msvcrt calls its vector routines without runtime dispatch")
 add_compile_options(-march=${RISCV64_MARCH})
 if(NOT CMAKE_BUILD_TYPE STREQUAL "Release")
     if(OPTIMIZE STREQUAL "1" OR OPTIMIZE STREQUAL "2")
