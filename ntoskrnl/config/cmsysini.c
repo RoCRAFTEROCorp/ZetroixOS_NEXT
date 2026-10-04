@@ -192,33 +192,6 @@ CmpCloseKeyObject(IN PEPROCESS Process OPTIONAL,
     }
 }
 
-static
-NTSTATUS
-NTAPI
-CmpOpenKeyObject(OB_OPEN_REASON Reason,
-                 KPROCESSOR_MODE AccessMode,
-                 PEPROCESS Process,
-                 PVOID ObjectBody,
-                 PACCESS_MASK GrantedAccess,
-                 ULONG HandleCount)
-{
-    PCM_KEY_BODY Body = ObjectBody;
-    PCMHIVE Hive = (PCMHIVE)Body->KeyControlBlock->KeyHive;
-    NTSTATUS Status = STATUS_SUCCESS;
-    UNREFERENCED_PARAMETER(Reason);
-    UNREFERENCED_PARAMETER(AccessMode);
-    UNREFERENCED_PARAMETER(Process);
-    UNREFERENCED_PARAMETER(GrantedAccess);
-    UNREFERENCED_PARAMETER(HandleCount);
-    if (Hive->Flags & CMHIVE_FLAG_APPLICATION_HIVE)
-    {
-        CmpLockRegistry();
-        if (Hive->Hive.HiveFlags & HIVE_IS_UNLOADING) Status = STATUS_KEY_DELETED;
-        CmpUnlockRegistry();
-    }
-    return Status;
-}
-
 NTSTATUS
 NTAPI
 CmpQueryKeyName(IN PVOID ObjectBody,
@@ -1060,7 +1033,6 @@ CmpCreateObjectTypes(VOID)
     ObjectTypeInitializer.SecurityProcedure = CmpSecurityMethod;
     ObjectTypeInitializer.QueryNameProcedure = CmpQueryKeyName;
     ObjectTypeInitializer.CloseProcedure = CmpCloseKeyObject;
-    ObjectTypeInitializer.OpenProcedure = CmpOpenKeyObject;
     ObjectTypeInitializer.SecurityRequired = TRUE;
     ObjectTypeInitializer.CaseInsensitive = TRUE;
     ObjectTypeInitializer.ObjectTypeCode = 0x100;
