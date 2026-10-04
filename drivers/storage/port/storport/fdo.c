@@ -102,7 +102,7 @@ PortFdoConnectInterrupt(
     KAFFINITY Affinity;
     NTSTATUS Status;
 
-    DPRINT1("PortFdoConnectInterrupt(%p)\n",
+    DPRINT("PortFdoConnectInterrupt(%p)\n",
             DeviceExtension);
 
     if (NT_SUCCESS(PortFdoConnectMessageInterrupts(DeviceExtension)))
@@ -129,10 +129,10 @@ PortFdoConnectInterrupt(
         return Status;
     }
 
-    DPRINT1("Vector: %lu\n", Vector);
-    DPRINT1("Irql: %lu\n", Irql);
+    DPRINT("Vector: %lu\n", Vector);
+    DPRINT("Irql: %lu\n", Irql);
 
-    DPRINT1("Affinity: 0x%08lx\n", Affinity);
+    DPRINT("Affinity: 0x%08lx\n", Affinity);
 
     /* Connect the interrupt */
     Status = IoConnectInterrupt(&DeviceExtension->Interrupt,
@@ -190,7 +190,7 @@ PortFdoStartMiniport(
 {
     NTSTATUS Status;
 
-    DPRINT1("PortFdoStartDevice(%p)\n", DeviceExtension);
+    DPRINT("PortFdoStartDevice(%p)\n", DeviceExtension);
 
     Status = PortFdoInitializeMiniport(DeviceExtension);
     if (!NT_SUCCESS(Status))
@@ -229,7 +229,7 @@ PortFdoStartMiniport(
     /* Call the HwPassiveInitRoutine function, if available */
     if (DeviceExtension->HwPassiveInitRoutine != NULL)
     {
-        DPRINT1("Calling HwPassiveInitRoutine()\n");
+        DPRINT("Calling HwPassiveInitRoutine()\n");
         if (!DeviceExtension->HwPassiveInitRoutine(&DeviceExtension->Miniport.MiniportExtension->HwDeviceExtension))
         {
             DPRINT1("HwPassiveInitRoutine() failed\n");
@@ -251,7 +251,7 @@ PortFdoStartDevice(
     PIO_STACK_LOCATION Stack;
     NTSTATUS Status;
 
-    DPRINT1("PortFdoStartDevice(%p %p)\n",
+    DPRINT("PortFdoStartDevice(%p %p)\n",
             DeviceExtension, Irp);
 
     ASSERT(DeviceExtension->ExtensionType == FdoExtension);
@@ -303,10 +303,10 @@ PortFdoStartDevice(
                                1,
                                &DeviceExtension->BusInterface,
                                NULL);
-    DPRINT1("Status: 0x%08lx\n", Status);
+    DPRINT("Status: 0x%08lx\n", Status);
     if (NT_SUCCESS(Status))
     {
-        DPRINT1("Context: %p\n", DeviceExtension->BusInterface.Context);
+        DPRINT("Context: %p\n", DeviceExtension->BusInterface.Context);
         DeviceExtension->BusInitialized = TRUE;
     }
 
@@ -711,7 +711,7 @@ PortFdoQueryBusRelations(
     PDEVICE_RELATIONS Relations;
     PPDO_DEVICE_EXTENSION PdoExtension;
 
-    DPRINT1("PortFdoQueryBusRelations(%p %p)\n",
+    DPRINT("PortFdoQueryBusRelations(%p %p)\n",
             DeviceExtension, Information);
 
     if (!DeviceExtension->BusScanned)
@@ -761,7 +761,7 @@ PortFdoQueryBusRelations(
     Relations->Count = Index;
     *Information = (ULONG_PTR)Relations;
 
-    DPRINT1("Units reported: %lu\n", Index);
+    DPRINT("Units reported: %lu\n", Index);
 
     return STATUS_SUCCESS;
 }
@@ -776,7 +776,7 @@ PortFdoFilterRequirements(
     PIO_RESOURCE_REQUIREMENTS_LIST RequirementsList;
     NTSTATUS Status;
 
-    DPRINT1("PortFdoFilterRequirements(%p %p)\n", DeviceExtension, Irp);
+    DPRINT("PortFdoFilterRequirements(%p %p)\n", DeviceExtension, Irp);
 
     /* Get the bus number and the slot number */
     RequirementsList =(PIO_RESOURCE_REQUIREMENTS_LIST)Irp->IoStatus.Information;
@@ -837,7 +837,7 @@ PortFdoPnp(
     ULONG_PTR Information = 0;
     NTSTATUS Status = STATUS_NOT_SUPPORTED;
 
-    DPRINT1("PortFdoPnp(%p %p)\n",
+    DPRINT("PortFdoPnp(%p %p)\n",
             DeviceObject, Irp);
 
     DeviceExtension = (PFDO_DEVICE_EXTENSION)DeviceObject->DeviceExtension;
@@ -849,7 +849,7 @@ PortFdoPnp(
     switch (Stack->MinorFunction)
     {
         case IRP_MN_START_DEVICE: /* 0x00 */
-            DPRINT1("IRP_MJ_PNP / IRP_MN_START_DEVICE\n");
+            DPRINT("IRP_MJ_PNP / IRP_MN_START_DEVICE\n");
             Status = PortFdoStartDevice(DeviceExtension, Irp);
             break;
 
@@ -878,11 +878,11 @@ PortFdoPnp(
             break;
 
         case IRP_MN_QUERY_DEVICE_RELATIONS: /* 0x07 */
-            DPRINT1("IRP_MJ_PNP / IRP_MN_QUERY_DEVICE_RELATIONS\n");
+            DPRINT("IRP_MJ_PNP / IRP_MN_QUERY_DEVICE_RELATIONS\n");
             switch (Stack->Parameters.QueryDeviceRelations.Type)
             {
                 case BusRelations:
-                    DPRINT1("    IRP_MJ_PNP / IRP_MN_QUERY_DEVICE_RELATIONS / BusRelations\n");
+                    DPRINT("    IRP_MJ_PNP / IRP_MN_QUERY_DEVICE_RELATIONS / BusRelations\n");
                     Status = PortFdoQueryBusRelations(DeviceExtension, &Information);
                     break;
 
@@ -898,16 +898,16 @@ PortFdoPnp(
             break;
 
         case IRP_MN_QUERY_CAPABILITIES: /* 0x09 */
-            DPRINT1("IRP_MJ_PNP / IRP_MN_QUERY_CAPABILITIES\n");
+            DPRINT("IRP_MJ_PNP / IRP_MN_QUERY_CAPABILITIES\n");
             return ForwardIrpAndForget(DeviceExtension->LowerDevice, Irp);
 
         case IRP_MN_FILTER_RESOURCE_REQUIREMENTS: /* 0x0d */
-            DPRINT1("IRP_MJ_PNP / IRP_MN_FILTER_RESOURCE_REQUIREMENTS\n");
+            DPRINT("IRP_MJ_PNP / IRP_MN_FILTER_RESOURCE_REQUIREMENTS\n");
             PortFdoFilterRequirements(DeviceExtension, Irp);
             return ForwardIrpAndForget(DeviceExtension->LowerDevice, Irp);
 
         case IRP_MN_QUERY_PNP_DEVICE_STATE: /* 0x14 */
-            DPRINT1("IRP_MJ_PNP / IRP_MN_QUERY_PNP_DEVICE_STATE\n");
+            DPRINT("IRP_MJ_PNP / IRP_MN_QUERY_PNP_DEVICE_STATE\n");
             break;
 
         case IRP_MN_DEVICE_USAGE_NOTIFICATION: /* 0x16 */

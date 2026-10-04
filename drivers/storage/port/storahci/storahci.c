@@ -27,7 +27,7 @@ BOOLEAN NTAPI AhciPortInitialize(__in PVOID DeviceExtension)
     PAHCI_ADAPTER_EXTENSION adapterExtension;
     STOR_PHYSICAL_ADDRESS commandListPhysical, receivedFISPhysical;
 
-    AhciDebugPrint("AhciPortInitialize()\n");
+    DPRINT("AhciPortInitialize()\n");
 
     PortExtension = (PAHCI_PORT_EXTENSION)DeviceExtension;
     adapterExtension = PortExtension->AdapterExtension;
@@ -199,7 +199,7 @@ BOOLEAN AhciAllocateResourceForAdapter(__in PAHCI_ADAPTER_EXTENSION AdapterExten
     ULONG portCount, portImplemented, nonCachedExtensionSize;
     PAHCI_PORT_EXTENSION PortExtension;
 
-    AhciDebugPrint("AhciAllocateResourceForAdapter()\n");
+    DPRINT("AhciAllocateResourceForAdapter()\n");
 
     NCS = AHCI_Global_Port_CAP_NCS(AdapterExtension->CAP);
     AlignedNCS = ROUND_UP(NCS, 8);
@@ -214,7 +214,7 @@ BOOLEAN AhciAllocateResourceForAdapter(__in PAHCI_ADAPTER_EXTENSION AdapterExten
             break;
 
     portCount = index + 1;
-    AhciDebugPrint("\tPort Count: %d\n", portCount);
+    DPRINT("\tPort Count: %d\n", portCount);
 
     AdapterExtension->PortCount = portCount;
     commandListSize = sizeof(AHCI_COMMAND_HEADER) * AlignedNCS;
@@ -290,7 +290,7 @@ BOOLEAN AhciStartPort(__in PAHCI_PORT_EXTENSION PortExtension)
     AHCI_SERIAL_ATA_CONTROL sctl;
     PAHCI_ADAPTER_EXTENSION AdapterExtension;
 
-    AhciDebugPrint("AhciStartPort()\n");
+    DPRINT("AhciStartPort()\n");
 
     AdapterExtension = PortExtension->AdapterExtension;
     cmd.Status = StorPortReadRegisterUlong(AdapterExtension, &PortExtension->Port->CMD);
@@ -420,7 +420,7 @@ BOOLEAN AhciStartPort(__in PAHCI_PORT_EXTENSION PortExtension)
                     return FALSE;
                 }
 
-                AhciDebugPrint("\tPort %u: link up, device ready (SIG=%08x)\n", PortExtension->PortNumber, StorPortReadRegisterUlong(AdapterExtension, &PortExtension->Port->SIG));
+                DPRINT("\tPort %u: link up, device ready (SIG=%08x)\n", PortExtension->PortNumber, StorPortReadRegisterUlong(AdapterExtension, &PortExtension->Port->SIG));
 
                 // clear pending interrupts
                 StorPortWriteRegisterUlong(AdapterExtension, &PortExtension->Port->SERR, (ULONG)~0);
@@ -579,7 +579,7 @@ BOOLEAN NTAPI AhciHwPassiveInitialize(__in PVOID DeviceExtension)
     PAHCI_ADAPTER_EXTENSION AdapterExtension;
     PAHCI_PORT_EXTENSION PortExtension;
 
-    AhciDebugPrint("AhciHwPassiveInitialize()\n");
+    DPRINT("AhciHwPassiveInitialize()\n");
 
     AdapterExtension = (PAHCI_ADAPTER_EXTENSION)DeviceExtension;
 
@@ -612,7 +612,7 @@ BOOLEAN NTAPI AhciHwInitialize(__in PVOID DeviceExtension)
 {
     PAHCI_ADAPTER_EXTENSION AdapterExtension;
 
-    AhciDebugPrint("AhciHwInitialize()\n");
+    DPRINT("AhciHwInitialize()\n");
 
     AdapterExtension = (PAHCI_ADAPTER_EXTENSION)DeviceExtension;
     AdapterExtension->StateFlags.MessagePerPort = FALSE;
@@ -2171,7 +2171,7 @@ ULONG NTAPI AhciHwFindAdapter(__in PVOID DeviceExtension, __in PVOID HwContext, 
     PPCI_COMMON_CONFIG pciConfigData;
     PAHCI_ADAPTER_EXTENSION adapterExtension;
 
-    AhciDebugPrint("AhciHwFindAdapter()\n");
+    DPRINT("AhciHwFindAdapter()\n");
 
     UNREFERENCED_PARAMETER(HwContext);
     UNREFERENCED_PARAMETER(BusInformation);
@@ -2204,7 +2204,7 @@ ULONG NTAPI AhciHwFindAdapter(__in PVOID DeviceExtension, __in PVOID HwContext, 
     // The last PCI base address register (BAR[5], header offset 0x24) points to the AHCI base memory, it’s called ABAR (AHCI Base Memory Register).
     adapterExtension->AhciBaseAddress = pciConfigData->u.type0.BaseAddresses[5] & (0xFFFFFFF0);
 
-    AhciDebugPrint("\tVendorID: %04x  DeviceID: %04x  RevisionID: %02x\n",
+    DPRINT("\tVendorID: %04x  DeviceID: %04x  RevisionID: %02x\n",
                    adapterExtension->VendorID,
                    adapterExtension->DeviceID,
                    adapterExtension->RevisionID);
@@ -2249,7 +2249,7 @@ ULONG NTAPI AhciHwFindAdapter(__in PVOID DeviceExtension, __in PVOID HwContext, 
     if (ghc.AE != 0)// Hmm, controller was already in power state
     {
         // reset controller to have it in known state
-        AhciDebugPrint("\tAE Already set, Reset()\n");
+        DPRINT("\tAE Already set, Reset()\n");
         if (!AhciAdapterReset(adapterExtension))
         {
             AhciDebugPrint("\tReset Failed!\n");
@@ -2544,7 +2544,7 @@ VOID AhciProcessSrb(__in PAHCI_PORT_EXTENSION PortExtension, __in PSCSI_REQUEST_
         sig = StorPortReadRegisterUlong(AdapterExtension, &PortExtension->Port->SIG);
         if (sig == 0x101)
         {
-            AhciDebugPrint("\tATA Device Found!\n");
+            DPRINT("\tATA Device Found!\n");
             SrbExtension->CommandReg = IDE_COMMAND_IDENTIFY;
         }
         else
@@ -2569,7 +2569,7 @@ VOID AhciProcessSrb(__in PAHCI_PORT_EXTENSION PortExtension, __in PSCSI_REQUEST_
         if ((SrbExtension->CommandReg == IDE_COMMAND_READ_FPDMA_QUEUED) &&
             !PortExtension->DeviceParams.NcqReadLogged)
         {
-            AhciDebugPrint("\tPort %u: first READ FPDMA QUEUED command, slot %u\n",
+            DPRINT("\tPort %u: first READ FPDMA QUEUED command, slot %u\n",
                            PortExtension->PortNumber,
                            SlotIndex);
             PortExtension->DeviceParams.NcqReadLogged = TRUE;
@@ -3082,9 +3082,9 @@ VOID InquiryCompletion(__in PVOID _Extension, __in PVOID _Srb)
             }
         }
 
-        AhciDebugPrint("\tATA Device: '%s' fw '%s'\n", PortExtension->DeviceParams.VendorId, PortExtension->DeviceParams.RevisionID);
-        AhciDebugPrint("\tLBA48=%u Sectors=%I64u LogicalSector=%u PhysicalSector=%u\n", PortExtension->DeviceParams.Lba48BitMode, PortExtension->DeviceParams.MaxLba.QuadPart, PortExtension->DeviceParams.BytesPerLogicalSector, PortExtension->DeviceParams.BytesPerPhysicalSector);
-        AhciDebugPrint("\tNCQ=%u QueueDepth=%u (device=%u HBA=%u)\n", PortExtension->DeviceParams.NcqSupported, PortExtension->DeviceParams.NcqQueueDepth, AtaDevQueueDepth(IdentifyDeviceData), HbaQueueDepth);
+        DPRINT("\tATA Device: '%s' fw '%s'\n", PortExtension->DeviceParams.VendorId, PortExtension->DeviceParams.RevisionID);
+        DPRINT("\tLBA48=%u Sectors=%I64u LogicalSector=%u PhysicalSector=%u\n", PortExtension->DeviceParams.Lba48BitMode, PortExtension->DeviceParams.MaxLba.QuadPart, PortExtension->DeviceParams.BytesPerLogicalSector, PortExtension->DeviceParams.BytesPerPhysicalSector);
+        DPRINT("\tNCQ=%u QueueDepth=%u (device=%u HBA=%u)\n", PortExtension->DeviceParams.NcqSupported, PortExtension->DeviceParams.NcqQueueDepth, AtaDevQueueDepth(IdentifyDeviceData), HbaQueueDepth);
     }
     else
     {
@@ -3509,7 +3509,7 @@ UCHAR DeviceRequestCapacity(__in PAHCI_ADAPTER_EXTENSION AdapterExtension, __in 
         Srb->DataTransferLength = sizeof(READ_CAPACITY_DATA_EX);
     }
 
-    AhciDebugPrint("\tCapacity: LastLba=%I64u BytesPerBlock=%u\n", LastLba, BytesPerLogicalSector);
+    DPRINT("\tCapacity: LastLba=%I64u BytesPerBlock=%u\n", LastLba, BytesPerLogicalSector);
 
     Srb->ScsiStatus = SCSISTAT_GOOD;
     return SRB_STATUS_SUCCESS;
@@ -3697,7 +3697,7 @@ UCHAR DeviceInquiryRequest(__in PAHCI_ADAPTER_EXTENSION AdapterExtension, __in P
     {
         // 3.6.1
         // If the EVPD bit is set to zero, the device server shall return the standard INQUIRY data
-        AhciDebugPrint("\tEVPD Inquired\n");
+        DPRINT("\tEVPD Inquired\n");
         NT_ASSERT(SrbExtension != NULL);
 
         SrbExtension->AtaFunction = ATA_FUNCTION_ATA_IDENTIFY;
@@ -3728,7 +3728,7 @@ UCHAR DeviceInquiryRequest(__in PAHCI_ADAPTER_EXTENSION AdapterExtension, __in P
     }
     else
     {
-        AhciDebugPrint("\tVPD Inquired\n");
+        DPRINT("\tVPD Inquired\n");
 
         DataBuffer = Srb->DataBuffer;
         DataBufferLength = Srb->DataTransferLength;
@@ -3745,7 +3745,7 @@ UCHAR DeviceInquiryRequest(__in PAHCI_ADAPTER_EXTENSION AdapterExtension, __in P
         {
             case VPD_SUPPORTED_PAGES:
                 {
-                    AhciDebugPrint("\tVPD_SUPPORTED_PAGES\n");
+                    DPRINT("\tVPD_SUPPORTED_PAGES\n");
                     RequiredDataBufferLength = sizeof(VPD_SUPPORTED_PAGES_PAGE) + 1;
 
                     if (DataBufferLength < RequiredDataBufferLength)
@@ -3769,7 +3769,7 @@ UCHAR DeviceInquiryRequest(__in PAHCI_ADAPTER_EXTENSION AdapterExtension, __in P
                 break;
             case VPD_SERIAL_NUMBER:
                 {
-                    AhciDebugPrint("\tVPD_SERIAL_NUMBER\n");
+                    DPRINT("\tVPD_SERIAL_NUMBER\n");
                 }
                 break;
             case VPD_DEVICE_IDENTIFIERS:
@@ -3812,7 +3812,7 @@ BOOLEAN AhciAdapterReset(__in PAHCI_ADAPTER_EXTENSION AdapterExtension)
     AHCI_GHC ghc;
     PAHCI_MEMORY_REGISTERS abar = NULL;
 
-    AhciDebugPrint("AhciAdapterReset()\n");
+    DPRINT("AhciAdapterReset()\n");
 
     abar = AdapterExtension->ABAR_Address;
     if (abar == NULL) // basic sanity

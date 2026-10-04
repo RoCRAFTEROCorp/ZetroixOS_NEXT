@@ -5905,7 +5905,7 @@ DriverEntry(IN PDRIVER_OBJECT DriverObject,
     PDEVICE_OBJECT PhysicalDeviceObject = NULL;
     NTSTATUS Status;
     DPRINT("RAM Disk Driver Initialized\n");
-    DPRINT1("RAMDISK DriverEntry: DriverObject=%p RegistryPath=%wZ\n",
+    DPRINT("RAMDISK DriverEntry: DriverObject=%p RegistryPath=%wZ\n",
             DriverObject,
             RegistryPath);
 

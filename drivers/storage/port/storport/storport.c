@@ -33,7 +33,7 @@ PortAddDriverInitData(
     PDRIVER_INIT_DATA InitData;
     ULONG CopyLength;
 
-    DPRINT1("PortAddDriverInitData()\n");
+    DPRINT("PortAddDriverInitData()\n");
 
     InitData = ExAllocatePoolWithTag(NonPagedPool,
                                      sizeof(DRIVER_INIT_DATA),
@@ -87,7 +87,7 @@ PortGetDriverInitData(
     PDRIVER_INIT_DATA InitData;
     PLIST_ENTRY ListEntry;
 
-    DPRINT1("PortGetDriverInitData()\n");
+    DPRINT("PortGetDriverInitData()\n");
 
     ListEntry = DriverExtension->InitDataListHead.Flink;
     while (ListEntry != &DriverExtension->InitDataListHead)
@@ -425,7 +425,7 @@ PortAddDevice(
     KLOCK_QUEUE_HANDLE LockHandle;
     NTSTATUS Status;
 
-    DPRINT1("PortAddDevice(%p %p)\n",
+    DPRINT("PortAddDevice(%p %p)\n",
             DriverObject, PhysicalDeviceObject);
 
     ASSERT(DriverObject);
@@ -437,7 +437,7 @@ PortAddDevice(
     RtlInitUnicodeString(&DeviceName, NameBuffer);
     PortNumber++;
 
-    DPRINT1("Creating device: %wZ\n", &DeviceName);
+    DPRINT("Creating device: %wZ\n", &DeviceName);
 
     /* Create the port device */
     Status = IoCreateDevice(DriverObject,
@@ -453,7 +453,7 @@ PortAddDevice(
         return Status;
     }
 
-    DPRINT1("Created device: %wZ (%p)\n", &DeviceName, Fdo);
+    DPRINT("Created device: %wZ (%p)\n", &DeviceName, Fdo);
 
     /* Initialize the device */
     Fdo->Flags |= DO_DIRECT_IO;
@@ -519,7 +519,7 @@ PortAddDevice(
     /* The device has been initialized */
     Fdo->Flags &= ~DO_DEVICE_INITIALIZING;
 
-    DPRINT1("PortAddDevice() done (Status 0x%08lx)\n", Status);
+    DPRINT("PortAddDevice() done (Status 0x%08lx)\n", Status);
 
     return Status;
 }
@@ -988,7 +988,7 @@ DriverEntry(
     _In_ PDRIVER_OBJECT DriverObject,
     _In_ PUNICODE_STRING RegistryPath)
 {
-    DPRINT1("DriverEntry(%p %p)\n", DriverObject, RegistryPath);
+    DPRINT("DriverEntry(%p %p)\n", DriverObject, RegistryPath);
     return STATUS_SUCCESS;
 }
 
@@ -2196,14 +2196,14 @@ StorPortGetBusData(
     PBUS_INTERFACE_STANDARD Interface;
     ULONG ReturnLength;
 
-    DPRINT1("StorPortGetBusData(%p %lu %lu %lu %p %lu)\n",
+    DPRINT("StorPortGetBusData(%p %lu %lu %lu %p %lu)\n",
             DeviceExtension, BusDataType, SystemIoBusNumber, SlotNumber, Buffer, Length);
 
     /* Get the miniport extension */
     MiniportExtension = CONTAINING_RECORD(DeviceExtension,
                                           MINIPORT_DEVICE_EXTENSION,
                                           HwDeviceExtension);
-    DPRINT1("DeviceExtension %p  MiniportExtension %p\n",
+    DPRINT("DeviceExtension %p  MiniportExtension %p\n",
             DeviceExtension, MiniportExtension);
 
     Interface = &MiniportExtension->Miniport->DeviceExtension->BusInterface;
@@ -2216,7 +2216,7 @@ StorPortGetBusData(
                                          Buffer,
                                          0,
                                          Length);
-    DPRINT1("ReturnLength: %lu\n", ReturnLength);
+    DPRINT("ReturnLength: %lu\n", ReturnLength);
 
     return ReturnLength;
 }
@@ -2241,14 +2241,14 @@ StorPortGetDeviceBase(
     PVOID MappedAddress;
     NTSTATUS Status;
 
-    DPRINT1("StorPortGetDeviceBase(%p %lu %lu 0x%I64x %lu %u)\n",
+    DPRINT("StorPortGetDeviceBase(%p %lu %lu 0x%I64x %lu %u)\n",
             HwDeviceExtension, BusType, SystemIoBusNumber, IoAddress.QuadPart, NumberOfBytes, InIoSpace);
 
     /* Get the miniport extension */
     MiniportExtension = CONTAINING_RECORD(HwDeviceExtension,
                                           MINIPORT_DEVICE_EXTENSION,
                                           HwDeviceExtension);
-    DPRINT1("HwDeviceExtension %p  MiniportExtension %p\n",
+    DPRINT("HwDeviceExtension %p  MiniportExtension %p\n",
             HwDeviceExtension, MiniportExtension);
 
     if (!TranslateResourceListAddress(MiniportExtension->Miniport->DeviceExtension,
@@ -2263,7 +2263,7 @@ StorPortGetDeviceBase(
         return NULL;
     }
 
-    DPRINT1("Translated Address: 0x%I64x\n", TranslatedAddress.QuadPart);
+    DPRINT("Translated Address: 0x%I64x\n", TranslatedAddress.QuadPart);
 
     /* In I/O space */
     if (InIoSpace)
@@ -2276,7 +2276,7 @@ StorPortGetDeviceBase(
     MappedAddress = MmMapIoSpace(TranslatedAddress,
                                  NumberOfBytes,
                                  FALSE);
-    DPRINT1("Mapped Address: %p\n", MappedAddress);
+    DPRINT("Mapped Address: %p\n", MappedAddress);
 
     Status = AllocateAddressMapping(&MiniportExtension->Miniport->DeviceExtension->MappedAddressList,
                                     IoAddress,
@@ -2289,7 +2289,7 @@ StorPortGetDeviceBase(
         MappedAddress = NULL;
     }
 
-    DPRINT1("Mapped Address: %p\n", MappedAddress);
+    DPRINT("Mapped Address: %p\n", MappedAddress);
     return MappedAddress;
 }
 
@@ -2431,14 +2431,14 @@ StorPortGetUncachedExtension(
     PFDO_DEVICE_EXTENSION DeviceExtension;
     PHYSICAL_ADDRESS LowestAddress, HighestAddress, Alignment;
 
-    DPRINT1("StorPortGetUncachedExtension(%p %p %lu)\n",
+    DPRINT("StorPortGetUncachedExtension(%p %p %lu)\n",
             HwDeviceExtension, ConfigInfo, NumberOfBytes);
 
     /* Get the miniport extension */
     MiniportExtension = CONTAINING_RECORD(HwDeviceExtension,
                                           MINIPORT_DEVICE_EXTENSION,
                                           HwDeviceExtension);
-    DPRINT1("HwDeviceExtension %p  MiniportExtension %p\n",
+    DPRINT("HwDeviceExtension %p  MiniportExtension %p\n",
             HwDeviceExtension, MiniportExtension);
 
     DeviceExtension = MiniportExtension->Miniport->DeviceExtension;
@@ -2504,7 +2504,7 @@ StorPortInitialize(
     PDRIVER_OBJECT_EXTENSION DriverObjectExtension;
     NTSTATUS Status = STATUS_SUCCESS;
 
-    DPRINT1("StorPortInitialize(%p %p %p %p)\n",
+    DPRINT("StorPortInitialize(%p %p %p %p)\n",
             Argument1, Argument2, HwInitializationData, HwContext);
 
     /* Check parameters before inspecting the caller-owned initialization data. */
@@ -2516,22 +2516,22 @@ StorPortInitialize(
         return STATUS_INVALID_PARAMETER;
     }
 
-    DPRINT1("HwInitializationDataSize: %lu\n", HwInitializationData->HwInitializationDataSize);
-    DPRINT1("AdapterInterfaceType: %u\n", HwInitializationData->AdapterInterfaceType);
-    DPRINT1("HwInitialize: %p\n", HwInitializationData->HwInitialize);
-    DPRINT1("HwStartIo: %p\n", HwInitializationData->HwStartIo);
-    DPRINT1("HwInterrupt: %p\n", HwInitializationData->HwInterrupt);
-    DPRINT1("HwFindAdapter: %p\n", HwInitializationData->HwFindAdapter);
-    DPRINT1("HwResetBus: %p\n", HwInitializationData->HwResetBus);
-    DPRINT1("HwDmaStarted: %p\n", HwInitializationData->HwDmaStarted);
-    DPRINT1("HwAdapterState: %p\n", HwInitializationData->HwAdapterState);
-    DPRINT1("DeviceExtensionSize: %lu\n", HwInitializationData->DeviceExtensionSize);
-    DPRINT1("SpecificLuExtensionSize: %lu\n", HwInitializationData->SpecificLuExtensionSize);
-    DPRINT1("SrbExtensionSize: %lu\n", HwInitializationData->SrbExtensionSize);
-    DPRINT1("NumberOfAccessRanges: %lu\n", HwInitializationData->NumberOfAccessRanges);
+    DPRINT("HwInitializationDataSize: %lu\n", HwInitializationData->HwInitializationDataSize);
+    DPRINT("AdapterInterfaceType: %u\n", HwInitializationData->AdapterInterfaceType);
+    DPRINT("HwInitialize: %p\n", HwInitializationData->HwInitialize);
+    DPRINT("HwStartIo: %p\n", HwInitializationData->HwStartIo);
+    DPRINT("HwInterrupt: %p\n", HwInitializationData->HwInterrupt);
+    DPRINT("HwFindAdapter: %p\n", HwInitializationData->HwFindAdapter);
+    DPRINT("HwResetBus: %p\n", HwInitializationData->HwResetBus);
+    DPRINT("HwDmaStarted: %p\n", HwInitializationData->HwDmaStarted);
+    DPRINT("HwAdapterState: %p\n", HwInitializationData->HwAdapterState);
+    DPRINT("DeviceExtensionSize: %lu\n", HwInitializationData->DeviceExtensionSize);
+    DPRINT("SpecificLuExtensionSize: %lu\n", HwInitializationData->SpecificLuExtensionSize);
+    DPRINT("SrbExtensionSize: %lu\n", HwInitializationData->SrbExtensionSize);
+    DPRINT("NumberOfAccessRanges: %lu\n", HwInitializationData->NumberOfAccessRanges);
     if (HwInitializationData->HwInitializationDataSize >= FIELD_OFFSET(HW_INITIALIZATION_DATA, Reserved1) + sizeof(ULONG))
     {
-        DPRINT1("FeatureSupport: 0x%08lx SrbTypeFlags: 0x%08lx AddressTypeFlags: 0x%08lx\n",
+        DPRINT("FeatureSupport: 0x%08lx SrbTypeFlags: 0x%08lx AddressTypeFlags: 0x%08lx\n",
                 HwInitializationData->FeatureSupport,
                 HwInitializationData->SrbTypeFlags,
                 HwInitializationData->AddressTypeFlags);
@@ -2552,7 +2552,7 @@ StorPortInitialize(
                                                        (PVOID)DriverEntry);
     if (DriverObjectExtension == NULL)
     {
-        DPRINT1("No driver object extension!\n");
+        DPRINT("No driver object extension!\n");
 
         Status = IoAllocateDriverObjectExtension(DriverObject,
                                                  (PVOID)DriverEntry,
@@ -2564,7 +2564,7 @@ StorPortInitialize(
             return Status;
         }
 
-        DPRINT1("Driver object extension created!\n");
+        DPRINT("Driver object extension created!\n");
 
         /* Initialize the driver object extension */
         RtlZeroMemory(DriverObjectExtension,
@@ -2595,7 +2595,7 @@ StorPortInitialize(
     Status = PortAddDriverInitData(DriverObjectExtension,
                                    HwInitializationData);
 
-    DPRINT1("StorPortInitialize() done (Status 0x%08lx)\n", Status);
+    DPRINT("StorPortInitialize() done (Status 0x%08lx)\n", Status);
 
     return Status;
 }
@@ -2784,9 +2784,9 @@ StorPortNotification(
             break;
 
         case EnablePassiveInitialization:
-            DPRINT1("EnablePassiveInitialization\n");
+            DPRINT("EnablePassiveInitialization\n");
             HwPassiveInitRoutine = (PHW_PASSIVE_INITIALIZE_ROUTINE)va_arg(ap, PHW_PASSIVE_INITIALIZE_ROUTINE);
-            DPRINT1("HwPassiveInitRoutine %p\n", HwPassiveInitRoutine);
+            DPRINT("HwPassiveInitRoutine %p\n", HwPassiveInitRoutine);
             Result = (PBOOLEAN)va_arg(ap, PBOOLEAN);
 
             *Result = FALSE;
@@ -2800,11 +2800,11 @@ StorPortNotification(
             break;
 
         case InitializeDpc:
-            DPRINT1("InitializeDpc\n");
+            DPRINT("InitializeDpc\n");
             Dpc = (PSTOR_DPC)va_arg(ap, PSTOR_DPC);
-            DPRINT1("Dpc %p\n", Dpc);
+            DPRINT("Dpc %p\n", Dpc);
             HwDpcRoutine = (PHW_DPC_ROUTINE)va_arg(ap, PHW_DPC_ROUTINE);
-            DPRINT1("HwDpcRoutine %p\n", HwDpcRoutine);
+            DPRINT("HwDpcRoutine %p\n", HwDpcRoutine);
 
             /* The miniport's DPC routine receives its own HwDeviceExtension as
              * the deferred context, not the port driver's FDO extension. */

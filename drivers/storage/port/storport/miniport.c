@@ -26,7 +26,7 @@ InitializeConfiguration(
     PCONFIGURATION_INFORMATION ConfigInfo;
     ULONG i;
 
-    DPRINT1("InitializeConfiguration(%p %p %lu %lu)\n",
+    DPRINT("InitializeConfiguration(%p %p %lu %lu)\n",
             PortConfig, InitData, BusNumber, SlotNumber);
 
     /* Get the configurration information */
@@ -82,7 +82,7 @@ InitializeConfiguration(
     PortConfig->MaxNumberOfIO = SP_UNINITIALIZED_VALUE;
 
     PortConfig->NumberOfAccessRanges = InitData->NumberOfAccessRanges;
-    DPRINT1("NumberOfAccessRanges: %lu\n", PortConfig->NumberOfAccessRanges);
+    DPRINT("NumberOfAccessRanges: %lu\n", PortConfig->NumberOfAccessRanges);
     if (PortConfig->NumberOfAccessRanges != 0)
     {
         PortConfig->AccessRanges = ExAllocatePoolWithTag(NonPagedPool,
@@ -118,7 +118,7 @@ AssignResourcesToConfiguration(
     INT i, j;
     ULONG RangeNumber = 0, Interrupt = 0, Dma = 0;
 
-    DPRINT1("AssignResourceToConfiguration(%p %p %lu)\n",
+    DPRINT("AssignResourceToConfiguration(%p %p %lu)\n",
             PortConfiguration, ResourceList, NumberOfAccessRanges);
 
     FullDescriptor = &ResourceList->List[0];
@@ -133,7 +133,7 @@ AssignResourcesToConfiguration(
             switch (PartialDescriptor->Type)
             {
                 case CmResourceTypePort:
-                    DPRINT1("Port: 0x%I64x (0x%lx)\n",
+                    DPRINT("Port: 0x%I64x (0x%lx)\n",
                             PartialDescriptor->u.Port.Start.QuadPart,
                             PartialDescriptor->u.Port.Length);
                     if (RangeNumber < NumberOfAccessRanges)
@@ -147,7 +147,7 @@ AssignResourcesToConfiguration(
                     break;
 
                 case CmResourceTypeMemory:
-                    DPRINT1("Memory: 0x%I64x (0x%lx)\n",
+                    DPRINT("Memory: 0x%I64x (0x%lx)\n",
                             PartialDescriptor->u.Memory.Start.QuadPart,
                             PartialDescriptor->u.Memory.Length);
                     if (RangeNumber < NumberOfAccessRanges)
@@ -161,7 +161,7 @@ AssignResourcesToConfiguration(
                     break;
 
                 case CmResourceTypeInterrupt:
-                    DPRINT1("Interrupt: Level %lu  Vector %lu\n",
+                    DPRINT("Interrupt: Level %lu  Vector %lu\n",
                             PartialDescriptor->u.Interrupt.Level,
                             PartialDescriptor->u.Interrupt.Vector);
                     if (Interrupt == 0)
@@ -233,7 +233,7 @@ AssignResourcesToConfiguration(
                     break;
 
                 default:
-                    DPRINT1("Other: %u\n", PartialDescriptor->Type);
+                    DPRINT("Other: %u\n", PartialDescriptor->Type);
                     break;
             }
         }
@@ -255,7 +255,7 @@ MiniportInitialize(
     ULONG Size;
     NTSTATUS Status;
 
-    DPRINT1("MiniportInitialize(%p %p %p)\n",
+    DPRINT("MiniportInitialize(%p %p %p)\n",
             Miniport, DeviceExtension, InitData);
 
     if (!Miniport->MiniportExtension)
@@ -334,7 +334,7 @@ MiniportFindAdapter(
     ULONG Result;
     NTSTATUS Status;
 
-    DPRINT1("MiniportFindAdapter(%p)\n", Miniport);
+    DPRINT("MiniportFindAdapter(%p)\n", Miniport);
 
     /* Call the miniport HwFindAdapter routine */
     Result = ((PHW_FIND_ADAPTER)Miniport->InitData->HwFindAdapter)(&Miniport->MiniportExtension->HwDeviceExtension,
@@ -343,7 +343,7 @@ MiniportFindAdapter(
                                                NULL,
                                                &Miniport->PortConfig,
                                                &Reserved);
-    DPRINT1("HwFindAdapter() returned %lu\n", Result);
+    DPRINT("HwFindAdapter() returned %lu\n", Result);
 
     /* Convert the result to a status code */
     switch (Result)
@@ -354,7 +354,7 @@ MiniportFindAdapter(
             break;
 
         case SP_RETURN_FOUND:
-            DPRINT1("SP_RETURN_FOUND\n");
+            DPRINT("SP_RETURN_FOUND\n");
             Status = STATUS_SUCCESS;
             break;
 
@@ -384,11 +384,11 @@ MiniportHwInitialize(
 {
     BOOLEAN Result;
 
-    DPRINT1("MiniportHwInitialize(%p)\n", Miniport);
+    DPRINT("MiniportHwInitialize(%p)\n", Miniport);
 
     /* Call the miniport HwInitialize routine */
     Result = Miniport->InitData->HwInitialize(&Miniport->MiniportExtension->HwDeviceExtension);
-    DPRINT1("HwInitialize() returned %u\n", Result);
+    DPRINT("HwInitialize() returned %u\n", Result);
 
     return Result ? STATUS_SUCCESS : STATUS_UNSUCCESSFUL;
 }

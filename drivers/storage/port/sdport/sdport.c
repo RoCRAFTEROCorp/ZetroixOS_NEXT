@@ -65,7 +65,7 @@ SdPortInitializeLegacy(
     _In_ PUNICODE_STRING RegistryPath,
     _In_ PSDPORT_INITIALIZATION_DATA InitializationData)
 {
-    DPRINT1("SdPortInitialize(%p %wZ %p)\n",
+    DPRINT("SdPortInitialize(%p %wZ %p)\n",
            DriverObject, RegistryPath, InitializationData);
 
     /* Validate the initialization data */
@@ -294,7 +294,7 @@ DriverEntry(
     UNREFERENCED_PARAMETER(DriverObject);
     UNREFERENCED_PARAMETER(RegistryPath);
 
-    DPRINT1("SDPORT DriverEntry: DriverObject=%p RegistryPath=%wZ\n",
+    DPRINT("SDPORT DriverEntry: DriverObject=%p RegistryPath=%wZ\n",
            DriverObject, RegistryPath);
 
     return STATUS_SUCCESS;
