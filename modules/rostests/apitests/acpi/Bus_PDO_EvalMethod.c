@@ -724,6 +724,15 @@ AcpiGetHandle (
 }
 
 ACPI_STATUS
+AcpiGetParent(ACPI_HANDLE Object, ACPI_HANDLE *OutHandle)
+{
+    UNREFERENCED_PARAMETER(Object);
+    UNREFERENCED_PARAMETER(OutHandle);
+    ok(0, "Unexpected call to AcpiGetParent\n");
+    return AE_NOT_FOUND;
+}
+
+ACPI_STATUS
 AcpiWalkNamespace (
     ACPI_OBJECT_TYPE        Type,
     ACPI_HANDLE             StartObject,
