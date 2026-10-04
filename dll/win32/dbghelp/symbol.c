@@ -850,6 +850,10 @@ static BOOL symt_fill_sym_info(struct module_pair* pair,
         break;
     case SymTagFunction:
     case SymTagInlineSite:
+#ifdef __REACTOS__
+        if (sym->tag == SymTagFunction)
+            sym_info->Flags |= SYMFLAG_FUNCTION;
+#endif
         symt_get_address(sym, &sym_info->Address);
         break;
     case SymTagThunk:
