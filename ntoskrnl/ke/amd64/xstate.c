@@ -481,6 +481,29 @@ KiRestoreUserXState(
     _xrstor64(SaveArea, Features);
 }
 
+#ifdef __clang__
+__attribute__((target("fxsr")))
+#endif
+VOID
+NTAPI
+KiCaptureUserLegacyFloatingState(
+    _Out_ PXSAVE_FORMAT FltSave)
+{
+    XSAVE_FORMAT Area;
+
+    _fxsave64(&Area);
+    FltSave->ControlWord = Area.ControlWord;
+    FltSave->StatusWord = Area.StatusWord;
+    FltSave->TagWord = Area.TagWord;
+    FltSave->ErrorOpcode = Area.ErrorOpcode;
+    FltSave->ErrorOffset = Area.ErrorOffset;
+    FltSave->ErrorSelector = Area.ErrorSelector;
+    FltSave->DataOffset = Area.DataOffset;
+    FltSave->DataSelector = Area.DataSelector;
+    FltSave->MxCsr_Mask = Area.MxCsr_Mask;
+    RtlCopyMemory(FltSave->FloatRegisters, Area.FloatRegisters, sizeof(Area.FloatRegisters));
+}
+
 #define TAG_XSTATE_SAVE 'SsXK'
 
 #ifdef __clang__

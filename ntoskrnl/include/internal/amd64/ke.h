@@ -618,6 +618,11 @@ KiRestoreUserXState(
     _In_ PUCHAR XState,
     _Out_ PVOID Scratch);
 
+VOID
+NTAPI
+KiCaptureUserLegacyFloatingState(
+    _Out_ PXSAVE_FORMAT FltSave);
+
 FORCEINLINE
 BOOLEAN
 KiIsDpcInterruptRequested(

@@ -228,6 +228,9 @@ KeTrapFrameToContext(IN PKTRAP_FRAME TrapFrame,
     /* Handle floating point registers */
     if (ContextFlags & CONTEXT_FLOATING_POINT)
     {
+        if ((TrapFrame->SegCs & MODE_MASK) != KernelMode)
+            KiCaptureUserLegacyFloatingState(&Context->FltSave);
+        Context->FltSave.MxCsr = TrapFrame->MxCsr;
         Context->MxCsr = TrapFrame->MxCsr;
         Context->Xmm0 = TrapFrame->Xmm0;
         Context->Xmm1 = TrapFrame->Xmm1;
