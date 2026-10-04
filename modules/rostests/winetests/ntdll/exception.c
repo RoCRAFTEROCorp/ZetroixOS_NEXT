@@ -4383,7 +4383,11 @@ static void test_continue(void)
 
 static void test_wow64_context(void)
 {
+#ifdef __REACTOS__
+    char appname[MAX_PATH];
+#else
     const char appname[] = "C:\\windows\\syswow64\\cmd.exe";
+#endif
     char cmdline[256];
     THREAD_BASIC_INFORMATION info;
     PROCESS_INFORMATION pi;
@@ -4409,6 +4413,10 @@ static void test_wow64_context(void)
     }
 #endif
 
+#ifdef __REACTOS__
+    GetSystemWow64DirectoryA(appname, MAX_PATH);
+    strcat(appname, "\\cmd.exe");
+#endif
     memset(&ctx, 0x55, sizeof(ctx));
     ctx.ContextFlags = WOW64_CONTEXT_ALL;
     ret = pRtlWow64GetThreadContext( GetCurrentThread(), &ctx );
