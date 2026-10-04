@@ -40,6 +40,7 @@ KiRiscvCallUserMode(
 #define RISCV_SIE_SSIE     (1ULL << 1)
 #define RISCV_SIE_STIE     (1ULL << 5)
 #define RISCV_SIE_SEIE     (1ULL << 9)
+#define RISCV_SIE_LCOFIE   (1ULL << 13)
 
 NTHALAPI ULONG NTAPI HalpRiscvClaimPlicInterrupt(VOID);
 NTHALAPI VOID NTAPI HalpRiscvCompletePlicInterrupt(_In_ ULONG Source);
@@ -184,6 +185,7 @@ KeGetTrapFrameFrameRegister(_In_ PKTRAP_FRAME TrapFrame)
 #define KI_RISCV_FEATURE_SVINVAL     0x00001000
 #define KI_RISCV_FEATURE_V           0x00002000
 #define KI_RISCV_FEATURE_H           0x00004000
+#define KI_RISCV_FEATURE_SSCOFPMF    0x00008000
 
 #define KI_RISCV_EXTENSION_LIST_SIZE 512
 
@@ -255,6 +257,7 @@ ULONG NTAPI KiRiscvQueryInterruptLimit(VOID);
 /* Clock ISR exported by hal.dll (hal.spec, -arch=riscv64): rearms the
  * supervisor timer deadline and calls KeUpdateSystemTime at CLOCK_LEVEL. */
 NTHALAPI VOID NTAPI HalpRiscvClockInterrupt(_In_ PKTRAP_FRAME TrapFrame);
+NTHALAPI VOID NTAPI HalpRiscvProfileInterrupt(_In_ PKTRAP_FRAME TrapFrame);
 NTHALAPI VOID NTAPI HalpRiscvSuspendClockTick(VOID);
 NTHALAPI ULONG NTAPI HalpRiscvResumeClockTick(VOID);
 DECLSPEC_NORETURN VOID NTAPI KiRiscvUnimplemented(_In_ const CHAR *Routine);

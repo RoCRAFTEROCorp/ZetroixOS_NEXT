@@ -27,6 +27,7 @@
 #define RISCV_INTERRUPT_SOFTWARE 1
 #define RISCV_INTERRUPT_TIMER    5
 #define RISCV_INTERRUPT_EXTERNAL 9
+#define RISCV_INTERRUPT_COUNTER_OVERFLOW 13
 #define RISCV_PLIC_MAX_SOURCE    1023
 
 /* PLIC sources are routed to CPU 0. Connect/disconnect run on that CPU at
@@ -356,6 +357,21 @@ KiRiscvClockInterrupt(
     KfLowerIrql(OldIrql);
 }
 
+static
+VOID
+KiRiscvProfileInterrupt(
+    _Inout_ PKTRAP_FRAME TrapFrame)
+{
+    KIRQL OldIrql;
+
+    if (KeGetCurrentIrql() >= PROFILE_LEVEL)
+        KiRiscvTrapStop(TrapFrame);
+
+    OldIrql = KfRaiseIrql(PROFILE_LEVEL);
+    HalpRiscvProfileInterrupt(TrapFrame);
+    KfLowerIrql(OldIrql);
+}
+
 VOID
 NTAPI
 KiRiscvInterruptDispatch(
@@ -378,6 +394,10 @@ KiRiscvInterruptDispatch(
 
         case RISCV_INTERRUPT_EXTERNAL:
             KiRiscvExternalInterrupt(TrapFrame);
+            return;
+
+        case RISCV_INTERRUPT_COUNTER_OVERFLOW:
+            KiRiscvProfileInterrupt(TrapFrame);
             return;
 
         default:

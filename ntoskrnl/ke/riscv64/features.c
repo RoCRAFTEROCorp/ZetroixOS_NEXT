@@ -38,6 +38,7 @@ static const struct
     { "svinval",     KI_RISCV_FEATURE_SVINVAL },
     { "v",           KI_RISCV_FEATURE_V },
     { "h",           KI_RISCV_FEATURE_H },
+    { "sscofpmf",    KI_RISCV_FEATURE_SSCOFPMF },
 };
 
 static

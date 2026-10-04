@@ -198,6 +198,7 @@ HalInitializeProcessor(ULONG Number, PLOADER_PARAMETER_BLOCK LoaderBlock)
     ASSERT(Number < HalpRiscvStartedProcessors);
     HalpRiscvStartClock();
     KiRiscvSetInterruptEnabled(RISCV_HAL_SIE_STIE | RISCV_HAL_SIE_SSIE, TRUE);
+    HalpRiscvEnableProfileInterrupt();
 }
 
 BOOLEAN NTAPI HalAllProcessorsStarted(VOID)

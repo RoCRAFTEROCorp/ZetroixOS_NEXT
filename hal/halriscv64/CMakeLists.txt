@@ -9,6 +9,7 @@ add_library(hal MODULE
     pci.c
     plic.c
     platform.c
+    profile.c
     rtc.c
     sbi.c
     smp.c
