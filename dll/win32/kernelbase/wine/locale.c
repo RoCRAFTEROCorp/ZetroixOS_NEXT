@@ -5592,8 +5592,17 @@ DWORD WINAPI DECLSPEC_HOTPATCH FormatMessageW( DWORD flags, const void *source, 
             if (!status)
             {
                 if (retsize <= sizeof(WCHAR)) HeapFree( GetProcessHeap(), 0, result );
+#ifdef __REACTOS__
+                else
+                {
+                    WCHAR *shrunk = HeapReAlloc( GetProcessHeap(), HEAP_REALLOC_IN_PLACE_ONLY,
+                                                 result, max( retsize, size * sizeof(WCHAR) ));
+                    *(WCHAR **)buffer = shrunk ? shrunk : result;
+                }
+#else
                 else *(WCHAR **)buffer = HeapReAlloc( GetProcessHeap(), HEAP_REALLOC_IN_PLACE_ONLY,
                                                       result, max( retsize, size * sizeof(WCHAR) ));
+#endif
                 break;
             }
             HeapFree( GetProcessHeap(), 0, result );
