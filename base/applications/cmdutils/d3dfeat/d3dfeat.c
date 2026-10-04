@@ -14,6 +14,7 @@
 #include <initguid.h>
 #include <d3d11_4.h>
 #include <d3d12.h>
+#include <d3d11on12.h>
 #include <dxgi1_6.h>
 #include <d3dcompiler.h>
 #include <d3dkmthk.h>
@@ -2577,6 +2578,156 @@ Done:
 }
 
 static VOID
+FeatDirect3D11On12(
+    _In_ ULONG Adapter,
+    _In_ ID3D12Device *Device)
+{
+    static const FLOAT Blue[4] = { 0.0f, 0.0f, 1.0f, 1.0f };
+    ID3D12CommandQueue *Queue = NULL;
+    ID3D12CommandAllocator *Allocator = NULL;
+    ID3D12GraphicsCommandList *List = NULL;
+    ID3D12Fence *Fence = NULL;
+    ID3D12Resource *Texture = NULL, *Readback = NULL;
+    ID3D12Device *Device12 = NULL;
+    ID3D11Device *Device11 = NULL;
+    ID3D11DeviceContext *Context11 = NULL;
+    ID3D11On12Device1 *On12 = NULL;
+    ID3D11Texture2D *Texture11 = NULL;
+    ID3D11RenderTargetView *View11 = NULL;
+    D3D12_PLACED_SUBRESOURCE_FOOTPRINT Footprint;
+    D3D12_TEXTURE_COPY_LOCATION Destination, Source;
+    D3D12_COMMAND_QUEUE_DESC QueueDesc;
+    D3D12_HEAP_PROPERTIES HeapProperties;
+    D3D12_RESOURCE_DESC Desc;
+    D3D11_RESOURCE_FLAGS Flags11;
+    D3D_FEATURE_LEVEL Level = 0;
+    HRESULT CreateResult = E_FAIL, WrapResult = E_FAIL;
+    DWORD Pixel = 0;
+    UINT64 FenceValue = 0;
+    HANDLE Event = NULL;
+    PCSTR Step = "setup";
+    HRESULT Result;
+    PVOID Data;
+
+    ZeroMemory(&QueueDesc, sizeof(QueueDesc));
+    QueueDesc.Type = D3D12_COMMAND_LIST_TYPE_DIRECT;
+    Result = ID3D12Device_CreateCommandQueue(Device, &QueueDesc, &IID_ID3D12CommandQueue, (void **)&Queue);
+    if (SUCCEEDED(Result))
+        Result = ID3D12Device_CreateCommandAllocator(Device, D3D12_COMMAND_LIST_TYPE_DIRECT,
+                                                     &IID_ID3D12CommandAllocator, (void **)&Allocator);
+    if (SUCCEEDED(Result))
+        Result = ID3D12Device_CreateCommandList(Device, 0, D3D12_COMMAND_LIST_TYPE_DIRECT, Allocator, NULL,
+                                                &IID_ID3D12GraphicsCommandList, (void **)&List);
+    if (SUCCEEDED(Result))
+        Result = ID3D12GraphicsCommandList_Close(List);
+    if (SUCCEEDED(Result))
+        Result = ID3D12Device_CreateFence(Device, 0, D3D12_FENCE_FLAG_NONE, &IID_ID3D12Fence, (void **)&Fence);
+    if (FAILED(Result))
+        goto Done;
+    Event = CreateEventW(NULL, FALSE, FALSE, NULL);
+
+    Step = "texture";
+    ZeroMemory(&HeapProperties, sizeof(HeapProperties));
+    HeapProperties.Type = D3D12_HEAP_TYPE_DEFAULT;
+    ZeroMemory(&Desc, sizeof(Desc));
+    Desc.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
+    Desc.Width = 64;
+    Desc.Height = 64;
+    Desc.DepthOrArraySize = 1;
+    Desc.MipLevels = 1;
+    Desc.Format = DXGI_FORMAT_B8G8R8A8_UNORM;
+    Desc.SampleDesc.Count = 1;
+    Desc.Flags = D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET;
+    Result = ID3D12Device_CreateCommittedResource(Device, &HeapProperties, D3D12_HEAP_FLAG_SHARED, &Desc,
+                                                  D3D12_RESOURCE_STATE_COMMON, NULL, &IID_ID3D12Resource,
+                                                  (void **)&Texture);
+    if (FAILED(Result))
+        goto Done;
+    ID3D12Device_GetCopyableFootprints(Device, &Desc, 0, 1, 0, &Footprint, NULL, NULL, NULL);
+
+    Step = "create";
+    CreateResult = D3D11On12CreateDevice((IUnknown *)Device, 0, NULL, 0, (IUnknown *const *)&Queue, 1, 0,
+                                         &Device11, &Context11, &Level);
+    if (SUCCEEDED(CreateResult))
+        CreateResult = ID3D11Device_QueryInterface(Device11, &IID_ID3D11On12Device1, (void **)&On12);
+    if (SUCCEEDED(CreateResult))
+        CreateResult = ID3D11On12Device1_GetD3D12Device(On12, &IID_ID3D12Device, &Device12);
+    if (SUCCEEDED(CreateResult) && Device12 != Device)
+        CreateResult = E_UNEXPECTED;
+    if (FAILED(CreateResult))
+        goto Done;
+
+    Step = "wrap";
+    ZeroMemory(&Flags11, sizeof(Flags11));
+    Flags11.BindFlags = D3D11_BIND_RENDER_TARGET;
+    WrapResult = ID3D11On12Device1_CreateWrappedResource(On12, (IUnknown *)Texture, &Flags11,
+                                                         D3D12_RESOURCE_STATE_COMMON, D3D12_RESOURCE_STATE_COMMON,
+                                                         &IID_ID3D11Texture2D, (void **)&Texture11);
+    if (SUCCEEDED(WrapResult))
+        WrapResult = ID3D11Device_CreateRenderTargetView(Device11, (ID3D11Resource *)Texture11, NULL, &View11);
+    if (FAILED(WrapResult))
+        goto Done;
+    ID3D11On12Device1_AcquireWrappedResources(On12, (ID3D11Resource *const *)&Texture11, 1);
+    ID3D11DeviceContext_ClearRenderTargetView(Context11, View11, Blue);
+    ID3D11On12Device1_ReleaseWrappedResources(On12, (ID3D11Resource *const *)&Texture11, 1);
+
+    Step = "readback";
+    HeapProperties.Type = D3D12_HEAP_TYPE_READBACK;
+    ZeroMemory(&Desc, sizeof(Desc));
+    Desc.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
+    Desc.Width = Footprint.Footprint.RowPitch * 64;
+    Desc.Height = 1;
+    Desc.DepthOrArraySize = 1;
+    Desc.MipLevels = 1;
+    Desc.SampleDesc.Count = 1;
+    Desc.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
+    Result = ID3D12Device_CreateCommittedResource(Device, &HeapProperties, D3D12_HEAP_FLAG_NONE, &Desc,
+                                                  D3D12_RESOURCE_STATE_COPY_DEST, NULL, &IID_ID3D12Resource,
+                                                  (void **)&Readback);
+    if (SUCCEEDED(Result))
+        Result = ID3D12CommandAllocator_Reset(Allocator);
+    if (SUCCEEDED(Result))
+        Result = ID3D12GraphicsCommandList_Reset(List, Allocator, NULL);
+    if (FAILED(Result))
+        goto Done;
+    ZeroMemory(&Destination, sizeof(Destination));
+    Destination.pResource = Readback;
+    Destination.Type = D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT;
+    Destination.PlacedFootprint = Footprint;
+    ZeroMemory(&Source, sizeof(Source));
+    Source.pResource = Texture;
+    Source.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
+    ID3D12GraphicsCommandList_CopyTextureRegion(List, &Destination, 0, 0, 0, &Source, NULL);
+    Result = FeatExecute12(Queue, List, Fence, Event, &FenceValue);
+    if (SUCCEEDED(Result))
+        Result = ID3D12Resource_Map(Readback, 0, NULL, &Data);
+    if (FAILED(Result))
+        goto Done;
+    Pixel = *(const DWORD *)((const BYTE *)Data + Footprint.Offset + 10 * Footprint.Footprint.RowPitch + 10 * 4);
+    ID3D12Resource_Unmap(Readback, 0, NULL);
+
+Done:
+    FeatPrint("D3DFEAT_D3D11ON12 adapter=%lu step=\"%s\" hr=0x%08lx create=0x%08lx level=0x%04x wrap=0x%08lx "
+              "pixel=0x%08lx result=%s\n",
+              Adapter, Step, Result, CreateResult, Level, WrapResult, Pixel,
+              (SUCCEEDED(CreateResult) && SUCCEEDED(WrapResult) && SUCCEEDED(Result) && Pixel == 0xff0000ff)
+              ? "pass" : "fail");
+    if (View11 != NULL) ID3D11RenderTargetView_Release(View11);
+    if (Texture11 != NULL) ID3D11Texture2D_Release(Texture11);
+    if (On12 != NULL) ID3D11On12Device1_Release(On12);
+    if (Device12 != NULL) ID3D12Device_Release(Device12);
+    if (Context11 != NULL) ID3D11DeviceContext_Release(Context11);
+    if (Device11 != NULL) ID3D11Device_Release(Device11);
+    if (Readback != NULL) ID3D12Resource_Release(Readback);
+    if (Texture != NULL) ID3D12Resource_Release(Texture);
+    if (List != NULL) ID3D12GraphicsCommandList_Release(List);
+    if (Event != NULL) CloseHandle(Event);
+    if (Fence != NULL) ID3D12Fence_Release(Fence);
+    if (Allocator != NULL) ID3D12CommandAllocator_Release(Allocator);
+    if (Queue != NULL) ID3D12CommandQueue_Release(Queue);
+}
+
+static VOID
 FeatDirect3D12ArrayCopy(
     _In_ ULONG Adapter,
     _In_ ID3D12Device *Device,
@@ -3225,6 +3376,7 @@ FeatDirect3D12(
     FeatDirect3D12StreamOutput(AdapterIndex, Device);
     FeatDirect3D12Subresource(AdapterIndex, Device);
     FeatDirect3D12Shared(AdapterIndex, Adapter, Device);
+    FeatDirect3D11On12(AdapterIndex, Device);
     FeatDirect3D12ArrayCopy(AdapterIndex, Device, FALSE);
     FeatDirect3D12ArrayCopy(AdapterIndex, Device, TRUE);
     FeatDirect3D12Present(AdapterIndex, Device);
