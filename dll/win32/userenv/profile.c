@@ -144,6 +144,94 @@ CheckForLoadedProfile(HANDLE hToken)
 
 
 static
+BOOL
+SetUserHiveSecurity(
+    _In_ LPCWSTR pszSidString,
+    _In_ PSID pUserSid)
+{
+    static const LPCWSTR SidStrings[] = {
+        L"S-1-5-18",
+        L"S-1-5-32-544",
+        L"S-1-5-12",
+        L"S-1-15-2-1",
+        L"S-1-15-3-1024-1065365936-1281604716-3511738428-1654721687-432734479-3232135806-4053264122-3456934681"};
+    static const ACCESS_MASK Masks[] = {KEY_ALL_ACCESS, KEY_ALL_ACCESS, KEY_READ, KEY_READ, KEY_READ};
+    static const DWORD Flags[] = {OBJECT_INHERIT_ACE | CONTAINER_INHERIT_ACE,
+                                  OBJECT_INHERIT_ACE | CONTAINER_INHERIT_ACE,
+                                  OBJECT_INHERIT_ACE | CONTAINER_INHERIT_ACE,
+                                  0,
+                                  0};
+    PSID Sids[sizeof(SidStrings) / sizeof(SidStrings[0])] = {NULL};
+    SECURITY_DESCRIPTOR SecurityDescriptor;
+    PACL pDacl = NULL;
+    DWORD dwDaclSize;
+    DWORD dwError = ERROR_SUCCESS;
+    HKEY hKey;
+    ULONG i;
+
+    dwDaclSize = sizeof(ACL) + FIELD_OFFSET(ACCESS_ALLOWED_ACE, SidStart) + GetLengthSid(pUserSid);
+    for (i = 0; i < ARRAYSIZE(SidStrings); i++)
+    {
+        if (!ConvertStringSidToSidW(SidStrings[i], &Sids[i]))
+        {
+            dwError = GetLastError();
+            goto done;
+        }
+        dwDaclSize += FIELD_OFFSET(ACCESS_ALLOWED_ACE, SidStart) + GetLengthSid(Sids[i]);
+    }
+
+    pDacl = HeapAlloc(GetProcessHeap(), 0, dwDaclSize);
+    if (pDacl == NULL)
+    {
+        dwError = ERROR_NOT_ENOUGH_MEMORY;
+        goto done;
+    }
+
+    if (!InitializeAcl(pDacl, dwDaclSize, ACL_REVISION) ||
+        !AddAccessAllowedAceEx(pDacl, ACL_REVISION, OBJECT_INHERIT_ACE | CONTAINER_INHERIT_ACE, KEY_ALL_ACCESS, pUserSid))
+    {
+        dwError = GetLastError();
+        goto done;
+    }
+
+    for (i = 0; i < ARRAYSIZE(SidStrings); i++)
+    {
+        if (!AddAccessAllowedAceEx(pDacl, ACL_REVISION, Flags[i], Masks[i], Sids[i]))
+        {
+            dwError = GetLastError();
+            goto done;
+        }
+    }
+
+    if (!InitializeSecurityDescriptor(&SecurityDescriptor, SECURITY_DESCRIPTOR_REVISION) ||
+        !SetSecurityDescriptorDacl(&SecurityDescriptor, TRUE, pDacl, FALSE))
+    {
+        dwError = GetLastError();
+        goto done;
+    }
+
+    dwError = RegOpenKeyExW(HKEY_USERS, pszSidString, 0, WRITE_DAC, &hKey);
+    if (dwError == ERROR_SUCCESS)
+    {
+        dwError = RegSetKeySecurity(hKey, DACL_SECURITY_INFORMATION, &SecurityDescriptor);
+        RegCloseKey(hKey);
+    }
+
+done:
+    if (pDacl != NULL)
+        HeapFree(GetProcessHeap(), 0, pDacl);
+    for (i = 0; i < ARRAYSIZE(SidStrings); i++)
+    {
+        if (Sids[i] != NULL)
+            LocalFree(Sids[i]);
+    }
+
+    SetLastError(dwError);
+    return (dwError == ERROR_SUCCESS);
+}
+
+
+static
 HANDLE
 CreateProfileMutex(
     _In_ PWSTR pszSidString)
@@ -1101,6 +1189,12 @@ CreateUserProfileExW(
         DPRINT1("Error: %lu\n", Error);
         bRet = FALSE;
     }
+    else if (!SetUserHiveSecurity(SidString, pSid))
+    {
+        Error = GetLastError();
+        DPRINT1("Error: %lu\n", Error);
+        bRet = FALSE;
+    }
 
     /* Unload the hive */
     AcquireRemoveRestorePrivilege(TRUE);
@@ -2006,6 +2100,8 @@ LoadUserProfileW(
     WCHAR szProfileListPath[MAX_PATH];
     WCHAR szDefaultProfilePath[MAX_PATH];
     BOOL bProfileListPath = FALSE;
+    BOOL bNewProfile = FALSE;
+    PSID pProfileSid = NULL;
     DWORD dwLength;
     PTOKEN_USER UserSid = NULL;
     UNICODE_STRING SidString = { 0, 0, NULL };
@@ -2110,6 +2206,8 @@ LoadUserProfileW(
                 DPRINT1("CopyDirectory(%S, %S) failed (Error %lu)\n", szProfileListPath, szDefaultProfilePath, GetLastError());
                 goto cleanup;
             }
+
+            bNewProfile = TRUE;
         }
         else if (GetFileAttributesW(szUserHivePath) == INVALID_FILE_ATTRIBUTES)
         {
@@ -2168,6 +2266,17 @@ LoadUserProfileW(
             goto cleanup;
         }
 
+        if (bNewProfile)
+        {
+            if (!ConvertStringSidToSidW(SidString.Buffer, &pProfileSid) ||
+                !SetUserHiveSecurity(SidString.Buffer, pProfileSid))
+            {
+                dwError = GetLastError();
+                DPRINT1("SetUserHiveSecurity() failed (Error %lu)\n", dwError);
+                goto cleanup;
+            }
+        }
+
         SetProfileData(SidString.Buffer,
                        lpProfileInfo->dwFlags,
                        hToken);
@@ -2200,6 +2309,9 @@ cleanup:
 
     if (UserSid != NULL)
         HeapFree(GetProcessHeap(), 0, UserSid);
+
+    if (pProfileSid != NULL)
+        LocalFree(pProfileSid);
 
     if (hProfileMutex != NULL)
     {
