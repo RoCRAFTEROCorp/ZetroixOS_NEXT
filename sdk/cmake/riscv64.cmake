@@ -21,6 +21,7 @@ add_compile_options("$<$<AND:$<COMPILE_LANGUAGE:CXX>,$<NOT:$<BOOL:$<TARGET_PROPE
 add_compile_options("$<$<COMPILE_LANGUAGE:C,CXX>:SHELL:-Xclang -fstack-clash-protection>")
 add_compile_definitions(_USE_NATIVE_SEH=1
     "$<$<NOT:$<BOOL:$<TARGET_PROPERTY:WITH_CXX_EXCEPTIONS>>>:_ATL_NO_EXCEPTIONS=1>")
+set(CLANG_NATIVE_SEH TRUE)
 
 set(_RISCV_NT_COMPILE_OPTIONS
     -fno-builtin-stpcpy
