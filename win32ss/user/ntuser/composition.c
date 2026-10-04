@@ -434,7 +434,7 @@ IntCompositionDwmFlush(VOID)
     Deadline = KeQueryInterruptTime() + 5 * 10000000ULL;
     KeInitializeEvent(&Waiter.Event, NotificationEvent, FALSE);
     InsertTailList(&g_DwmFlushWaiters, &Waiter.Entry);
-    IntCompositionMarkDamage(TRUE);
+    IntCompositionMarkDamage(FALSE);
     for (;;)
     {
         BOOLEAN Complete = g_DwmFramePresented >= Frame;
