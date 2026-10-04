@@ -519,6 +519,104 @@ IopGetInterfaceDeviceList(PPLUGPLAY_CONTROL_INTERFACE_DEVICE_LIST_DATA DeviceLis
     return STATUS_SUCCESS;
 }
 
+static
+NTSTATUS
+IopQueryDeviceLocationInterface(
+    _In_ PDEVICE_OBJECT DeviceObject)
+{
+    PNP_LOCATION_INTERFACE LocationInterface;
+    IO_STATUS_BLOCK IoStatusBlock;
+    IO_STACK_LOCATION Stack;
+    NTSTATUS Status;
+
+    PAGED_CODE();
+
+    RtlZeroMemory(&LocationInterface, sizeof(LocationInterface));
+    RtlZeroMemory(&Stack, sizeof(Stack));
+    Stack.Parameters.QueryInterface.InterfaceType = &GUID_PNP_LOCATION_INTERFACE;
+    Stack.Parameters.QueryInterface.Size = sizeof(PNP_LOCATION_INTERFACE);
+    Stack.Parameters.QueryInterface.Version = PNP_LOCATION_INTERFACE_VERSION;
+    Stack.Parameters.QueryInterface.Interface = (PINTERFACE)&LocationInterface;
+
+    Status = IopInitiatePnpIrp(DeviceObject,
+                               &IoStatusBlock,
+                               IRP_MN_QUERY_INTERFACE,
+                               &Stack);
+    if (!NT_SUCCESS(Status))
+        return Status;
+
+    if (LocationInterface.InterfaceDereference != NULL)
+        LocationInterface.InterfaceDereference(LocationInterface.Context);
+
+    return STATUS_SUCCESS;
+}
+
+static
+NTSTATUS
+IopGetDeviceLocationPaths(
+    _In_ PDEVICE_NODE DeviceNode)
+{
+    PDEVICE_OBJECT *Chain = NULL;
+    PDEVICE_NODE Node;
+    ULONG Count = 0, Index;
+    NTSTATUS Status = STATUS_SUCCESS;
+
+    PAGED_CODE();
+
+    KeEnterCriticalRegion();
+    ExAcquireResourceSharedLite(&IopDeviceTreeResource, TRUE);
+
+    for (Node = DeviceNode; Node != NULL && Node != IopRootDeviceNode; Node = Node->Parent)
+        Count++;
+
+    if (Count != 0)
+    {
+        Chain = ExAllocatePoolWithTag(PagedPool, Count * sizeof(PDEVICE_OBJECT), TAG_IO);
+        if (Chain == NULL)
+        {
+            Status = STATUS_INSUFFICIENT_RESOURCES;
+        }
+        else
+        {
+            Index = 0;
+            for (Node = DeviceNode; Index < Count; Node = Node->Parent)
+            {
+                Chain[Index] = Node->PhysicalDeviceObject;
+                if (Chain[Index] != NULL && !ObReferenceObjectSafe(Chain[Index]))
+                    Chain[Index] = NULL;
+                Index++;
+            }
+        }
+    }
+
+    ExReleaseResourceLite(&IopDeviceTreeResource);
+    KeLeaveCriticalRegion();
+
+    if (!NT_SUCCESS(Status))
+        return Status;
+
+    Status = (Count == 0) ? STATUS_OBJECT_NAME_NOT_FOUND : STATUS_NOT_IMPLEMENTED;
+    for (Index = 0; Index < Count; Index++)
+    {
+        if (Status == STATUS_NOT_IMPLEMENTED &&
+            (Chain[Index] == NULL || !NT_SUCCESS(IopQueryDeviceLocationInterface(Chain[Index]))))
+        {
+            Status = STATUS_OBJECT_NAME_NOT_FOUND;
+        }
+
+        if (Chain[Index] != NULL)
+            ObDereferenceObject(Chain[Index]);
+    }
+
+    if (Chain != NULL)
+        ExFreePoolWithTag(Chain, TAG_IO);
+
+    if (Status == STATUS_NOT_IMPLEMENTED)
+        UNIMPLEMENTED;
+
+    return Status;
+}
+
 static NTSTATUS
 IopGetDeviceProperty(PPLUGPLAY_CONTROL_PROPERTY_DATA PropertyData)
 {
@@ -669,9 +767,8 @@ IopGetDeviceProperty(PPLUGPLAY_CONTROL_PROPERTY_DATA PropertyData)
 #if (WINVER >= _WIN32_WINNT_WS03)
     else if (Property == PNP_PROPERTY_LOCATION_PATHS)
     {
-        UNIMPLEMENTED;
         BufferSize = 0;
-        Status = STATUS_NOT_IMPLEMENTED;
+        Status = IopGetDeviceLocationPaths(DeviceNode);
     }
 #endif
     else
