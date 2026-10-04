@@ -18,11 +18,16 @@ endif()
 # only calls.
 add_compile_options("$<$<COMPILE_LANGUAGE:C>:SHELL:-Xclang -fasync-exceptions>")
 add_compile_options("$<$<AND:$<COMPILE_LANGUAGE:CXX>,$<NOT:$<BOOL:$<TARGET_PROPERTY:WITH_CXX_EXCEPTIONS>>>>:SHELL:-Xclang -fasync-exceptions>")
+add_compile_options("$<$<COMPILE_LANGUAGE:C,CXX>:SHELL:-Xclang -fstack-clash-protection>")
 add_compile_definitions(_USE_NATIVE_SEH=1
     "$<$<NOT:$<BOOL:$<TARGET_PROPERTY:WITH_CXX_EXCEPTIONS>>>:_ATL_NO_EXCEPTIONS=1>")
 
 set(_RISCV_NT_COMPILE_OPTIONS
-    -ffreestanding -fno-builtin -fms-extensions -fsigned-char -fno-strict-aliasing
+    -fno-builtin-stpcpy
+    "$<$<NOT:$<COMPILE_LANGUAGE:ASM>>:-fno-builtin-memcpy>"
+    "$<$<NOT:$<COMPILE_LANGUAGE:ASM>>:-fno-builtin-memmove>"
+    "$<$<NOT:$<COMPILE_LANGUAGE:ASM>>:-fno-builtin-memset>"
+    -fms-extensions -fsigned-char -fno-strict-aliasing
     -funwind-tables
     -ffunction-sections -fdata-sections -nostdlibinc
     "$<$<COMPILE_LANGUAGE:CXX>:$<IF:$<BOOL:$<TARGET_PROPERTY:WITH_CXX_EXCEPTIONS>>,-fexceptions,-fno-exceptions>>"
@@ -31,6 +36,21 @@ set(_RISCV_NT_COMPILE_OPTIONS
 
 # Apply the NT compiler contract to every normal PE/COFF target.
 add_compile_options(${_RISCV_NT_COMPILE_OPTIONS})
+if(NOT CMAKE_BUILD_TYPE STREQUAL "Release")
+    if(OPTIMIZE STREQUAL "1" OR OPTIMIZE STREQUAL "2")
+        add_compile_options(-Os)
+    elseif(OPTIMIZE STREQUAL "3")
+        add_compile_options(-Og)
+    elseif(OPTIMIZE STREQUAL "4")
+        add_compile_options(-O1)
+    elseif(OPTIMIZE STREQUAL "5")
+        add_compile_options(-O2)
+    elseif(OPTIMIZE STREQUAL "6")
+        add_compile_options(-O3)
+    elseif(OPTIMIZE STREQUAL "7")
+        add_compile_options(-Ofast)
+    endif()
+endif()
 if(STACK_PROTECTOR)
     add_compile_options(-fstack-protector-strong)
 endif()
