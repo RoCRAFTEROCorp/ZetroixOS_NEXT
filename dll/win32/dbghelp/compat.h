@@ -770,6 +770,7 @@ typedef struct _EXCEPTION_REGISTRATION_RECORD
 #define lstrlenW strlenW // ditto
 #define lstrcpynA __lstrcpynA
 #define SetLastError(x)
+#define GetLastError() 0
 #define GetProcAddress(x,y) 0
 #define GetEnvironmentVariableA(x, y, z) 0
 #define GetEnvironmentVariableW(x, y, z) 0

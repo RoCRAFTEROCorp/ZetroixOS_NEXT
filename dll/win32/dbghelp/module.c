@@ -923,6 +923,9 @@ DWORD64 WINAPI  SymLoadModuleExW(HANDLE hProcess, HANDLE hFile, PCWSTR wImageNam
     struct process*     pcs;
     struct module*      module = NULL;
     struct module*      altmodule;
+#ifdef __REACTOS__
+    DWORD               last_error = GetLastError();
+#endif
 
     TRACE("(%p %p %s %s %I64x %08lx %p %08lx)\n",
           hProcess, hFile, debugstr_w(wImageName), debugstr_w(wModuleName),
@@ -1024,6 +1027,9 @@ DWORD64 WINAPI  SymLoadModuleExW(HANDLE hProcess, HANDLE hFile, PCWSTR wImageNam
 
     if ((dbghelp_options & SYMOPT_DEFERRED_LOADS) == 0 && !module_get_container(pcs, module))
         module_load_debug(module);
+#ifdef __REACTOS__
+    SetLastError(last_error);
+#endif
     return module->module.BaseOfImage;
 }
 
