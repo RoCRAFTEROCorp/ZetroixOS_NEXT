@@ -22,6 +22,7 @@ add_subdirectory(crt)
 add_subdirectory(crtheap)
 add_subdirectory(cryptlib)
 add_subdirectory(csprng)
+add_subdirectory(gptsup)
 add_subdirectory(cpprt)
 
 if(MSVC)

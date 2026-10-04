@@ -35,25 +35,7 @@ typedef struct _DISK_GEOMETRY_EX_INTERNAL
 // Unique ID data for basic (disk partition-based) volumes.
 // It is stored in the MOUNTDEV_UNIQUE_ID::UniqueId member
 // as an array of bytes.
-#include <pshpack1.h>
-typedef union _BASIC_VOLUME_UNIQUE_ID
-{
-    struct
-    {
-        ULONG Signature;
-        ULONGLONG StartingOffset;
-    } Mbr;
-    struct
-    {
-        ULONGLONG Signature; // UCHAR[8] // "DMIO:ID:"
-        GUID PartitionGuid;
-    } Gpt;
-} BASIC_VOLUME_UNIQUE_ID, *PBASIC_VOLUME_UNIQUE_ID;
-#include <poppack.h>
-C_ASSERT(RTL_FIELD_SIZE(BASIC_VOLUME_UNIQUE_ID, Mbr) == 0x0C);
-C_ASSERT(RTL_FIELD_SIZE(BASIC_VOLUME_UNIQUE_ID, Gpt) == 0x18);
-
-#define DMIO_ID_SIGNATURE   (*(ULONGLONG*)"DMIO:ID:")
+#include <drivers/basicvol.h>
 
 typedef struct _FDO_EXTENSION
 {
