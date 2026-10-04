@@ -209,26 +209,48 @@ static HRESULT WINAPI cache_QueryAssemblyInfo(
     type = get_name_attribute( name_obj, NAME_ATTR_ID_TYPE );
     version = get_name_attribute( name_obj, NAME_ATTR_ID_VERSION );
     language = get_name_attribute( name_obj, NAME_ATTR_ID_LANGUAGE );
+#ifdef __REACTOS__
+    if (!arch || !name || !type || !version)
+#else
     if (!arch || !name || !token || !type || !version)
+#endif
     {
         IAssemblyName_Release( name_obj );
         return HRESULT_FROM_WIN32( ERROR_SXS_MISSING_ASSEMBLY_IDENTITY_ATTRIBUTE );
     }
+#ifndef __REACTOS__
     if (!info)
     {
         IAssemblyName_Release( name_obj );
         return S_OK;
     }
+#endif
     if (wcscmp( type, L"win32" ) && wcscmp( type, L"win32-policy" ))
     {
         hr = HRESULT_FROM_WIN32( ERROR_SXS_INVALID_IDENTITY_ATTRIBUTE_VALUE );
         goto done;
     }
+#ifdef __REACTOS__
+    if (!(path = build_dll_path( arch, name, token ? token : L"none", version, language )))
+#else
     if (!(path = build_dll_path( arch, name, token, version, language )))
+#endif
     {
         hr = E_OUTOFMEMORY;
         goto done;
     }
+#ifdef __REACTOS__
+    if (GetFileAttributesW( path ) == INVALID_FILE_ATTRIBUTES)
+    {
+        hr = HRESULT_FROM_WIN32( ERROR_NOT_FOUND );
+        goto done;
+    }
+    if (!info)
+    {
+        hr = S_OK;
+        goto done;
+    }
+#endif
 
     cache_lock( cache );
     hr = S_OK;
