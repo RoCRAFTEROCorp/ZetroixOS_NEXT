@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2009 Huw Davies
+ * Copyright (C) 2025 Piotr Caban
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
@@ -22,19 +22,26 @@
 
 [
     object,
-    uuid(0c733a1d-2a1c-11ce-ade5-00aa0044773d),
+    uuid(0c733a98-2a1c-11ce-ade5-00aa0044773d),
     pointer_default(unique)
 ]
-interface IDBCreateCommand : IUnknown
+interface IViewChapter : IUnknown
 {
     [local]
-    HRESULT CreateCommand([in] IUnknown *pUnkOuter,
-                          [in] REFIID riid,
-                          [out, iid_is(riid)] IUnknown **ppCommand);
+    HRESULT GetSpecification([in] REFIID riid,
+                             [out] IUnknown **rowset);
 
-    [call_as(CreateCommand)]
-    HRESULT RemoteCreateCommand([in] IUnknown *pUnkOuter,
-                                [in] REFIID riid,
-                                [out, iid_is(riid)] IUnknown **ppCommand,
-                                [out] IErrorInfo **ppErrorInfoRem);
+    [call_as(GetSpecification)]
+    HRESULT RemoteGetSpecification([in] REFIID riid,
+                                   [out] IUnknown **rowset,
+                                   [out] IErrorInfo **err_info);
+
+    [local]
+    HRESULT OpenViewChapter([in] HCHAPTER hsrc,
+                            [out] HCHAPTER *view_hchapter);
+
+    [call_as(OpenViewChapter)]
+    HRESULT RemoteOpenViewChapter([in] HCHAPTER hsrc,
+                                  [out] HCHAPTER *view_hchapter,
+                                  [out] IErrorInfo **err_info);
 }

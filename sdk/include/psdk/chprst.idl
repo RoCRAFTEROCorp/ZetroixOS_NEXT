@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2009 Huw Davies
+ * Copyright (C) 2013 Huw Davies
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
@@ -22,19 +22,26 @@
 
 [
     object,
-    uuid(0c733a1d-2a1c-11ce-ade5-00aa0044773d),
+    uuid(0c733a93-2a1c-11ce-ade5-00aa0044773d),
     pointer_default(unique)
 ]
-interface IDBCreateCommand : IUnknown
+interface IChapteredRowset : IUnknown
 {
     [local]
-    HRESULT CreateCommand([in] IUnknown *pUnkOuter,
-                          [in] REFIID riid,
-                          [out, iid_is(riid)] IUnknown **ppCommand);
+    HRESULT AddRefChapter([in] HCHAPTER chapter,
+                          [out] DBREFCOUNT *refcount);
 
-    [call_as(CreateCommand)]
-    HRESULT RemoteCreateCommand([in] IUnknown *pUnkOuter,
-                                [in] REFIID riid,
-                                [out, iid_is(riid)] IUnknown **ppCommand,
-                                [out] IErrorInfo **ppErrorInfoRem);
+    [call_as(AddRefChapter)]
+    HRESULT RemoteAddRefChapter([in] HCHAPTER chapter,
+                                [out] DBREFCOUNT *refcount,
+                                [out] IErrorInfo **errorinfo);
+
+    [local]
+    HRESULT ReleaseChapter([in] HCHAPTER chapter,
+                           [out] DBREFCOUNT *refcount);
+
+    [call_as(ReleaseChapter)]
+    HRESULT RemoteReleaseChapter([in] HCHAPTER chapter,
+                                 [out] DBREFCOUNT *refcount,
+                                 [out] IErrorInfo **errorinfo);
 }
