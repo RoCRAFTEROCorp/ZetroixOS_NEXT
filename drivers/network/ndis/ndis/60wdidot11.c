@@ -1377,15 +1377,38 @@ Ndis6WdiScanComplete(
 }
 
 static
-VOID
+BOOLEAN
+Ndis6WdiChannelListed(
+    _In_ ULONG BandId,
+    _In_ ULONG Channel,
+    _In_reads_opt_(Count) const ULONG *Channels,
+    _In_reads_opt_(Count) const ULONG *Bands,
+    _In_ ULONG Count)
+{
+    ULONG i;
+
+    for (i = 0; i < Count; i++)
+    {
+        if (Channels[i] == Channel && Bands[i] == BandId)
+            return TRUE;
+    }
+    return FALSE;
+}
+
+static
+ULONG
 Ndis6WdiBuildScanTlvs(
     _In_ PNDIS6_WDI_ADAPTER Wdi,
     _Inout_ PNDIS6_WDI_TLV_BUILDER Tlvs,
     _In_reads_bytes_(6) const UCHAR *Bssid,
     _In_ ULONG SsidCount,
     _In_reads_(SsidCount) const DOT11_SSID *Ssids,
-    _In_ ULONG ScanType)
+    _In_ ULONG ScanType,
+    _In_reads_opt_(FilterCount) const ULONG *FilterChannels,
+    _In_reads_opt_(FilterCount) const ULONG *FilterBands,
+    _In_ ULONG FilterCount)
 {
+    ULONG Scanned = 0;
     ULONG Offset;
     ULONG i;
 
@@ -1413,8 +1436,19 @@ Ndis6WdiBuildScanTlvs(
         PNDIS6_WDI_BAND Band = &Wdi->Bands[i];
         ULONG Inner;
         ULONG Channel;
+        ULONG Wanted = 0;
 
         if (!Band->Enabled || Band->ChannelCount == 0)
+            continue;
+        for (Channel = 0; Channel < Band->ChannelCount; Channel++)
+        {
+            if (FilterCount == 0 ||
+                Ndis6WdiChannelListed(Band->BandId, Band->Channels[Channel], FilterChannels, FilterBands, FilterCount))
+            {
+                Wanted++;
+            }
+        }
+        if (Wanted == 0)
             continue;
 
         Offset = Ndis6WdiTlvOpen(Tlvs, WDI_TLV_BAND_CHANNEL);
@@ -1423,10 +1457,18 @@ Ndis6WdiBuildScanTlvs(
         Ndis6WdiTlvClose(Tlvs, Inner);
         Inner = Ndis6WdiTlvOpen(Tlvs, WDI_TLV_CHANNEL_INFO_LIST);
         for (Channel = 0; Channel < Band->ChannelCount; Channel++)
-            Ndis6WdiTlvAppend32(Tlvs, Band->Channels[Channel]);
+        {
+            if (FilterCount == 0 ||
+                Ndis6WdiChannelListed(Band->BandId, Band->Channels[Channel], FilterChannels, FilterBands, FilterCount))
+            {
+                Ndis6WdiTlvAppend32(Tlvs, Band->Channels[Channel]);
+            }
+        }
         Ndis6WdiTlvClose(Tlvs, Inner);
         Ndis6WdiTlvClose(Tlvs, Offset);
+        Scanned += Wanted;
     }
+    return Scanned;
 }
 
 static
@@ -1465,7 +1507,7 @@ Ndis6WdiJobScan(
         ScanType = WDI_SCAN_TYPE_AUTO;
 
     Ndis6WdiTlvInit(&Tlvs);
-    Ndis6WdiBuildScanTlvs(Wdi, &Tlvs, Scan->dot11BSSID, SsidCount, Ssids, ScanType);
+    Ndis6WdiBuildScanTlvs(Wdi, &Tlvs, Scan->dot11BSSID, SsidCount, Ssids, ScanType, NULL, NULL, 0);
     Status = Ndis6WdiTask(Wdi, WDI_TASK_SCAN, Wdi->PortId, &Tlvs, FALSE, Ndis6WdiScanComplete, NULL);
     Ndis6WdiTlvFree(&Tlvs);
 
@@ -1813,7 +1855,7 @@ Ndis6WdiJobConnect(
         static const DOT11_MAC_ADDRESS Broadcast = { 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF };
 
         Ndis6WdiTlvInit(&Tlvs);
-        Ndis6WdiBuildScanTlvs(Wdi, &Tlvs, Broadcast, 1, &Wdi->Dot11.DesiredSsid, WDI_SCAN_TYPE_AUTO);
+        Ndis6WdiBuildScanTlvs(Wdi, &Tlvs, Broadcast, 1, &Wdi->Dot11.DesiredSsid, WDI_SCAN_TYPE_AUTO, NULL, NULL, 0);
         (VOID)Ndis6WdiTask(Wdi, WDI_TASK_SCAN, Wdi->PortId, &Tlvs, TRUE, NULL, NULL);
         Ndis6WdiTlvFree(&Tlvs);
 
@@ -2637,7 +2679,7 @@ Ndis6WdiRoamScan(
     NDIS6_WDI_TLV_BUILDER Tlvs;
 
     Ndis6WdiTlvInit(&Tlvs);
-    Ndis6WdiBuildScanTlvs(Wdi, &Tlvs, Broadcast, 1, Ssid, WDI_SCAN_TYPE_AUTO);
+    Ndis6WdiBuildScanTlvs(Wdi, &Tlvs, Broadcast, 1, Ssid, WDI_SCAN_TYPE_AUTO, NULL, NULL, 0);
     (VOID)Ndis6WdiTask(Wdi, WDI_TASK_SCAN, Wdi->PortId, &Tlvs, TRUE, NULL, NULL);
     Ndis6WdiTlvFree(&Tlvs);
 }
@@ -2682,6 +2724,49 @@ Ndis6WdiRoam(
 }
 
 static
+BOOLEAN
+Ndis6WdiKnownChannelScan(
+    _In_ PNDIS6_WDI_ADAPTER Wdi,
+    _In_ PDOT11_SSID Ssid)
+{
+    static const DOT11_MAC_ADDRESS Broadcast = { 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF };
+    ULONG Channels[NDIS6_WDI_MAX_CANDIDATES];
+    ULONG Bands[NDIS6_WDI_MAX_CANDIDATES];
+    ULONGLONG Now = KeQueryInterruptTime();
+    NDIS6_WDI_TLV_BUILDER Tlvs;
+    PLIST_ENTRY Link;
+    ULONG Count = 0;
+    ULONG Scanned;
+    KIRQL OldIrql;
+
+    KeAcquireSpinLock(&Wdi->StateLock, &OldIrql);
+    for (Link = Wdi->BssList.Flink; Link != &Wdi->BssList && Count < NDIS6_WDI_MAX_CANDIDATES; Link = Link->Flink)
+    {
+        PNDIS6_WDI_BSS Bss = CONTAINING_RECORD(Link, NDIS6_WDI_BSS, Link);
+
+        if (!Ndis6WdiBssFresh(Bss, Now) || !Ndis6WdiBssMatches(&Wdi->Dot11, Bss) ||
+            Ndis6WdiChannelListed(Bss->BandId, Bss->Channel, Channels, Bands, Count))
+        {
+            continue;
+        }
+        Channels[Count] = Bss->Channel;
+        Bands[Count] = Bss->BandId;
+        Count++;
+    }
+    KeReleaseSpinLock(&Wdi->StateLock, OldIrql);
+
+    if (Count == 0)
+        return FALSE;
+
+    Ndis6WdiTlvInit(&Tlvs);
+    Scanned = Ndis6WdiBuildScanTlvs(Wdi, &Tlvs, Broadcast, 1, Ssid, WDI_SCAN_TYPE_AUTO, Channels, Bands, Count);
+    if (Scanned != 0)
+        (VOID)Ndis6WdiTask(Wdi, WDI_TASK_SCAN, Wdi->PortId, &Tlvs, TRUE, NULL, NULL);
+    Ndis6WdiTlvFree(&Tlvs);
+    return Scanned != 0;
+}
+
+static
 VOID
 Ndis6WdiReconnect(
     _In_ PNDIS6_WDI_ADAPTER Wdi)
@@ -2718,10 +2803,18 @@ Ndis6WdiReconnect(
             KeDelayExecutionThread(KernelMode, FALSE, &Delay);
         }
 
-        Ndis6WdiRoamScan(Wdi, &Ssid);
+        if (Attempt != 0 || !Ndis6WdiKnownChannelScan(Wdi, &Ssid))
+            Ndis6WdiRoamScan(Wdi, &Ssid);
 
         Ndis6WdiTlvInit(&Candidates);
         Count = Ndis6WdiBuildCandidates(Wdi, &Candidates, &Ssid, NULL, NULL, 0, NULL);
+        if ((Count == 0 || Candidates.Failed) && Attempt == 0)
+        {
+            Ndis6WdiTlvFree(&Candidates);
+            Ndis6WdiRoamScan(Wdi, &Ssid);
+            Ndis6WdiTlvInit(&Candidates);
+            Count = Ndis6WdiBuildCandidates(Wdi, &Candidates, &Ssid, NULL, NULL, 0, NULL);
+        }
         if (Count == 0 || Candidates.Failed)
             DbgPrint("WDI: association lost and no candidate to roam to\n");
         Status = Ndis6WdiRoamAttempt(Wdi, &Candidates, Count, &Ssid, From,
