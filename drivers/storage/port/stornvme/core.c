@@ -2,7 +2,7 @@
  * PROJECT:     LiberNT Storport NVMe miniport
  * LICENSE:     GPL-3.0-or-later (https://spdx.org/licenses/GPL-3.0-or-later)
  * PURPOSE:     Controller lifecycle and admin command machinery
- * COPYRIGHT:   Copyright 2026 LiberNT Project
+ * COPYRIGHT:   Copyright 2026 Ahmed ARIF <arif.ing@outlook.com>
  */
 
 #include "stornvme.h"
@@ -523,6 +523,7 @@ NvmeStartController(_In_ PNVME_DEVICE_EXTENSION Device, _In_ BOOLEAN FirstStart)
     Device->ControllerStarted = FALSE;
     Device->AdminReady = FALSE;
 
+    Device->LineMasked = TRUE;
     NvmeWriteRegister(Device, NVME_REG_INTMS, 0xFFFFFFFF);
     NvmeWriteRegister(Device, NVME_REG_CC, 0);
     if (!NvmeWaitReady(Device, 0))
@@ -530,6 +531,7 @@ NvmeStartController(_In_ PNVME_DEVICE_EXTENSION Device, _In_ BOOLEAN FirstStart)
         DPRINT1("stornvme: controller did not leave ready state\n");
         return FALSE;
     }
+    NvmeWriteRegister(Device, NVME_REG_INTMS, 0xFFFFFFFF);
 
     NvmeResetAdminState(Device);
     NvmeWriteRegister(Device, NVME_REG_AQA,
@@ -574,6 +576,7 @@ NvmeDisableController(_In_ PNVME_DEVICE_EXTENSION Device)
 {
     Device->ControllerStarted = FALSE;
     Device->AdminReady = FALSE;
+    Device->LineMasked = TRUE;
     NvmeWriteRegister(Device, NVME_REG_INTMS, 0xFFFFFFFF);
     NvmeWriteRegister(Device, NVME_REG_CC, 0);
     NvmeWaitReady(Device, 0);
@@ -647,6 +650,7 @@ NvmeResetController(_In_ PNVME_DEVICE_EXTENSION Device)
     if (!NvmeCreateIoQueues(Device))
         return FALSE;
 
+    Device->LineMasked = FALSE;
     NvmeWriteRegister(Device, NVME_REG_INTMC, 0xFFFFFFFF);
 
     NvmeAcquireLock(Device, 0, &Lock);

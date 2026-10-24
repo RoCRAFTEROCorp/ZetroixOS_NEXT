@@ -94,13 +94,52 @@ void destroy_view( struct view *view )
     free( view );
 }
 
+#ifdef __REACTOS__
+static const WCHAR *eval_like_set( WCHAR c, const WCHAR *pattern, BOOL *match )
+{
+    const WCHAR *p = pattern + 1;
+    BOOL negate = FALSE, found = FALSE;
+
+    if (*p == '^')
+    {
+        negate = TRUE;
+        p++;
+    }
+    c = towupper( c );
+    while (*p && *p != ']')
+    {
+        if (p[1] == '=' && p[2] && p[2] != ']')
+        {
+            if (c >= towupper( p[0] ) && c <= towupper( p[2] )) found = TRUE;
+            p += 3;
+        }
+        else
+        {
+            if (c == towupper( *p )) found = TRUE;
+            p++;
+        }
+    }
+    if (*p != ']') return NULL;
+
+    *match = negate ? !found : found;
+    return p + 1;
+}
+#endif
+
 static BOOL eval_like( const WCHAR *text, const WCHAR *pattern )
 {
+#ifndef __REACTOS__
     if (wcsstr( pattern, L"[" )) FIXME( "character ranges (i.e. [abc], [^a-z]) are not supported\n" );
+#endif
 
     while (*text)
     {
+#ifdef __REACTOS__
+        const WCHAR *next;
+        BOOL match;
+#else
         if (pattern[0] == '\\' && pattern[1] == '\\') pattern++;
+#endif
 
         if (*pattern == '%')
         {
@@ -111,6 +150,15 @@ static BOOL eval_like( const WCHAR *text, const WCHAR *pattern )
             return !!*text;
         }
 
+#ifdef __REACTOS__
+        if (*pattern == '[' && (next = eval_like_set( *text, pattern, &match )))
+        {
+            if (!match) return FALSE;
+            text++;
+            pattern = next;
+            continue;
+        }
+#endif
         if (*pattern != '_' && towupper( *text ) != towupper( *pattern )) return FALSE;
         text++; pattern++;
     }
@@ -483,6 +531,7 @@ HRESULT eval_cond( const struct table *table, UINT row, const struct expr *cond,
     return WBEM_E_INVALID_QUERY;
 }
 
+#ifndef __REACTOS__
 static WCHAR *build_assoc_query( const WCHAR *class, UINT class_len )
 {
     static const WCHAR fmtW[] = L"SELECT * FROM __ASSOCIATORS WHERE Class='%s'";
@@ -517,6 +566,8 @@ static WCHAR *build_antecedent_query( const WCHAR *assocclass, const WCHAR *depe
     return ret;
 }
 
+#endif
+
 static BSTR build_servername(void)
 {
     WCHAR server[MAX_COMPUTERNAME_LENGTH + 1], *p;
@@ -532,6 +583,7 @@ static BSTR build_namespace(void)
     return SysAllocString( L"ROOT\\CIMV2" );
 }
 
+#ifndef __REACTOS__
 static WCHAR *build_canonical_path( const WCHAR *relpath )
 {
     BSTR server, namespace;
@@ -594,6 +646,8 @@ done:
     return hr;
 }
 
+#endif
+
 static HRESULT do_query( enum wbm_namespace ns, const WCHAR *str, struct query **ret_query )
 {
     struct query *query;
@@ -609,6 +663,185 @@ static HRESULT do_query( enum wbm_namespace ns, const WCHAR *str, struct query *
     return S_OK;
 }
 
+#ifdef __REACTOS__
+static const WCHAR *get_keyword_value( const struct keyword *keyword, const WCHAR *name )
+{
+    for (; keyword; keyword = keyword->next)
+    {
+        if (!wcsicmp( keyword->name, name )) return keyword->value ? keyword->value : L"";
+    }
+    return NULL;
+}
+
+static const WCHAR *skip_path_namespace( const WCHAR *path )
+{
+    const WCHAR *p;
+
+    if (path[0] != '\\' || path[1] != '\\' || !(p = wcschr( path, ':' ))) return path;
+    return p + 1;
+}
+
+static HRESULT query_object( enum wbm_namespace ns, const WCHAR *object_path, struct table **table, UINT *row,
+                             BSTR *relpath )
+{
+    struct query *query = NULL;
+    struct path *path;
+    VARIANT var;
+    WCHAR *str;
+    HRESULT hr;
+
+    *table = NULL;
+    if (relpath) *relpath = NULL;
+    if ((hr = parse_path( object_path, &path )) != S_OK) return hr;
+    if (!(str = query_from_path( path )))
+    {
+        free_path( path );
+        return E_OUTOFMEMORY;
+    }
+    if ((hr = do_query( ns, str, &query )) == S_OK && query->view->table_count && query->view->result_count)
+    {
+        if (relpath && get_propval( query->view, 0, L"__RELPATH", &var, NULL, NULL ) == S_OK)
+            *relpath = V_BSTR( &var );
+        *table = grab_table( query->view->table[0] );
+        *row = query->view->result[0];
+    }
+    if (query) release_query( query );
+    free( str );
+    free_path( path );
+    return hr;
+}
+
+static HRESULT append_assoc_result( struct view *view, UINT **rows, const WCHAR *object_path )
+{
+    struct table *table;
+    UINT row, *tmp;
+    HRESULT hr;
+
+    if ((hr = query_object( view->ns, object_path, &table, &row, NULL )) != S_OK || !table) return hr;
+    if (!(tmp = realloc( *rows, (view->table_count + 1) * sizeof(UINT) )))
+    {
+        release_table( table );
+        return E_OUTOFMEMORY;
+    }
+    *rows = tmp;
+    if ((hr = append_table( view, table )) != S_OK)
+    {
+        release_table( table );
+        return hr;
+    }
+    (*rows)[view->table_count - 1] = row;
+    return S_OK;
+}
+
+static HRESULT append_assoc_results( struct view *view, UINT **rows, const WCHAR *assocclass, const WCHAR *role,
+                                     const WCHAR *result_role, const WCHAR *relpath )
+{
+    static const WCHAR fmtW[] = L"SELECT * FROM %s";
+    struct query *query = NULL;
+    VARIANT value, other;
+    UINT len, i;
+    WCHAR *str;
+    HRESULT hr;
+
+    len = lstrlenW( assocclass ) + ARRAY_SIZE(fmtW);
+    if (!(str = malloc( len * sizeof(WCHAR) ))) return E_OUTOFMEMORY;
+    swprintf( str, len, fmtW, assocclass );
+    hr = do_query( view->ns, str, &query );
+    free( str );
+    if (hr != S_OK) return hr;
+
+    for (i = 0; i < query->view->result_count && hr == S_OK; i++)
+    {
+        if (get_propval( query->view, i, role, &value, NULL, NULL ) != S_OK) continue;
+        if (V_VT( &value ) == VT_BSTR && !wcsicmp( skip_path_namespace( V_BSTR( &value ) ), relpath ) &&
+            get_propval( query->view, i, result_role, &other, NULL, NULL ) == S_OK)
+        {
+            if (V_VT( &other ) == VT_BSTR) hr = append_assoc_result( view, rows, V_BSTR( &other ) );
+            VariantClear( &other );
+        }
+        VariantClear( &value );
+    }
+    release_query( query );
+    return hr;
+}
+
+static HRESULT exec_assoc_view( struct view *view )
+{
+    const WCHAR *assocclass = get_keyword_value( view->keywordlist, L"AssocClass" );
+    const WCHAR *resultclass = get_keyword_value( view->keywordlist, L"ResultClass" );
+    const WCHAR *role = get_keyword_value( view->keywordlist, L"Role" );
+    const WCHAR *resultrole = get_keyword_value( view->keywordlist, L"ResultRole" );
+    struct query *assoc = NULL;
+    struct table *target;
+    struct path *path;
+    BSTR relpath = NULL;
+    UINT target_row, i, *rows = NULL;
+    VARIANT name, dependent, antecedent;
+    HRESULT hr;
+
+    if ((hr = parse_path( view->path, &path )) != S_OK) return hr;
+    if (query_object( view->ns, view->path, &target, &target_row, &relpath ) != S_OK) goto done;
+    if (!target || !relpath)
+    {
+        if (target) release_table( target );
+        hr = WBEM_E_NOT_FOUND;
+        goto done;
+    }
+    release_table( target );
+
+    if ((hr = do_query( view->ns, L"SELECT * FROM __ASSOCIATORS", &assoc )) != S_OK) goto done;
+    for (i = 0; i < assoc->view->result_count && hr == S_OK; i++)
+    {
+        if (get_propval( assoc->view, i, L"AssocClass", &name, NULL, NULL ) != S_OK) continue;
+        if (get_propval( assoc->view, i, L"Class", &dependent, NULL, NULL ) != S_OK)
+        {
+            VariantClear( &name );
+            continue;
+        }
+        if (get_propval( assoc->view, i, L"Associator", &antecedent, NULL, NULL ) != S_OK)
+        {
+            VariantClear( &dependent );
+            VariantClear( &name );
+            continue;
+        }
+
+        if (!assocclass || !wcsicmp( assocclass, V_BSTR( &name ) ))
+        {
+            if (!wcsicmp( path->class, V_BSTR( &dependent ) ) &&
+                (!role || !wcsicmp( role, L"Dependent" )) &&
+                (!resultrole || !wcsicmp( resultrole, L"Antecedent" )) &&
+                (!resultclass || !wcsicmp( resultclass, V_BSTR( &antecedent ) )))
+            {
+                hr = append_assoc_results( view, &rows, V_BSTR( &name ), L"Dependent", L"Antecedent", relpath );
+            }
+            if (hr == S_OK && !wcsicmp( path->class, V_BSTR( &antecedent ) ) &&
+                (!role || !wcsicmp( role, L"Antecedent" )) &&
+                (!resultrole || !wcsicmp( resultrole, L"Dependent" )) &&
+                (!resultclass || !wcsicmp( resultclass, V_BSTR( &dependent ) )))
+            {
+                hr = append_assoc_results( view, &rows, V_BSTR( &name ), L"Antecedent", L"Dependent", relpath );
+            }
+        }
+        VariantClear( &antecedent );
+        VariantClear( &dependent );
+        VariantClear( &name );
+    }
+
+    if (hr == S_OK && view->table_count)
+    {
+        view->result = rows;
+        view->result_count = view->table_count;
+        rows = NULL;
+    }
+
+done:
+    free( rows );
+    if (assoc) release_query( assoc );
+    SysFreeString( relpath );
+    free_path( path );
+    return hr;
+}
+#else
 static HRESULT get_antecedent_table( enum wbm_namespace ns, const WCHAR *assocclass, const WCHAR *dependent,
                                      struct table **table )
 {
@@ -692,6 +925,7 @@ done:
     free_path( path );
     return hr;
 }
+#endif
 
 static HRESULT exec_select_view( struct view *view )
 {
@@ -1251,9 +1485,33 @@ HRESULT get_propval( const struct view *view, UINT index, const WCHAR *name, VAR
         val_ptr = get_value_bstr( table, row, column );
         break;
     case CIM_UINT64:
+#ifdef __REACTOS__
+        if ((table->columns[column].type & COL_FLAG_NULLABLE) && (ULONGLONG)val == ~0ull)
+        {
+            vartype = VT_NULL;
+            break;
+        }
+#endif
         vartype = VT_BSTR;
         val_ptr = get_value_bstr( table, row, column );
         break;
+#ifdef __REACTOS__
+    case CIM_BOOLEAN:
+        if ((table->columns[column].type & COL_FLAG_NULLABLE) && val == WBEMPROX_NULL_BOOLEAN)
+            vartype = VT_NULL;
+        break;
+    case CIM_UINT32:
+        if ((table->columns[column].type & COL_FLAG_NULLABLE) && val == WBEMPROX_NULL_UINT32)
+            vartype = VT_NULL;
+        break;
+    case CIM_SINT8:
+    case CIM_UINT8:
+    case CIM_SINT16:
+    case CIM_UINT16:
+    case CIM_SINT32:
+    case CIM_REAL32:
+        break;
+#else
     case CIM_BOOLEAN:
     case CIM_SINT8:
     case CIM_UINT8:
@@ -1263,6 +1521,7 @@ HRESULT get_propval( const struct view *view, UINT index, const WCHAR *name, VAR
     case CIM_UINT32:
     case CIM_REAL32:
         break;
+#endif
     default:
         ERR("unhandled column type %u\n", table->columns[column].type);
         return WBEM_E_FAILED;

@@ -43,6 +43,88 @@ static const struct
 }
 alias_map[] =
 {
+#ifdef __REACTOS__
+    { L"baseboard", L"Win32_BaseBoard" },
+    { L"bios", L"Win32_BIOS" },
+    { L"bootconfig", L"Win32_BootConfiguration" },
+    { L"cdrom", L"Win32_CDROMDrive" },
+    { L"computersystem", L"Win32_ComputerSystem" },
+    { L"cpu", L"WIN32_PROCESSOR" },
+    { L"csproduct", L"Win32_ComputerSystemProduct" },
+    { L"datafile", L"CIM_DataFile" },
+    { L"dcomapp", L"WIN32_DCOMApplication" },
+    { L"desktop", L"WIN32_DESKTOP" },
+    { L"desktopmonitor", L"WIN32_DESKTOPMONITOR" },
+    { L"devicememoryaddress", L"Win32_DeviceMemoryAddress" },
+    { L"diskdrive", L"Win32_DiskDrive" },
+    { L"diskquota", L"Win32_DiskQuota" },
+    { L"dmachannel", L"Win32_DMAChannel" },
+    { L"environment", L"Win32_Environment" },
+    { L"fsdir", L"Win32_Directory" },
+    { L"group", L"Win32_Group" },
+    { L"idecontroller", L"Win32_IDEController" },
+    { L"irq", L"Win32_IRQResource" },
+    { L"job", L"Win32_ScheduledJob" },
+    { L"loadorder", L"Win32_LoadOrderGroup" },
+    { L"logicaldisk", L"Win32_LogicalDisk" },
+    { L"logon", L"Win32_LogonSession" },
+    { L"memcache", L"WIN32_CACHEMEMORY" },
+    { L"memorychip", L"Win32_PhysicalMemory" },
+    { L"memphysical", L"Win32_PhysicalMemoryArray" },
+    { L"netclient", L"WIN32_NetworkClient" },
+    { L"netlogin", L"Win32_NetworkLoginProfile" },
+    { L"netprotocol", L"Win32_NetworkProtocol" },
+    { L"netuse", L"Win32_NetworkConnection" },
+    { L"nic", L"Win32_NetworkAdapter" },
+    { L"nicconfig", L"Win32_NetworkAdapterConfiguration" },
+    { L"ntdomain", L"Win32_NTDomain" },
+    { L"ntevent", L"Win32_NTLogEvent" },
+    { L"nteventlog", L"Win32_NTEventlogFile" },
+    { L"onboarddevice", L"Win32_OnBoardDevice" },
+    { L"os", L"Win32_OperatingSystem" },
+    { L"pagefile", L"Win32_PageFileUsage" },
+    { L"pagefileset", L"Win32_PageFileSetting" },
+    { L"partition", L"Win32_DiskPartition" },
+    { L"port", L"Win32_PortResource" },
+    { L"portconnector", L"Win32_PortConnector" },
+    { L"printer", L"Win32_Printer" },
+    { L"printerconfig", L"Win32_PrinterConfiguration" },
+    { L"printjob", L"Win32_PrintJob" },
+    { L"process", L"Win32_Process" },
+    { L"product", L"Win32_Product" },
+    { L"qfe", L"Win32_QuickFixEngineering" },
+    { L"quotasetting", L"Win32_QuotaSetting" },
+    { L"rdaccount", L"Win32_TSAccount" },
+    { L"rdnic", L"Win32_TSNetworkAdapterSetting" },
+    { L"rdpermissions", L"Win32_TSPermissionsSetting" },
+    { L"rdtoggle", L"Win32_TerminalServiceSetting" },
+    { L"recoveros", L"Win32_OSRecoveryConfiguration" },
+    { L"registry", L"Win32_Registry" },
+    { L"scsicontroller", L"Win32_SCSIController" },
+    { L"server", L"Win32_PerfRawData_PerfNet_Server" },
+    { L"service", L"Win32_Service" },
+    { L"shadowcopy", L"Win32_ShadowCopy" },
+    { L"shadowstorage", L"Win32_ShadowStorage" },
+    { L"share", L"Win32_Share" },
+    { L"softwareelement", L"Win32_SoftwareElement" },
+    { L"softwarefeature", L"Win32_SoftwareFeature" },
+    { L"sounddev", L"WIN32_SoundDevice" },
+    { L"startup", L"Win32_StartupCommand" },
+    { L"sysaccount", L"Win32_SystemAccount" },
+    { L"sysdriver", L"Win32_SystemDriver" },
+    { L"systemenclosure", L"Win32_SystemEnclosure" },
+    { L"systemslot", L"Win32_SystemSlot" },
+    { L"tapedrive", L"Win32_TapeDrive" },
+    { L"temperature", L"Win32_TemperatureProbe" },
+    { L"timezone", L"Win32_TimeZone" },
+    { L"ups", L"Win32_UninterruptiblePowerSupply" },
+    { L"useraccount", L"Win32_UserAccount" },
+    { L"voltage", L"Win32_VoltageProbe" },
+    { L"volume", L"Win32_Volume" },
+    { L"volumequotasetting", L"Win32_VolumeQuotaSetting" },
+    { L"volumeuserquota", L"Win32_VolumeUserQuota" },
+    { L"wmiset", L"Win32_WMISetting" },
+#else
     { L"baseboard", L"Win32_BaseBoard" },
     { L"bios", L"Win32_BIOS" },
     { L"computersystem", L"Win32_ComputerSystem" },
@@ -57,7 +139,57 @@ alias_map[] =
     { L"process", L"Win32_Process" },
     { L"qfe", L"Win32_QuickFixEngineering" },
     { L"systemenclosure", L"Win32_SystemEnclosure" },
+#endif
 };
+
+#ifdef __REACTOS__
+static WCHAR *where_clause;
+static const WCHAR *raw_command;
+
+static WCHAR *get_raw_where_clause( const WCHAR *cmdline )
+{
+    const WCHAR *p = cmdline, *start, *cond = NULL, *cond_end = NULL;
+    BOOL in_quotes;
+    WCHAR *ret;
+    int len;
+
+    if (!p) return NULL;
+    while (*p)
+    {
+        while (*p == ' ' || *p == '\t') p++;
+        if (!*p) break;
+        start = p;
+        in_quotes = FALSE;
+        while (*p && (in_quotes || (*p != ' ' && *p != '\t')))
+        {
+            if (*p == '"') in_quotes = !in_quotes;
+            p++;
+        }
+        if (cond)
+        {
+            if (p - start == 3 && !wcsnicmp( start, L"get", 3 )) break;
+            cond_end = p;
+        }
+        else if (p - start == 5 && !wcsnicmp( start, L"where", 5 ))
+        {
+            cond = p;
+        }
+    }
+    if (!cond || !cond_end) return NULL;
+
+    while (*cond == ' ' || *cond == '\t') cond++;
+    len = cond_end - cond;
+    if (len >= 2 && cond[0] == '"' && cond[len - 1] == '"')
+    {
+        cond++;
+        len -= 2;
+    }
+    if (!(ret = malloc( (len + 1) * sizeof(WCHAR) ))) return NULL;
+    memcpy( ret, cond, len * sizeof(WCHAR) );
+    ret[len] = 0;
+    return ret;
+}
+#endif
 
 static const WCHAR *find_class( const WCHAR *alias )
 {
@@ -174,14 +306,30 @@ error:
     return hr;
 }
 
+#ifdef __REACTOS__
+static void convert_to_bstr( VARIANT *v, CIMTYPE type )
+#else
 static void convert_to_bstr( VARIANT *v )
+#endif
 {
     BSTR out = NULL;
     VARTYPE vt;
 
     /* treat VT_I4 values as unsigned */
+#ifdef __REACTOS__
+    if (V_VT(v) == VT_I4 && type != CIM_SINT32) V_VT(v) = VT_UI4;
+#else
     if (V_VT(v) == VT_I4) V_VT(v) = VT_UI4;
+#endif
 
+#ifdef __REACTOS__
+    if (V_VT(v) == VT_BOOL)
+    {
+        vt = VT_BOOL;
+        out = SysAllocString( V_BOOL(v) ? L"TRUE" : L"FALSE" );
+        goto done;
+    }
+#endif
     if (SUCCEEDED(VariantChangeType( v, v, 0, VT_BSTR ))) return;
     vt = V_VT(v);
     if (vt == (VT_ARRAY | VT_BSTR))
@@ -243,6 +391,10 @@ static int query_prop( const WCHAR *class, int argc, WCHAR *argv[] )
     ULONG count, width = 0;
     VARIANT v;
     int i;
+#ifdef __REACTOS__
+    BOOL list = FALSE;
+    CIMTYPE type;
+#endif
 
     WINE_TRACE( "%s", debugstr_w(class) );
     for (i = 0; i < argc; i++) WINE_TRACE( " %s", debugstr_w(argv[i]) );
@@ -269,6 +421,30 @@ static int query_prop( const WCHAR *class, int argc, WCHAR *argv[] )
         goto done;
     }
 
+#ifdef __REACTOS__
+    {
+        int props = 0;
+
+        for (i = 0; i < argc; i++)
+        {
+            if (argv[i][0] != '/')
+            {
+                argv[props++] = argv[i];
+                continue;
+            }
+            if (!wcsicmp( argv[i], L"/value" ) || !wcsicmp( argv[i], L"/format:list" ))
+                list = TRUE;
+            else if (wcsicmp( argv[i], L"/all" ) && wcsicmp( argv[i], L"/format:table" ))
+            {
+                IWbemClassObject_Release( obj );
+                output_error( STRING_INVALID_QUERY );
+                goto done;
+            }
+        }
+        argc = props;
+    }
+#endif
+
     /* Check that this class supports all requested properties. */
     hr = process_property_list( obj, argc, argv, &proplist );
     IWbemClassObject_Release( obj );
@@ -277,14 +453,55 @@ static int query_prop( const WCHAR *class, int argc, WCHAR *argv[] )
         output_error( STRING_INVALID_QUERY );
         goto done;
     }
+#ifdef __REACTOS__
+    if (!*proplist)
+    {
+        free( proplist );
+        if (!(proplist = wcsdup( L"*" ))) goto done;
+    }
+#endif
 
+#ifdef __REACTOS__
+    len = lstrlenW( class ) + lstrlenW( proplist ) + ARRAY_SIZE(L"SELECT * FROM ");
+    if (where_clause) len += lstrlenW( where_clause ) + ARRAY_SIZE(L" WHERE ");
+    if (!(query = SysAllocStringLen( NULL, len ))) goto done;
+    if (where_clause)
+        swprintf( query, len, L"SELECT %s FROM %s WHERE %s", proplist, class, where_clause );
+    else
+        swprintf( query, len, L"SELECT %s FROM %s", proplist, class );
+#else
     len = lstrlenW( class ) + lstrlenW( proplist ) + ARRAY_SIZE(L"SELECT * FROM ");
     if (!(query = SysAllocStringLen( NULL, len ))) goto done;
     swprintf( query, len, L"SELECT %s FROM %s", proplist, class );
+#endif
 
     if (!(wql = SysAllocString(L"WQL" ))) goto done;
     hr = IWbemServices_ExecQuery( services, wql, query, flags, NULL, &result );
     if (hr != S_OK) goto done;
+
+#ifdef __REACTOS__
+    if (list)
+    {
+        for (;;)
+        {
+            IEnumWbemClassObject_Next( result, WBEM_INFINITE, 1, &obj, &count );
+            if (!count) break;
+            output_string( L"\n\n" );
+            IWbemClassObject_BeginEnumeration( obj, WBEM_FLAG_NONSYSTEM_ONLY );
+            while (IWbemClassObject_Next( obj, 0, &name, &v, &type, NULL ) == S_OK)
+            {
+                convert_to_bstr( &v, type );
+                output_string( L"%s=%s\n", name, V_BSTR( &v ) );
+                VariantClear( &v );
+                SysFreeString( name );
+            }
+            IWbemClassObject_Release( obj );
+        }
+        output_string( L"\n\n" );
+        ret = 0;
+        goto done;
+    }
+#endif
 
     for (;;) /* get column width */
     {
@@ -292,9 +509,15 @@ static int query_prop( const WCHAR *class, int argc, WCHAR *argv[] )
         if (!count) break;
 
         IWbemClassObject_BeginEnumeration( obj, WBEM_FLAG_NONSYSTEM_ONLY );
+#ifdef __REACTOS__
+        while (IWbemClassObject_Next( obj, 0, &name, &v, &type, NULL ) == S_OK)
+        {
+            convert_to_bstr( &v, type );
+#else
         while (IWbemClassObject_Next( obj, 0, &name, &v, NULL, NULL ) == S_OK)
         {
             convert_to_bstr( &v );
+#endif
             width = max( lstrlenW( V_BSTR( &v ) ), width );
             VariantClear( &v );
             SysFreeString( name );
@@ -326,9 +549,15 @@ static int query_prop( const WCHAR *class, int argc, WCHAR *argv[] )
         IEnumWbemClassObject_Next( result, WBEM_INFINITE, 1, &obj, &count );
         if (!count) break;
         IWbemClassObject_BeginEnumeration( obj, WBEM_FLAG_NONSYSTEM_ONLY );
+#ifdef __REACTOS__
+        while (IWbemClassObject_Next( obj, 0, NULL, &v, &type, NULL ) == S_OK)
+        {
+            convert_to_bstr( &v, type );
+#else
         while (IWbemClassObject_Next( obj, 0, NULL, &v, NULL, NULL ) == S_OK)
         {
             convert_to_bstr( &v );
+#endif
             output_text( V_BSTR( &v ), width );
             VariantClear( &v );
         }
@@ -399,11 +628,43 @@ static int process_args( int argc, WCHAR *argv[] )
     if (++i >= argc)
         goto not_supported;
 
+#ifdef __REACTOS__
+    if (!wcsicmp( argv[i], L"where" ))
+    {
+        int first = ++i, len = 0, j;
+
+        while (i < argc && wcsicmp( argv[i], L"get" )) len += lstrlenW( argv[i++] ) + 1;
+        if (i == first)
+        {
+            output_error( STRING_INVALID_QUERY );
+            return 1;
+        }
+        free( where_clause );
+        if (!(where_clause = get_raw_where_clause( raw_command )))
+        {
+            if (!(where_clause = malloc( len * sizeof(WCHAR) ))) return 1;
+            where_clause[0] = 0;
+            for (j = first; j < i; j++)
+            {
+                if (j > first) lstrcatW( where_clause, L" " );
+                lstrcatW( where_clause, argv[j] );
+            }
+        }
+        if (i >= argc)
+            goto not_supported;
+    }
+#endif
+
     if (!wcsicmp( argv[i], L"get" ))
     {
+#ifdef __REACTOS__
+        ++i;
+        return query_prop( class, argc - i, argv + i );
+#else
         if (++i >= argc)
             goto not_supported;
         return query_prop( class, argc - i, argv + i );
+#endif
     }
 
 not_supported:
@@ -441,6 +702,9 @@ int __cdecl wmain(int argc, WCHAR *argv[])
                 WCHAR **new_argv;
 
                 if (!(new_argv = CommandLineToArgvW( stripped, &new_argc ))) return 1;
+#ifdef __REACTOS__
+                raw_command = stripped;
+#endif
                 ret = process_args( new_argc, new_argv );
                 LocalFree( new_argv );
 
@@ -451,5 +715,8 @@ int __cdecl wmain(int argc, WCHAR *argv[])
         return ret;
     }
 
+#ifdef __REACTOS__
+    raw_command = GetCommandLineW();
+#endif
     return process_args( argc - 1, argv + 1 );
 }

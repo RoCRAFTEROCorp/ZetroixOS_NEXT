@@ -3856,6 +3856,24 @@ XHCI_PerformEndpointResetSequence(
                                                       &Endpoint->TransferRing);
         if (DeqStatus != MP_STATUS_SUCCESS)
         {
+            PXHCI_ENDPOINT_CONTEXT EpCtx = NULL;
+
+            DevCtx = Endpoint->Slot->DeviceContext.VirtualAddress;
+            if (DevCtx)
+                EpCtx = XHCI_GetDeviceEndpointContextVa(Extension, DevCtx, Endpoint->EndpointId - 1);
+            if (EpCtx &&
+                (EpCtx->EpInfo & XHCI_EPCTX_STATE_MASK) == XHCI_EPCTX_STATE_HALTED &&
+                XHCI_ResetEndpoint(Extension, Endpoint->Slot, Endpoint->EndpointId) == MP_STATUS_SUCCESS)
+            {
+                TransferStateReset = TRUE;
+                DeqStatus = XHCI_SetEndpointDequeue(Extension,
+                                                    Endpoint->Slot,
+                                                    Endpoint->EndpointId,
+                                                    &Endpoint->TransferRing);
+            }
+        }
+        if (DeqStatus != MP_STATUS_SUCCESS)
+        {
             DPRINT1("usbxhci: EndpointResetSequence slot=%u ep=%u SET_TR_DEQUEUE failed (status=%lu)\n",
                     Endpoint->SlotId,
                     Endpoint->EndpointId,
@@ -4217,6 +4235,47 @@ XHCI_SgListHasHighAddress(
     }
 
     return FALSE;
+}
+
+static
+BOOLEAN
+XHCI_SgListBouncedByHal(
+    _In_opt_ PUSBPORT_SCATTER_GATHER_LIST SgList)
+{
+    ULONG Index;
+
+    if (!SgList || !SgList->MappedSystemVa)
+        return FALSE;
+
+    for (Index = 0; Index < SgList->SgElementCount; Index++)
+    {
+        PHYSICAL_ADDRESS Physical;
+
+        if (SgList->SgElement[Index].SgTransferLength == 0)
+            continue;
+
+        Physical = MmGetPhysicalAddress((PUCHAR)SgList->MappedSystemVa +
+                                        SgList->SgElement[Index].SgOffset);
+        if ((Physical.QuadPart >> 32) != 0 &&
+            (SgList->SgElement[Index].SgPhysicalAddress.QuadPart >> 32) == 0)
+        {
+            return TRUE;
+        }
+    }
+
+    return FALSE;
+}
+
+static
+BOOLEAN
+XHCI_UsesNonCoherentBounce(
+    _In_ PXHCI_EXTENSION Extension,
+    _In_opt_ PUSBPORT_SCATTER_GATHER_LIST SgList)
+{
+    if (!(Extension->Quirks & XHCI_QUIRK_NON_COHERENT_DMA))
+        return FALSE;
+
+    return !(XHCI_Requires32BitDma(Extension) && XHCI_SgListBouncedByHal(SgList));
 }
 
 static
@@ -5618,6 +5677,9 @@ XHCI_AcknowledgeInterrupter(
     Iman = XHCI_READ_REGISTER_ULONG(&Interrupter->Iman);
     if ((Iman & XHCI_IMAN_IP) == 0)
         return;
+
+    if (Extension->OperationalRegisters)
+        XHCI_WRITE_REGISTER_ULONG(&Extension->OperationalRegisters->UsbSts, XHCI_USBSTS_EINT);
 
     /* IMAN.IP is RW1C. Preserve IE and flush the posted acknowledgement. */
     XHCI_WRITE_REGISTER_ULONG(&Interrupter->Iman, XHCI_IMAN_IP | (Iman & XHCI_IMAN_IE));
@@ -11398,7 +11460,7 @@ XHCI_SubmitControlTransfer(
 
     if (HasDataStage &&
         (ForceBounce ||
-         (Extension->Quirks & XHCI_QUIRK_NON_COHERENT_DMA) ||
+         XHCI_UsesNonCoherentBounce(Extension, SgList) ||
          (XHCI_Requires32BitDma(Extension) &&
           XHCI_SgListHasHighAddress(SgList, &HighAddress))))
     {
@@ -12021,7 +12083,7 @@ XHCI_SubmitSgTransfer(
      * noncached page. Do not allocate and copy through a second bounce page. */
     if (Remaining &&
         !(TransferParameters->TransferFlags & USBPORT_TRANSFER_FLAG_DUMP) &&
-        ((Extension->Quirks & XHCI_QUIRK_NON_COHERENT_DMA) ||
+        (XHCI_UsesNonCoherentBounce(Extension, SgList) ||
          (XHCI_Requires32BitDma(Extension) &&
           XHCI_SgListHasHighAddress(SgList, &HighAddress))))
     {
@@ -13940,7 +14002,7 @@ XHCI_SubmitIsochronousTransfer(
         if (!SgList || SgList->SgElementCount == 0)
             return MP_STATUS_NO_RESOURCES;
 
-        if ((Extension->Quirks & XHCI_QUIRK_NON_COHERENT_DMA) ||
+        if (XHCI_UsesNonCoherentBounce(Extension, SgList) ||
             (XHCI_Requires32BitDma(Extension) &&
              XHCI_SgListHasHighAddress(SgList, &HighAddress)))
         {
@@ -14828,7 +14890,8 @@ XHCI_DisableInterrupts(PVOID MiniPortExtension)
     PXHCI_EXTENSION Extension = MiniPortExtension;
     ULONG Command;
     ULONG StsAck;
-    PXHCI_INTERRUPTER_REGISTER_SET Interrupter;
+    ULONG Iman = 0;
+    PXHCI_INTERRUPTER_REGISTER_SET Interrupter = NULL;
 
     if (!Extension || !Extension->OperationalRegisters)
         return;
@@ -14838,6 +14901,12 @@ XHCI_DisableInterrupts(PVOID MiniPortExtension)
     Command &= ~XHCI_USBCMD_INTE;
     XHCI_WRITE_REGISTER_ULONG(&Extension->OperationalRegisters->UsbCmd, Command);
     Extension->InterruptsEnabled = FALSE;
+
+    if (Extension->RuntimeRegisters)
+    {
+        Interrupter = &Extension->RuntimeRegisters->Interrupter[0];
+        Iman = XHCI_READ_REGISTER_ULONG(&Interrupter->Iman);
+    }
 
     /*
      * Clear all pending USBSTS write-to-clear bits. This deasserts the
@@ -14849,19 +14918,16 @@ XHCI_DisableInterrupts(PVOID MiniPortExtension)
     StsAck = XHCI_READ_REGISTER_ULONG(&Extension->OperationalRegisters->UsbSts);
     StsAck &= (XHCI_USBSTS_EINT | XHCI_USBSTS_PCD |
                 XHCI_USBSTS_HSE | XHCI_USBSTS_HCE);
+    if (!(Iman & XHCI_IMAN_IP))
+        StsAck &= ~XHCI_USBSTS_EINT;
     if (StsAck)
     {
         XHCI_WRITE_REGISTER_ULONG(&Extension->OperationalRegisters->UsbSts, StsAck);
     }
 
-    if (Extension->RuntimeRegisters)
+    if (Interrupter)
     {
-        Interrupter = &Extension->RuntimeRegisters->Interrupter[0];
-        /*
-         * Clear IE to disable interrupter. Also write IP=1 (RW1C) to clear
-         * any pending interrupt. Only write the defined bits, IE=0 disables.
-         */
-        XHCI_WRITE_REGISTER_ULONG(&Interrupter->Iman, XHCI_IMAN_IP);
+        XHCI_WRITE_REGISTER_ULONG(&Interrupter->Iman, (Iman & XHCI_IMAN_IP) | XHCI_IMAN_IE);
         (VOID)XHCI_READ_REGISTER_ULONG(&Interrupter->Iman);
     }
 }

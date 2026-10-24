@@ -46,6 +46,11 @@ enum param_direction
 #define COL_FLAG_DYNAMIC 0x00010000
 #define COL_FLAG_KEY     0x00020000
 #define COL_FLAG_METHOD  0x00040000
+#ifdef __REACTOS__
+#define COL_FLAG_NULLABLE 0x00080000
+#define WBEMPROX_NULL_BOOLEAN 0x7fffffff
+#define WBEMPROX_NULL_UINT32  0xffffffff
+#endif
 
 typedef HRESULT (class_method)(IWbemClassObject *object, IWbemContext *context, IWbemClassObject *in_params,
         IWbemClassObject **out_params);
