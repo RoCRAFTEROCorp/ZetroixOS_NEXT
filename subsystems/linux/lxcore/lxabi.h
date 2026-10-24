@@ -43,6 +43,10 @@
 #define LX_ELOOP            40
 #define LX_ELIBBAD          80
 #define LX_ETIMEDOUT        110
+#define LX_EIDRM            43
+#define LX_ERESTARTSYS      512
+#define LX_ERESTARTNOINTR   513
+#define LX_ERESTARTNOHAND   514
 #define LX_ENOTBLK          15
 #define LX_ETXTBSY          26
 #define LX_EMLINK           31
@@ -171,6 +175,7 @@
 #define LX_SEEK_END         2
 
 #define LX_S_IFMT           0170000
+#define LX_S_ISVTX          0001000
 #define LX_S_IFDIR          0040000
 #define LX_S_IFCHR          0020000
 #define LX_S_IFREG          0100000
@@ -221,6 +226,39 @@ typedef struct _LX_OPEN_HOW
     ULONG64 Resolve;
 } LX_OPEN_HOW, *PLX_OPEN_HOW;
 
+#define LX_SCHED_NORMAL     0
+#define LX_SCHED_FIFO       1
+#define LX_SCHED_RR         2
+#define LX_SCHED_BATCH      3
+#define LX_SCHED_IDLE       5
+#define LX_SCHED_DEADLINE   6
+#define LX_SCHED_EXT        7
+#define LX_SCHED_RESET_ON_FORK          0x40000000
+#define LX_SCHED_FLAG_RESET_ON_FORK     0x01
+#define LX_SCHED_FLAG_KEEP_POLICY       0x08
+#define LX_SCHED_FLAG_KEEP_PARAMS       0x10
+#define LX_SCHED_FLAG_UTIL_CLAMP_MIN    0x20
+#define LX_SCHED_FLAG_UTIL_CLAMP_MAX    0x40
+#define LX_SCHED_FLAG_ALL               0x7F
+#define LX_SCHED_ATTR_SIZE_VER0         48
+#define LX_PRIO_PROCESS     0
+#define LX_PRIO_PGRP        1
+#define LX_PRIO_USER        2
+
+typedef struct _LX_SCHED_ATTR
+{
+    ULONG Size;
+    ULONG Policy;
+    ULONG64 Flags;
+    LONG Nice;
+    ULONG Priority;
+    ULONG64 Runtime;
+    ULONG64 Deadline;
+    ULONG64 Period;
+    ULONG UtilMin;
+    ULONG UtilMax;
+} LX_SCHED_ATTR, *PLX_SCHED_ATTR;
+
 #define LX_MS_ASYNC         1
 #define LX_MS_INVALIDATE    2
 #define LX_MS_SYNC          4
@@ -255,6 +293,9 @@ typedef struct _LX_OPEN_HOW
 #define LX_CLOCK_REALTIME_COARSE    5
 #define LX_CLOCK_MONOTONIC_COARSE   6
 #define LX_CLOCK_BOOTTIME           7
+#define LX_CLOCK_REALTIME_ALARM     8
+#define LX_CLOCK_BOOTTIME_ALARM     9
+#define LX_CLOCK_TAI                11
 
 #define LX_TCGETS           0x5401
 #define LX_TCSETS           0x5402
@@ -442,13 +483,298 @@ typedef struct _LX_OPEN_HOW
 
 #define LX_FUTEX_WAIT           0
 #define LX_FUTEX_WAKE           1
+#define LX_FUTEX_REQUEUE        3
+#define LX_FUTEX_CMP_REQUEUE    4
+#define LX_FUTEX_WAKE_OP        5
+#define LX_FUTEX_LOCK_PI        6
+#define LX_FUTEX_UNLOCK_PI      7
+#define LX_FUTEX_TRYLOCK_PI     8
 #define LX_FUTEX_WAIT_BITSET    9
 #define LX_FUTEX_WAKE_BITSET    10
+#define LX_FUTEX_WAIT_REQUEUE_PI 11
+#define LX_FUTEX_LOCK_PI2       13
 #define LX_FUTEX_PRIVATE        128
 #define LX_FUTEX_CLOCK_REALTIME 256
+#define LX_FUTEX_OP_OPARG_SHIFT 8
+#define LX_FUTEX_BITSET_MATCH_ANY 0xFFFFFFFF
+#define LX_FUTEX_WAITERS        0x80000000
+#define LX_FUTEX_OWNER_DIED     0x40000000
+#define LX_FUTEX_TID_MASK       0x3FFFFFFF
+#define LX_ROBUST_LIST_LIMIT    2048
+#define LX_FUTEX2_SIZE_U32      0x02
+#define LX_FUTEX2_SIZE_MASK     0x03
+#define LX_FUTEX2_NUMA          0x04
+#define LX_FUTEX2_MPOL          0x08
+#define LX_FUTEX2_PRIVATE       LX_FUTEX_PRIVATE
+#define LX_FUTEX2_VALID_MASK    (LX_FUTEX2_SIZE_MASK | LX_FUTEX2_NUMA | LX_FUTEX2_MPOL | LX_FUTEX2_PRIVATE)
+#define LX_FUTEX_NO_NODE        0xFFFFFFFF
+#define LX_FUTEX_WAITV_MAX      128
+
+#define LX_IPC_PRIVATE          0
+#define LX_IPC_CREAT            01000
+#define LX_IPC_EXCL             02000
+#define LX_IPC_NOWAIT           04000
+#define LX_IPC_RMID             0
+#define LX_IPC_SET              1
+#define LX_IPC_STAT             2
+#define LX_IPC_INFO             3
+#define LX_SHM_HUGETLB          04000
+#define LX_SHM_RDONLY           010000
+#define LX_SHM_RND              020000
+#define LX_SHM_REMAP            040000
+#define LX_SHM_EXEC             0100000
+#define LX_SHM_LOCK             11
+#define LX_SHM_UNLOCK           12
+#define LX_SHM_STAT             13
+#define LX_SHM_INFO             14
+#define LX_SHM_STAT_ANY         15
+#define LX_SHM_DEST             01000
+#define LX_SHM_LOCKED           02000
+#define LX_SHMMNI               4096
+#define LX_SHMMAX               (~0ULL - (1ULL << 24))
+#define LX_SEM_UNDO             0x1000
+#define LX_GETPID               11
+#define LX_GETVAL               12
+#define LX_GETALL               13
+#define LX_GETNCNT              14
+#define LX_GETZCNT              15
+#define LX_SETVAL               16
+#define LX_SETALL               17
+#define LX_SEM_STAT             18
+#define LX_SEM_INFO             19
+#define LX_SEM_STAT_ANY         20
+#define LX_SEMMNI               32000
+#define LX_SEMMSL               32000
+#define LX_SEMMNS               (LX_SEMMNI * LX_SEMMSL)
+#define LX_SEMOPM               500
+#define LX_SEMVMX               32767
+#define LX_SEMAEM               LX_SEMVMX
+#define LX_SEMUSZ               20
+#define LX_MSG_STAT             11
+#define LX_MSG_INFO             12
+#define LX_MSG_STAT_ANY         13
+#define LX_MSG_NOERROR          010000
+#define LX_MSG_EXCEPT           020000
+#define LX_MSG_COPY             040000
+#define LX_MSGMNI               32000
+#define LX_MSGMAX               8192
+#define LX_MSGMNB               16384
+#define LX_MSGPOOL              (LX_MSGMNI * LX_MSGMNB / 1024)
+#define LX_MSGSSZ               16
+#define LX_MSGSEG               0xFFFF
+
+typedef struct _LX_IPC64_PERM
+{
+    LONG Key;
+    ULONG Uid;
+    ULONG Gid;
+    ULONG Cuid;
+    ULONG Cgid;
+    ULONG Mode;
+    USHORT Seq;
+    USHORT Pad2;
+    ULONG Pad3;
+    ULONG64 Unused1;
+    ULONG64 Unused2;
+} LX_IPC64_PERM, *PLX_IPC64_PERM;
+
+C_ASSERT(sizeof(LX_IPC64_PERM) == 48);
+
+typedef struct _LX_SHMID64_DS
+{
+    LX_IPC64_PERM Perm;
+    ULONG64 Segsz;
+    LONG64 Atime;
+    LONG64 Dtime;
+    LONG64 Ctime;
+    ULONG Cpid;
+    ULONG Lpid;
+    ULONG64 Nattch;
+    ULONG64 Unused4;
+    ULONG64 Unused5;
+} LX_SHMID64_DS, *PLX_SHMID64_DS;
+
+C_ASSERT(sizeof(LX_SHMID64_DS) == 112);
+
+typedef struct _LX_SHMINFO64
+{
+    ULONG64 Shmmax;
+    ULONG64 Shmmin;
+    ULONG64 Shmmni;
+    ULONG64 Shmseg;
+    ULONG64 Shmall;
+    ULONG64 Unused[4];
+} LX_SHMINFO64, *PLX_SHMINFO64;
+
+typedef struct _LX_SHM_USAGE
+{
+    LONG UsedIds;
+    ULONG64 ShmTot;
+    ULONG64 ShmRss;
+    ULONG64 ShmSwp;
+    ULONG64 SwapAttempts;
+    ULONG64 SwapSuccesses;
+} LX_SHM_USAGE, *PLX_SHM_USAGE;
+
+C_ASSERT(sizeof(LX_SHM_USAGE) == 48);
+
+typedef struct _LX_SEMID64_DS
+{
+    LX_IPC64_PERM Perm;
+    LONG64 Otime;
+    LONG64 Ctime;
+    ULONG64 Nsems;
+    ULONG64 Unused3;
+    ULONG64 Unused4;
+} LX_SEMID64_DS, *PLX_SEMID64_DS;
+
+C_ASSERT(sizeof(LX_SEMID64_DS) == 88);
+
+typedef struct _LX_SEMINFO
+{
+    LONG Semmap;
+    LONG Semmni;
+    LONG Semmns;
+    LONG Semmnu;
+    LONG Semmsl;
+    LONG Semopm;
+    LONG Semume;
+    LONG Semusz;
+    LONG Semvmx;
+    LONG Semaem;
+} LX_SEMINFO, *PLX_SEMINFO;
+
+typedef struct _LX_SEMBUF
+{
+    USHORT Num;
+    SHORT Op;
+    SHORT Flags;
+} LX_SEMBUF, *PLX_SEMBUF;
+
+C_ASSERT(sizeof(LX_SEMBUF) == 6);
+
+typedef struct _LX_MSQID64_DS
+{
+    LX_IPC64_PERM Perm;
+    LONG64 Stime;
+    LONG64 Rtime;
+    LONG64 Ctime;
+    ULONG64 Cbytes;
+    ULONG64 Qnum;
+    ULONG64 Qbytes;
+    ULONG Lspid;
+    ULONG Lrpid;
+    ULONG64 Unused4;
+    ULONG64 Unused5;
+} LX_MSQID64_DS, *PLX_MSQID64_DS;
+
+C_ASSERT(sizeof(LX_MSQID64_DS) == 120);
+
+typedef struct _LX_MSGINFO
+{
+    LONG Msgpool;
+    LONG Msgmap;
+    LONG Msgmax;
+    LONG Msgmnb;
+    LONG Msgmni;
+    LONG Msgssz;
+    LONG Msgtql;
+    USHORT Msgseg;
+} LX_MSGINFO, *PLX_MSGINFO;
+
+#define LX_MEMBARRIER_CMD_QUERY                     0
+#define LX_MEMBARRIER_CMD_GLOBAL                    0x001
+#define LX_MEMBARRIER_CMD_GLOBAL_EXPEDITED          0x002
+#define LX_MEMBARRIER_CMD_REGISTER_GLOBAL_EXPEDITED 0x004
+#define LX_MEMBARRIER_CMD_PRIVATE_EXPEDITED         0x008
+#define LX_MEMBARRIER_CMD_REGISTER_PRIVATE_EXPEDITED 0x010
+#define LX_MEMBARRIER_CMD_PRIVATE_EXPEDITED_SYNC_CORE 0x020
+#define LX_MEMBARRIER_CMD_REGISTER_PRIVATE_EXPEDITED_SYNC_CORE 0x040
+#define LX_MEMBARRIER_CMD_PRIVATE_EXPEDITED_RSEQ    0x080
+#define LX_MEMBARRIER_CMD_GET_REGISTRATIONS         0x200
+#define LX_MEMBARRIER_CMD_FLAG_CPU                  0x001
+
+#define LX_PKEY_ACCESS_MASK     0x0F
+#define LX_UIO_MAXIOV           1024
+
+#define LX_CAP_SYS_PTRACE       19
+#define LX_CAP_SYS_TIME         25
+
+#define LX_SPLICE_F_NONBLOCK    0x02
+#define LX_SPLICE_F_ALL         0x0F
+
+#define LX_KCMP_FILE            0
+#define LX_KCMP_VM              1
+#define LX_KCMP_FILES           2
+#define LX_KCMP_FS              3
+#define LX_KCMP_SIGHAND         4
+#define LX_KCMP_IO              5
+#define LX_KCMP_SYSVSEM         6
+#define LX_KCMP_EPOLL_TFD       7
+
+typedef struct _LX_KCMP_EPOLL_SLOT
+{
+    ULONG Efd;
+    ULONG Tfd;
+    ULONG Toff;
+} LX_KCMP_EPOLL_SLOT, *PLX_KCMP_EPOLL_SLOT;
+
+#define LX_ADJ_OFFSET_SS_READ   0xA001
+#define LX_STA_UNSYNC           0x0040
+#define LX_TIME_ERROR           5
+#define LX_NTP_PHASE_LIMIT      16000000
+#define LX_NTP_TOLERANCE        32768000
+#define LX_USER_TICK_USEC       10000
+
+typedef struct _LX_TIMEX
+{
+    ULONG Modes;
+    LONG Pad0;
+    LONG64 Offset;
+    LONG64 Freq;
+    LONG64 MaxError;
+    LONG64 EstError;
+    LONG Status;
+    LONG Pad1;
+    LONG64 Constant;
+    LONG64 Precision;
+    LONG64 Tolerance;
+    LONG64 TimeSeconds;
+    LONG64 TimeMicroseconds;
+    LONG64 Tick;
+    LONG64 PpsFreq;
+    LONG64 Jitter;
+    LONG Shift;
+    LONG Pad2;
+    LONG64 Stabil;
+    LONG64 JitCnt;
+    LONG64 CalCnt;
+    LONG64 ErrCnt;
+    LONG64 StbCnt;
+    LONG Tai;
+    LONG Reserved[11];
+} LX_TIMEX, *PLX_TIMEX;
+
+C_ASSERT(sizeof(LX_TIMEX) == 208);
+
+typedef struct _LX_FUTEX_WAITV
+{
+    ULONG64 Value;
+    ULONG64 Address;
+    ULONG Flags;
+    ULONG Reserved;
+} LX_FUTEX_WAITV, *PLX_FUTEX_WAITV;
+
+typedef struct _LX_ROBUST_LIST_HEAD
+{
+    ULONG64 List;
+    LONG64 FutexOffset;
+    ULONG64 ListOpPending;
+} LX_ROBUST_LIST_HEAD, *PLX_ROBUST_LIST_HEAD;
 
 #define LX_RLIMIT_STACK     3
 #define LX_RLIMIT_NOFILE    7
+#define LX_RLIMIT_MEMLOCK   8
 #define LX_RLIM_INFINITY    (~0ULL)
 
 typedef struct _LX_TIMESPEC
@@ -630,6 +956,10 @@ typedef struct _LX_WINSIZE
 #define LX_IP_RECVTTL       12
 #define LX_IP_RECVTOS       13
 #define LX_IP_FREEBIND      15
+#define LX_IP_TRANSPARENT   19
+#define LX_IP_RECVFRAGSIZE  25
+#define LX_IP_MULTICAST_ALL 49
+#define LX_IP_UNICAST_IF    50
 #define LX_IP_BIND_ADDRESS_NO_PORT 24
 #define LX_IP_MULTICAST_IF  32
 #define LX_IP_MULTICAST_TTL 33
@@ -645,6 +975,12 @@ typedef struct _LX_WINSIZE
 #define LX_IPV6_RECVERR     25
 #define LX_IPV6_V6ONLY      26
 #define LX_IPV6_RECVPKTINFO 49
+#define LX_IPV6_PKTINFO     50
+#define LX_IPV6_RECVHOPLIMIT 51
+#define LX_IPV6_RECVTCLASS  66
+#define LX_IPV6_UNICAST_IF  76
+#define LX_IPV6_RECVFRAGSIZE 77
+#define LX_IPV6_FREEBIND    78
 #define LX_IPV6_TCLASS      67
 #define LX_TCP_NODELAY      1
 #define LX_TCP_MAXSEG       2
@@ -699,6 +1035,9 @@ typedef struct _LX_SOCKADDR_IN6
 #define LX_SO_RCVTIMEO_OLD  20
 #define LX_SO_SNDTIMEO_OLD  21
 #define LX_SO_TIMESTAMP     29
+#define LX_SO_TIMESTAMPNS   35
+#define LX_SO_MARK          36
+#define LX_SO_BINDTOIFINDEX 62
 #define LX_SO_ACCEPTCONN    30
 #define LX_SO_PEERSEC       31
 #define LX_SO_SNDBUFFORCE   32

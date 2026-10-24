@@ -5,7 +5,11 @@ list(APPEND SOURCE
     fdobj.c
     file.c
     fs.c
+    futex.c
+    ipc.c
+    lxwin.c
     inet.c
+    netlink.c
     mm.c
     pipe.c
     poll.c

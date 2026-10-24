@@ -49,6 +49,15 @@ LxTimespecToNtTime(
     return Timespec->Seconds * 10000000 + Timespec->Nanoseconds / 100 + LX_UNIX_EPOCH_100NS;
 }
 
+LONG64
+LxTimespecToNs(
+    _In_ PLX_TIMESPEC Timespec)
+{
+    if (Timespec->Seconds >= MAXLONG64 / 1000000000LL - 1)
+        return MAXLONG64;
+    return Timespec->Seconds * 1000000000LL + Timespec->Nanoseconds;
+}
+
 NTSTATUS
 LxFillRandom(
     _Out_writes_bytes_(Length) PUCHAR Buffer,
@@ -280,7 +289,7 @@ LxFileWrite(
     if ((Result > 0) && (File->Mount != NULL))
     {
         File->Written = TRUE;
-        if (File->Path != NULL)
+        if ((File->Path != NULL) && (File->Type == LX_S_IFREG))
             LxVcacheInvalidatePath(File->Mount->Instance, File->Path);
         LxInotifyFileEvent(File, LX_IN_MODIFY);
     }
@@ -1172,7 +1181,7 @@ LxDeviceStat(
     Stat->Rdev = File->Rdev;
     Stat->Ino = File->Ino;
     Stat->BlkSize = 4096;
-    Stat->Dev = 5;
+    Stat->Dev = (File->Mount != NULL) ? File->Mount->Dev : 5;
     return 0;
 }
 
@@ -1207,11 +1216,34 @@ LxDeviceOpen(
             default: return NULL;
         }
     }
+    else if ((Major == 5) && (Minor == 2))
+    {
+        if (LxPtmxOpen(Process, Flags, &File) != 0)
+            return NULL;
+        File->Path = LxStrDup(Path);
+        return File;
+    }
+    else if (Major == 136)
+    {
+        Tty = LxTtyLookup(Process->Instance, Minor);
+        if (Tty == NULL)
+            return NULL;
+        if (LxTtyOpenSlave(Process, Tty, Flags | LX_O_NOCTTY, &File) != 0)
+            File = NULL;
+        LxTtyDereference(Tty);
+        if (File != NULL)
+            File->Path = LxStrDup(Path);
+        return File;
+    }
+    else if ((Major == LX_WIN_DEVICE_MAJOR) && (Minor == LX_WIN_DEVICE_MINOR))
+    {
+        return LxWinOpen(Process, Flags, Path);
+    }
     else if ((Major == 5) && (Minor == 0))
     {
         Tty = Process->Tty;
     }
-    else if (((Major == 5) && (Minor == 1)) || (Major == 136) || ((Major == 4) && (Minor <= 1)))
+    else if (((Major == 5) && (Minor == 1)) || ((Major == 4) && (Minor <= 1)))
     {
         Tty = Process->Instance->Console ? Process->Instance->Console : Process->Tty;
     }
@@ -1220,7 +1252,7 @@ LxDeviceOpen(
         return NULL;
     }
 
-    if ((Major == 5) || (Major == 136) || (Major == 4))
+    if ((Major == 5) || (Major == 4))
     {
         if (Tty == NULL)
             return NULL;

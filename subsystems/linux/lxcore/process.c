@@ -13,25 +13,14 @@
 LIST_ENTRY LxProcessList;
 FAST_MUTEX LxProcessListLock;
 
-typedef struct _LX_FUTEX_WAITER
-{
-    LIST_ENTRY Link;
-    PEPROCESS Process;
-    ULONG64 Address;
-    BOOLEAN Woken;
-    KEVENT Event;
-} LX_FUTEX_WAITER, *PLX_FUTEX_WAITER;
-
-static LIST_ENTRY LxFutexWaiters = { &LxFutexWaiters, &LxFutexWaiters };
-static FAST_MUTEX LxFutexLock;
-
 VOID
 LxProcessInitialize(VOID)
 {
     InitializeListHead(&LxProcessList);
     ExInitializeFastMutex(&LxProcessListLock);
-    InitializeListHead(&LxFutexWaiters);
-    ExInitializeFastMutex(&LxFutexLock);
+    LxFutexInitialize();
+    LxIpcInitialize();
+    LxWinInitialize();
 }
 
 PVOID
@@ -342,7 +331,7 @@ LxProcessCreate(
     Process->Umask = 022;
     Process->Dumpable = 1;
     Process->ExitSignal = LX_SIGCHLD;
-    Process->CapBounding = (1ULL << 41) - 1;
+    Process->CapBounding = ((1ULL << 41) - 1) & ~(1ULL << LX_CAP_SYS_TIME);
     Process->StartTime = (LONG64)KeQueryInterruptTime();
     LxProcessDefaultLimits(Process->Limits);
     return Process;
@@ -512,6 +501,7 @@ LxThreadCreate(
     Thread->Process = Process;
     InitializeListHead(&Thread->Link);
     Thread->AltStack.Flags = LX_SS_DISABLE;
+    Thread->Sched.UtilMax = 1024;
     Thread->CurrentSyscall = MAXULONG;
     RtlCopyMemory(Thread->Comm, Process->Comm, sizeof(Thread->Comm));
     return Thread;
@@ -759,6 +749,7 @@ LxProcessExited(
         KeCancelTimer(&Process->RealTimer->Timer);
     LxPosixTimersRelease(Process, FALSE);
     LxFdCloseAll(Process);
+    LxIpcProcessExit(Process);
     KeSetEvent(&Process->VforkDone, IO_NO_INCREMENT, FALSE);
 
     ExAcquireFastMutex(&Process->Lock);
@@ -821,86 +812,6 @@ LxProcessExited(
     LxPollWake(&Process->ExitPoll, LX_POLLIN | LX_POLLRDNORM | LX_POLLHUP);
     if (Process->Pid == 1)
         KeSetEvent(&Instance->InitExited, IO_NO_INCREMENT, FALSE);
-}
-
-LONG64
-LxFutexWait(
-    _In_ ULONG64 Address,
-    _In_ ULONG Value,
-    _In_opt_ PLARGE_INTEGER Timeout)
-{
-    PLX_FUTEX_WAITER Waiter;
-    ULONG Current;
-    NTSTATUS Status;
-    LONG64 Result;
-    BOOLEAN Woken;
-
-    if (Address & 3)
-        return -LX_EINVAL;
-
-    Waiter = LxAlloc(sizeof(*Waiter));
-    if (Waiter == NULL)
-        return -LX_ENOMEM;
-    Waiter->Process = PsGetCurrentProcess();
-    Waiter->Address = Address;
-    KeInitializeEvent(&Waiter->Event, NotificationEvent, FALSE);
-
-    Result = LxCopyFromUser(&Current, Address, sizeof(Current));
-    if ((Result == 0) && (Current != Value))
-        Result = -LX_EAGAIN;
-    if (Result != 0)
-    {
-        LxFree(Waiter);
-        return Result;
-    }
-
-    ExAcquireFastMutex(&LxFutexLock);
-    InsertTailList(&LxFutexWaiters, &Waiter->Link);
-    ExReleaseFastMutex(&LxFutexLock);
-
-    Result = LxCopyFromUser(&Current, Address, sizeof(Current));
-    if ((Result == 0) && (Current != Value))
-        Status = STATUS_SUCCESS;
-    else
-        Status = LxWaitForEvent(&Waiter->Event, Timeout);
-
-    ExAcquireFastMutex(&LxFutexLock);
-    Woken = Waiter->Woken;
-    if (!Woken)
-        RemoveEntryList(&Waiter->Link);
-    ExReleaseFastMutex(&LxFutexLock);
-    LxFree(Waiter);
-
-    if (Woken || (Status == STATUS_SUCCESS))
-        return Woken ? 0 : -LX_EAGAIN;
-    return (Status == STATUS_TIMEOUT) ? -LX_ETIMEDOUT : -LX_EINTR;
-}
-
-LONG64
-LxFutexWake(
-    _In_ ULONG64 Address,
-    _In_ LONG Count)
-{
-    PEPROCESS Process = PsGetCurrentProcess();
-    PLIST_ENTRY Entry, Next;
-    LONG Woken = 0;
-
-    ExAcquireFastMutex(&LxFutexLock);
-    for (Entry = LxFutexWaiters.Flink; (Entry != &LxFutexWaiters) && (Woken < Count); Entry = Next)
-    {
-        PLX_FUTEX_WAITER Waiter = CONTAINING_RECORD(Entry, LX_FUTEX_WAITER, Link);
-
-        Next = Entry->Flink;
-        if ((Waiter->Process == Process) && (Waiter->Address == Address))
-        {
-            RemoveEntryList(&Waiter->Link);
-            Waiter->Woken = TRUE;
-            KeSetEvent(&Waiter->Event, IO_NO_INCREMENT, FALSE);
-            Woken++;
-        }
-    }
-    ExReleaseFastMutex(&LxFutexLock);
-    return Woken;
 }
 
 LONG
