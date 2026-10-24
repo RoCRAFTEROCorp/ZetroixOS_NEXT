@@ -12,10 +12,16 @@
 #include <windef.h>
 #include <winbase.h>
 #include <wincon.h>
+#include <winuser.h>
+#define COBJMACROS
 #include <shlobj.h>
+#include <propsys.h>
+#include <initguid.h>
+#include <propkey.h>
 
 #include "../include/lxioctl.h"
 #include "../include/lxlaunch.h"
+#include "../include/lxappid.h"
 #include "lxinstall.h"
 
 #define LX_PASSWD_MAX (1024 * 1024)
@@ -53,6 +59,36 @@ LxPauseIfOwnConsole(VOID)
     wprintf(L"Press Enter to close this window.");
     fflush(stdout);
     fgetws(Line, ARRAYSIZE(Line), stdin);
+}
+
+static
+VOID
+LxSetTerminalAppId(
+    _In_ PCWSTR Root)
+{
+    WCHAR Normalized[MAX_PATH], Value[LX_APP_ID_MAX];
+    HWND Console = GetConsoleWindow();
+    IPropertyStore *Store;
+    PROPVARIANT Variant;
+    DWORD Processes[2];
+
+    if ((Console == NULL) || (GetConsoleProcessList(Processes, ARRAYSIZE(Processes)) != 1) ||
+        !LxNormalizeRoot(Root, Normalized, ARRAYSIZE(Normalized)))
+    {
+        return;
+    }
+    _snwprintf(Value, ARRAYSIZE(Value), LX_TERMINAL_ID_FORMAT, LxRootTag(Normalized));
+    Value[ARRAYSIZE(Value) - 1] = UNICODE_NULL;
+    if (SUCCEEDED(SHGetPropertyStoreForWindow(Console, &IID_IPropertyStore, (void **)&Store)))
+    {
+        PropVariantInit(&Variant);
+        Variant.vt = VT_LPWSTR;
+        Variant.pwszVal = Value;
+        if (SUCCEEDED(IPropertyStore_SetValue(Store, &PKEY_AppUserModel_ID, &Variant)))
+            IPropertyStore_Commit(Store);
+        IPropertyStore_Release(Store);
+    }
+    SetConsoleTitleW(L"Linux Terminal");
 }
 
 static
@@ -153,6 +189,77 @@ LxLookupAccount(
 
 static
 BOOL
+LxRootPath(
+    _In_ PCWSTR Root,
+    _In_ PCWSTR Relative,
+    _Out_writes_(MAX_PATH) PWCHAR Path)
+{
+    if (!GetFullPathNameW(Root, MAX_PATH, Path, NULL) || (wcslen(Path) + wcslen(Relative) >= MAX_PATH))
+        return FALSE;
+    wcscat(Path, Relative);
+    return TRUE;
+}
+
+static
+BOOL
+LxDefaultUser(
+    _In_ PCWSTR Root,
+    _Out_writes_z_(Size) PCHAR Name,
+    _In_ SIZE_T Size)
+{
+    WCHAR Path[MAX_PATH];
+    CHAR Data[4096];
+    PCHAR Line, Next;
+    BOOL InUser = FALSE;
+    DWORD Read = 0;
+    HANDLE File;
+
+    Name[0] = '\0';
+    if (!LxRootPath(Root, L"\\etc\\wsl.conf", Path))
+        return FALSE;
+    File = CreateFileW(Path, GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE, NULL, OPEN_EXISTING, 0, NULL);
+    if (File == INVALID_HANDLE_VALUE)
+        return FALSE;
+    if (!ReadFile(File, Data, sizeof(Data) - 1, &Read, NULL))
+        Read = 0;
+    CloseHandle(File);
+    Data[Read] = '\0';
+
+    for (Line = Data; Line != NULL; Line = Next)
+    {
+        PCHAR Value;
+
+        Next = strchr(Line, '\n');
+        if (Next != NULL)
+            *Next++ = '\0';
+        Line[strcspn(Line, "\r")] = '\0';
+        Line += strspn(Line, " \t");
+        if (Line[0] == '[')
+        {
+            InUser = (strncmp(Line, "[user]", 6) == 0);
+            continue;
+        }
+        if (!InUser || (strncmp(Line, "default", 7) != 0))
+            continue;
+        Value = Line + 7 + strspn(Line + 7, " \t");
+        if (*Value != '=')
+            continue;
+        Value++;
+        Value += strspn(Value, " \t");
+        Value[strcspn(Value, " \t#")] = '\0';
+        if ((Value[0] == '\0') || (strlen(Value) >= Size) ||
+            (Value[strspn(Value, "abcdefghijklmnopqrstuvwxyz0123456789_-")] != '\0'))
+        {
+            return FALSE;
+        }
+        strcpy(Name, Value);
+        return TRUE;
+    }
+    return FALSE;
+}
+
+static
+BOOL
 LxEnvPrintf(
     _Inout_ PLX_STRINGS Env,
     _In_ PCSTR Name,
@@ -177,6 +284,8 @@ wmain(
 {
     LX_ACCOUNT Account = { "root", "/root", "/bin/sh" };
     static WCHAR DefaultRoot[MAX_PATH], FullRoot[MAX_PATH];
+    WCHAR SetupPath[MAX_PATH];
+    CHAR UserName[64];
     PCWSTR Url = NULL;
     BOOL AssumeYes = FALSE;
     LX_LAUNCH Launch;
@@ -233,6 +342,7 @@ wmain(
         }
         Launch.Root = DefaultRoot;
     }
+    LxSetTerminalAppId(Launch.Root);
     if (!LxRootInstalled(Launch.Root) && (LxInstallRoot(Launch.Root, Url, AssumeYes) != 0))
     {
         LxPauseIfOwnConsole();
@@ -240,6 +350,27 @@ wmain(
     }
     if (GetFullPathNameW(Launch.Root, MAX_PATH, FullRoot, NULL))
         LxKeepResolvConf(FullRoot);
+
+    if (!LxEnvSet(&Launch.Env, "PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin") ||
+        !LxEnvSet(&Launch.Env, "TERM=xterm-256color") ||
+        !LxEnvSet(&Launch.Env, "COLORTERM=truecolor") ||
+        !LxEnvSet(&Launch.Env, "LANG=C.UTF-8"))
+    {
+        return 1;
+    }
+
+    if (LxDefaultUser(Launch.Root, UserName, sizeof(UserName)))
+    {
+        Launch.FileName = "/usr/sbin/runuser";
+        Launch.Cwd = "/";
+        if (!LxStringsAdd(&Launch.Args, "runuser") || !LxStringsAdd(&Launch.Args, "-l") ||
+            !LxStringsAdd(&Launch.Args, "-w") || !LxStringsAdd(&Launch.Args, "COLORTERM") ||
+            !LxStringsAdd(&Launch.Args, UserName))
+        {
+            return 1;
+        }
+        return LxLaunch(&Launch);
+    }
 
     LxLookupAccount(Launch.Root, "0", &Account);
 
@@ -253,18 +384,22 @@ wmain(
 
     Launch.FileName = Account.Shell;
     Launch.Cwd = Account.Home;
-    if (!LxStringsAdd(&Launch.Args, Argv0) ||
-        !LxEnvSet(&Launch.Env, "PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin") ||
-        !LxEnvPrintf(&Launch.Env, "HOME", Account.Home) ||
+    if (!LxEnvPrintf(&Launch.Env, "HOME", Account.Home) ||
         !LxEnvPrintf(&Launch.Env, "USER", Account.Name) ||
         !LxEnvPrintf(&Launch.Env, "LOGNAME", Account.Name) ||
-        !LxEnvPrintf(&Launch.Env, "SHELL", Account.Shell) ||
-        !LxEnvSet(&Launch.Env, "TERM=xterm-256color") ||
-        !LxEnvSet(&Launch.Env, "COLORTERM=truecolor") ||
-        !LxEnvSet(&Launch.Env, "LANG=C.UTF-8"))
+        !LxEnvPrintf(&Launch.Env, "SHELL", Account.Shell))
     {
         return 1;
     }
+    if (LxRootPath(Launch.Root, L"\\usr\\local\\lib\\libernt\\user-setup", SetupPath) &&
+        (GetFileAttributesW(SetupPath) != INVALID_FILE_ATTRIBUTES))
+    {
+        Launch.FileName = "/bin/sh";
+        return (LxStringsAdd(&Launch.Args, "sh") && LxStringsAdd(&Launch.Args, "/usr/local/lib/libernt/user-setup"))
+               ? LxLaunch(&Launch) : 1;
+    }
+    if (!LxStringsAdd(&Launch.Args, Argv0))
+        return 1;
 
     return LxLaunch(&Launch);
 }
